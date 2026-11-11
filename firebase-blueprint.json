@@ -1,0 +1,167 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "Registered user profile with assigned workspace role",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "email": { "type": "string", "format": "email" },
+        "displayName": { "type": "string", "maxLength": 100 },
+        "photoURL": { "type": "string" },
+        "role": { "type": "string", "enum": ["Admin", "Editor", "Viewer"] },
+        "createdAt": { "type": "string" },
+        "lastLoginAt": { "type": "string" }
+      },
+      "required": ["uid", "email", "role"]
+    },
+    "Admin": {
+      "title": "Admin",
+      "description": "Administrator registry document",
+      "type": "object",
+      "properties": {
+        "email": { "type": "string", "format": "email" },
+        "grantedAt": { "type": "string" }
+      },
+      "required": ["email"]
+    },
+    "Project": {
+      "title": "Project",
+      "description": "Storyboard workflow project workspace",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string", "maxLength": 120 },
+        "description": { "type": "string", "maxLength": 500 },
+        "ownerId": { "type": "string" },
+        "status": { "type": "string", "enum": ["active", "archived"] },
+        "createdAt": { "type": "string" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["id", "title", "ownerId", "status"]
+    },
+    "ImageResource": {
+      "title": "ImageResource",
+      "description": "Web-based image registry holding remote URLs and metadata without raw base64 data",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string", "maxLength": 200 },
+        "url": { "type": "string" },
+        "folder": { "type": "string", "enum": ["images", "maps", "objects"] },
+        "uploadedBy": { "type": "string" },
+        "uploadedAt": { "type": "string" }
+      },
+      "required": ["id", "name", "url", "folder"]
+    },
+    "WorkflowNode": {
+      "title": "WorkflowNode",
+      "description": "Interactive workflow scene node with URL references and annotations",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "projectId": { "type": "string" },
+        "title": { "type": "string", "maxLength": 150 },
+        "x": { "type": "string" },
+        "y": { "type": "string" },
+        "image": { "type": "string" },
+        "mapImage": { "type": "string" },
+        "mapName": { "type": "string" },
+        "enfoque": { "type": "string" },
+        "accion": { "type": "string" },
+        "descripcion": { "type": "string" },
+        "pinCounter": { "type": "number" },
+        "containerId": { "type": "string" }
+      },
+      "required": ["id", "projectId", "title", "x", "y"]
+    },
+    "Connection": {
+      "title": "Connection",
+      "description": "Directional SVG line linking scene nodes",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "projectId": { "type": "string" },
+        "source": { "type": "string" },
+        "sourcePort": { "type": "string", "enum": ["top", "bottom", "left", "right"] },
+        "target": { "type": "string" },
+        "targetPort": { "type": "string", "enum": ["top", "bottom", "left", "right"] },
+        "type": { "type": "string", "enum": ["curve", "straight"] },
+        "style": { "type": "string", "enum": ["solid", "dotted"] },
+        "color": { "type": "string" },
+        "label": { "type": "string", "maxLength": 100 },
+        "arrows": { "type": "string", "enum": ["none", "end", "both"] }
+      },
+      "required": ["id", "projectId", "source", "sourcePort", "target", "targetPort"]
+    },
+    "TextElement": {
+      "title": "TextElement",
+      "description": "Text labels, sticky notes, and container boxes",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "projectId": { "type": "string" },
+        "text": { "type": "string" },
+        "x": { "type": "string" },
+        "y": { "type": "string" },
+        "mode": { "type": "string", "enum": ["floating", "annotation", "container"] },
+        "color": { "type": "string" },
+        "size": { "type": "number" },
+        "bold": { "type": "boolean" },
+        "italic": { "type": "boolean" },
+        "labelId": { "type": "string" },
+        "body": { "type": "string" },
+        "width": { "type": "number" },
+        "height": { "type": "number" },
+        "containerId": { "type": "string" }
+      },
+      "required": ["id", "projectId", "text", "x", "y", "mode"]
+    },
+    "GlobalVideo": {
+      "title": "GlobalVideo",
+      "description": "YouTube video reference with metadata",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string", "maxLength": 200 },
+        "author": { "type": "string" },
+        "date": { "type": "string" }
+      },
+      "required": ["id", "name"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/User" },
+      "description": "User profiles"
+    },
+    "/admins/{userId}": {
+      "schema": { "$ref": "#/entities/Admin" },
+      "description": "Workspace administrator records"
+    },
+    "/images/{imageId}": {
+      "schema": { "$ref": "#/entities/ImageResource" },
+      "description": "Image registry without raw base64 data"
+    },
+    "/projects/{projectId}": {
+      "schema": { "$ref": "#/entities/Project" },
+      "description": "Workflow projects"
+    },
+    "/projects/{projectId}/nodes/{nodeId}": {
+      "schema": { "$ref": "#/entities/WorkflowNode" },
+      "description": "Scene nodes inside a project"
+    },
+    "/projects/{projectId}/connections/{connectionId}": {
+      "schema": { "$ref": "#/entities/Connection" },
+      "description": "Connections inside a project"
+    },
+    "/projects/{projectId}/texts/{textId}": {
+      "schema": { "$ref": "#/entities/TextElement" },
+      "description": "Text elements inside a project"
+    },
+    "/globalVideos/{videoId}": {
+      "schema": { "$ref": "#/entities/GlobalVideo" },
+      "description": "Shared video references"
+    }
+  }
+}

@@ -1,0 +1,93 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Helper functions
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isCurrentUser(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isAdmin() {
+      return isSignedIn() && (
+        exists(/databases/$(database)/documents/admins/$(request.auth.uid)) ||
+        request.auth.token.email == 'adrian.byakko@gmail.com'
+      );
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() > 0 && id.size() <= 128;
+    }
+
+    // Default deny all
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Admins Collection
+    match /admins/{userId} {
+      allow read: if isSignedIn();
+      allow write: if isAdmin();
+    }
+
+    // Users Collection
+    match /users/{userId} {
+      allow read: if isSignedIn();
+      allow create: if isCurrentUser(userId) && (
+        !('role' in request.resource.data) ||
+        request.resource.data.role == 'Viewer' ||
+        request.resource.data.role == 'Editor' ||
+        isAdmin()
+      );
+      allow update: if isCurrentUser(userId) || isAdmin();
+      allow delete: if isAdmin();
+    }
+
+    // Image Web Registry (URLs, metadata, no raw base64)
+    match /images/{imageId} {
+      allow read: if isSignedIn();
+      allow write: if isSignedIn();
+    }
+
+    // Global Video Library
+    match /globalVideos/{videoId} {
+      allow read: if isSignedIn();
+      allow write: if isSignedIn();
+    }
+
+    // Projects Collection
+    match /projects/{projectId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn();
+      allow update: if isSignedIn();
+      allow delete: if isAdmin();
+
+      // Project Nodes
+      match /nodes/{nodeId} {
+        allow read: if isSignedIn();
+        allow write: if isSignedIn();
+      }
+
+      // Project Connections
+      match /connections/{connectionId} {
+        allow read: if isSignedIn();
+        allow write: if isSignedIn();
+      }
+
+      // Project Text Elements & Containers
+      match /texts/{textId} {
+        allow read: if isSignedIn();
+        allow write: if isSignedIn();
+      }
+
+      // Project Stored / Archived Nodes
+      match /storedNodes/{nodeId} {
+        allow read: if isSignedIn();
+        allow write: if isSignedIn();
+      }
+    }
+  }
+}

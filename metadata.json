@@ -1,0 +1,6 @@
+{
+  "name": "Visual Workflow Canvas",
+  "description": "Interactive node storyboard and scene visualization canvas with image pinning, vector drawing annotations, and YouTube timestamp analysis.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

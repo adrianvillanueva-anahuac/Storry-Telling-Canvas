@@ -1,0 +1,405 @@
+<!DOCTYPE html>
+<html data-theme="dark">
+  <head>
+    <base target="_top">
+    <?!= include('Stylesheet'); ?>
+    <script src="https://www.youtube.com/iframe_api"></script>
+  </head>
+  <body>
+    <div id="loginModal" class="modal" style="z-index: 99999; background-color: var(--bg-color); display: flex;">
+      <div class="modal-content" style="width: 320px; background: var(--node-bg); padding: 30px; border-radius: 8px; text-align: center; border: 1px solid var(--node-border); box-shadow: 0 10px 30px rgba(0,0,0,0.5);">
+        <h2 style="margin-top: 0;">Workspace Login</h2>
+        <p style="font-size: 13px; color: #888; margin-bottom: 25px;">Please enter your credentials to access the project.</p>
+        
+        <input type="text" id="loginUsername" placeholder="Username" style="width: 100%; padding: 12px; margin-bottom: 15px; box-sizing: border-box; border-radius: 4px; border: 1px solid var(--grid-color); background: var(--header-bg); color: var(--text-color);">
+        <input type="password" id="loginPin" placeholder="PIN" style="width: 100%; padding: 12px; margin-bottom: 25px; box-sizing: border-box; border-radius: 4px; border: 1px solid var(--grid-color); background: var(--header-bg); color: var(--text-color);">
+        
+        <button id="loginBtn" class="primary-btn" style="width: 100%; padding: 12px; font-size: 16px;">Access Canvas</button>
+        <div id="loginError" style="color: #de350b; font-size: 13px; margin-top: 15px; height: 15px; font-weight: bold;"></div>
+      </div>
+    </div>
+
+    <div id="pinTooltip" class="hidden"></div>
+ 
+    <header class="app-header">
+      <div class="header-title"><h1>Visual Workflow Canvas</h1></div>
+      <div class="viz-menu">
+        <button id="openGalleryBtn" class="icon-btn" style="font-weight: bold; background: var(--btn-hover);">🖼️ Gallery</button>
+        <button id="openMapGalleryGlobalBtn" class="icon-btn" style="font-weight: bold; background: var(--btn-hover);">🗺️ Map Lib</button>
+        <button id="openGlobalVideosBtn" class="icon-btn" style="font-weight: bold; background: var(--btn-hover);">📹 Video Lib</button>
+        <button id="openStoredNodesBtn" class="icon-btn" style="font-weight: bold; background: var(--btn-hover);">📦 Archive (<span id="storedCountBadge">0</span>)</button>
+        <button id="addNodeBtn" class="primary-btn">+ Add Node</button>
+        
+        <div class="dropdown">
+          <button class="icon-btn">+ Add Text ▾</button>
+          <div class="dropdown-content">
+            <button onclick="openTextCreate('floating')">Just Text</button>
+            <button onclick="openTextCreate('container')">Container Text</button>
+            <button onclick="openTextCreate('annotation')">Note</button>
+          </div>
+        </div>
+
+        <div class="divider"></div>
+        <select id="viewControlSelect" class="icon-btn" style="font-size: 14px;">
+          <option id="currentZoomOption" value="custom">100% Zoom</option>
+          <option value="100">Reset to 100%</option>
+          <option value="center">Center Canvas</option>
+          <option value="fit">Fit All Nodes</option>
+        </select>
+        <button class="icon-btn" id="toggleDarkMode" title="Toggle Dark Mode">☀️</button>
+      </div>
+    </header>
+ 
+    <div class="canvas-viewport" id="canvasViewport">
+      <div class="canvas-container" id="nodeCanvas" style="transform-origin: 0 0; transform: scale(1);">
+        <svg id="connectionLayer"><defs id="markerDefs"></defs></svg>
+        <svg id="tempLayer"><path id="tempLine" d=""/></svg>
+      </div>
+    </div>
+ 
+    <div id="addTextModal" class="modal hidden" style="z-index: 4000;">
+      <div class="modal-content" style="width: 300px; background: var(--node-bg); padding: 20px; border-radius: 8px;">
+        <button class="close-btn" id="closeAddTextModal" title="Close">×</button>
+        <h3 style="margin-top:0; border-bottom: 1px solid var(--node-border); padding-bottom: 10px;">Create Text Element</h3>
+        <input type="hidden" id="newTextType" value="floating">
+        <label style="display:block; margin-bottom: 20px; font-size: 14px; font-weight: bold;"><span id="newTextLabelText">Text:</span>
+          <input type="text" id="newTextInput" style="width:100%; padding: 8px; margin-top: 5px; box-sizing: border-box; border-radius: 4px; border: 1px solid var(--grid-color);" placeholder="Enter text...">
+        </label>
+        <div style="text-align: right;"><button id="confirmAddTextBtn" class="primary-btn">Confirm</button></div>
+      </div>
+    </div>
+ 
+    <div id="deleteWarningModal" class="modal hidden" style="z-index: 4000;">
+      <div class="modal-content" style="width: 350px; background: var(--node-bg); padding: 20px; border-radius: 8px; text-align: center;">
+        <button class="close-btn" id="closeDeleteWarnModal" title="Close">×</button>
+        <h3 style="margin-top:0; color: #de350b;">Are you Sure? / ¿Seguro?</h3>
+        <p style="font-size: 14px; margin-bottom: 20px;">Do you want to permanently delete this node, or store it in the archive for later?</p>
+        <div style="display: flex; justify-content: center; gap: 10px;">
+          <button id="warnCancelBtn" class="icon-btn">Cancel</button>
+          <button id="warnStoreBtn" class="primary-btn" style="background: #0052cc;">Store It</button>
+          <button id="warnConfirmBtn" class="danger-btn">Delete</button>
+        </div>
+      </div>
+    </div>
+ 
+    <div id="storedNodesModal" class="modal hidden" style="z-index: 3000;">
+      <div class="modal-content" style="width: 500px; max-height: 80vh; background: var(--node-bg); padding: 20px; border-radius: 8px; display: flex; flex-direction: column;">
+        <button class="close-btn" id="closeStoredNodes" title="Close">×</button>
+        <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid var(--node-border); padding-bottom: 10px; margin-bottom: 15px;">
+          <h3 style="margin:0;">Stored Nodes</h3>
+          <button id="deleteAllStoredBtn" class="danger-btn">Delete All</button>
+        </div>
+        <div id="storedNodesList" style="overflow-y: auto; flex-grow: 1; padding-right: 5px;"></div>
+      </div>
+    </div>
+ 
+    <button id="lineEditHoverBtn" class="hidden" title="Edit Line Properties">⚙️ Edit Line</button>
+    <div id="linePropertiesMenu" class="hidden floating-menu">
+      <h4 style="margin: 0; border-bottom: 1px solid var(--node-border); padding-bottom: 5px;">Line Properties</h4>
+      <label>Label: <input type="text" id="lineLabelInput" placeholder="Name this line"></label>
+      <label>Type: <select id="lineStyleSelect"><option value="solid">Solid</option><option value="dotted">Dotted</option></select></label>
+      <label>Arrows: <select id="lineArrowSelect"><option value="none">None</option><option value="end">End Only</option><option value="both">Both Ends</option></select></label>
+      <label>Color: <input type="color" id="lineColorInput"></label>
+      <button id="deleteLineBtn" class="danger-btn">Remove Connection</button>
+    </div>
+ 
+    <div id="textPropertiesMenu" class="hidden floating-menu">
+      <h4 style="margin: 0; border-bottom: 1px solid var(--node-border); padding-bottom: 5px;">Text Properties</h4>
+      <label>Function: <select id="textModeSelect"><option value="floating">Floating Text</option><option value="annotation">Annotation</option><option value="container">Logic Container</option></select></label>
+      <label id="labelSelectorRow" class="hidden">Label: <select id="textLabelSelect"><option value="">None</option></select></label>
+      <button id="openLabelManagerBtn" class="icon-btn hidden" style="width: 100%;">Manage Labels</button>
+      <label>Color: <input type="color" id="textColorInput"></label>
+      <label>Size (px): <input type="number" id="textSizeInput" min="10" max="72" value="16"></label>
+      <label>Style: <div><button id="textBoldBtn" class="icon-btn" style="font-weight:bold;">B</button><button id="textItalicBtn" class="icon-btn" style="font-style:italic;">I</button></div></label>
+    </div>
+ 
+    <div id="labelManagerModal" class="modal hidden" style="z-index: 3000;">
+       <div class="modal-content" style="width: 350px; background: var(--node-bg); padding: 20px; border-radius: 8px; position: relative;">
+          <button class="close-btn" id="closeLabelManager" title="Close">×</button>
+          <h3 style="margin-top:0;">Manage Color Labels</h3>
+          <div style="display:flex; gap:10px; margin-bottom: 15px; align-items: center;">
+             <input type="color" id="newLabelColor" value="#ff5630" style="width: 40px; height: 35px; padding: 0; border: none;">
+             <input type="text" id="newLabelName" placeholder="e.g. Needs Review" style="flex:1; padding: 8px; border: 1px solid var(--grid-color); border-radius: 4px;">
+             <button id="addNewLabelBtn" class="primary-btn">Add</button>
+          </div>
+          <ul id="labelManagerList" style="list-style:none; padding:0; margin:0; max-height:200px; overflow-y:auto; border-top: 1px solid var(--node-border); padding-top: 10px;"></ul>
+       </div>
+    </div>
+ 
+    <div id="galleryModal" class="modal hidden" style="z-index: 6000;">
+      <div class="modal-content" style="width: 80vw; max-width: 1000px; max-height: 85vh; background: var(--node-bg); padding: 20px; border-radius: 8px; display: flex; flex-direction: column; position: relative;">
+        <button class="close-btn" id="closeGalleryModal" title="Close">×</button>
+        <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--node-border); padding-bottom: 10px; margin-bottom: 15px;">
+            <h3 id="galleryTitle" style="margin:0;">App Images Gallery</h3>
+            <div style="display: flex; gap: 10px;">
+                <button id="deleteSelectedGalleryBtn" class="danger-btn hidden">🗑️ Delete (<span id="selectedGalleryCount">0</span>)</button>
+            </div>
+        </div>
+        <div id="galleryUploadDrop" class="dash-image-drop" style="margin-bottom: 15px; height: 80px;">
+            <span id="galleryUploadStatus">Drop files here or Click to upload to Drive</span>
+            <input type="file" id="galleryUploadInput" accept="image/*" multiple class="hidden">
+        </div>
+        <div id="galleryLoading" style="text-align: center; color: #888; padding: 20px;">Loading from Google Drive...</div>
+        <div id="galleryGrid" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 15px; overflow-y: auto; flex-grow: 1; padding: 5px;"></div>
+      </div>
+    </div>
+
+    <div id="globalVideoModal" class="modal hidden" style="z-index: 5000;">
+      <div class="modal-content" style="width: 600px; max-height: 80vh; background: var(--node-bg); padding: 20px; border-radius: 8px; display: flex; flex-direction: column; position: relative;">
+        <button class="close-btn" id="closeGlobalVideoModal" title="Close">×</button>
+        <h3 style="margin-top:0; border-bottom: 1px solid var(--node-border); padding-bottom: 10px;">Global Video Reference Library</h3>
+        <div style="display: flex; gap: 10px; margin-bottom: 20px;">
+            <input type="text" id="newVideoUrl" placeholder="YouTube URL" style="flex: 2; padding: 8px; border: 1px solid var(--grid-color); border-radius: 4px;">
+            <input type="text" id="newVideoName" placeholder="Video Title" style="flex: 1; padding: 8px; border: 1px solid var(--grid-color); border-radius: 4px;">
+            <button id="addGlobalVideoBtn" class="primary-btn">Add Video</button>
+        </div>
+        <div id="globalVideoList" style="overflow-y: auto; flex-grow: 1; padding-right: 5px;"></div>
+      </div>
+    </div>
+
+    <div id="videoSelectionModal" class="modal hidden" style="z-index: 6500;">
+      <div class="modal-content" style="width: 500px; max-height: 70vh; background: var(--node-bg); padding: 20px; border-radius: 8px; display: flex; flex-direction: column; position: relative;">
+        <button class="close-btn" id="closeVideoSelectModalBtn" title="Close">×</button>
+        <h3 style="margin-top:0; border-bottom: 1px solid var(--node-border); padding-bottom: 10px;">Select a Video</h3>
+        <div id="videoSelectionList" style="overflow-y: auto; flex-grow: 1; margin-bottom: 15px; display: flex; flex-direction: column; gap: 10px;"></div>
+        <div style="display: flex; justify-content: space-between; align-items: center; border-top: 1px solid var(--node-border); padding-top: 15px;">
+            <button id="shortcutToVideoLibBtn" class="icon-btn">Go to Video Lib</button>
+            <div style="display: flex; gap: 10px;">
+                <button id="cancelVideoSelectBtn" class="icon-btn">Cancel</button>
+                <button id="confirmVideoSelectBtn" class="primary-btn" disabled>Confirm</button>
+            </div>
+        </div>
+      </div>
+    </div>
+
+    <div id="videoPlayerModal" class="modal hidden" style="z-index: 7000;">
+      <div class="modal-content" style="width: 1080px; max-height: 90vh; background: var(--node-bg); padding: 20px; border-radius: 8px; display: flex; flex-direction: column; position: relative;">
+        <button class="close-btn" id="closeVideoPlayerModal" title="Close">×</button>
+        <h3 id="videoPlayerTitle" style="margin-top:0; border-bottom: 1px solid var(--node-border); padding-bottom: 10px;">Video Title</h3>
+        
+        <div style="display: flex; gap: 20px; flex-grow: 1; overflow: hidden; margin-bottom: 15px;">
+            <div style="width: 720px; height: 480px; background: #000; border-radius: 4px; overflow: hidden; flex-shrink: 0;">
+                <div id="ytPlayer"></div>
+            </div>
+            <div style="flex-grow: 1; display: flex; flex-direction: column; border-left: 1px solid var(--node-border); padding-left: 20px; overflow-y: auto; max-height: 480px;">
+                <div id="videoSnapshotList" style="display: flex; flex-direction: column; gap: 15px;"></div>
+            </div>
+        </div>
+        <div style="display: flex; justify-content: center; align-items: center; border-top: 1px solid var(--node-border); padding-top: 15px;">
+            <button id="takeSnapshotBtn" class="primary-btn" style="padding: 10px 30px; font-size: 16px; background: #e0e0e0; color: #333; border: 2px solid #555; transition: opacity 0.2s;" disabled>Timestamp</button>
+        </div>
+      </div>
+    </div>
+ 
+    <div id="nodeEditModal" class="modal hidden">
+      <div class="modal-content dashboard-modal" style="position: relative;">
+        
+        <div id="mapSidePanel" class="hidden" style="position: absolute; left: -190px; top: 20px; width: 160px; background: var(--node-bg); border: 1px solid var(--node-border); border-radius: 8px; padding: 15px; box-shadow: 0 4px 12px rgba(0,0,0,0.3); display: flex; flex-direction: column; gap: 10px;">
+            <button class="close-btn" id="closeMapSidePanelBtn" style="transform: scale(0.7); top: -10px; right: -10px;" title="Close Map Panel">×</button>
+            <div style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid var(--node-border); padding-bottom:5px;">
+                <h4 style="margin:0; font-size:14px;">Map Space</h4>
+            </div>
+            <div id="sideMapEmptyState" style="display: flex; flex-direction: column; gap: 10px;">
+                <div id="sideMapDrop" class="dash-image-drop" style="height: 100px; border-color: var(--accent-color); font-size:11px;">
+                    <span>Paste Map Here</span>
+                </div>
+                <button id="triggerSideMapUploadBtn" class="icon-btn" style="font-size:11px;">Browse PC</button>
+                <button id="triggerSideMapGalleryBtn" class="primary-btn" style="font-size:11px;">🗺️ Map Gallery</button>
+                <input type="file" id="sideMapUploadInput" accept="image/*" class="hidden">
+            </div>
+            <div id="sideMapFilledState" class="hidden" style="display: flex; flex-direction: column; gap: 10px; align-items: center;">
+                <img id="sideMapThumbImage" src="" style="width: 100%; height: 120px; object-fit: cover; border-radius: 4px; cursor: pointer; border: 2px solid transparent;" title="Click to open Fullscreen Map">
+                <div id="sideMapNameDisplay" style="font-size: 13px; font-weight: bold; text-align: center; word-wrap: break-word; color: var(--accent-color);"></div>
+                <button id="removeSideMapBtn" class="danger-btn" style="width: 100%; font-size: 11px; margin-top: 5px;">Remove Map</button>
+            </div>
+        </div>
+
+        <button class="close-btn dashboard-close-btn" id="closeEditModal" title="Close Dashboard">×</button>
+        
+        <div class="dashboard-top">
+          <div class="dash-thumb-wrapper">
+            <button id="toggleMapSidePanelBtn" class="icon-btn" style="position: absolute; top: 10px; left: 10px; z-index: 10; font-weight: bold; background: var(--header-bg); box-shadow: 0 2px 4px rgba(0,0,0,0.3);">🗺️ Map View</button>
+            
+            <div id="dashThumbDrop" class="dash-image-drop">
+              <span>Paste Main Image Here</span><br><br>
+              <div style="display: flex; gap: 10px; justify-content: center; margin-top: 10px;">
+                  <button id="triggerUploadBtn" class="icon-btn" style="background: var(--node-bg);">Browse PC</button>
+                  <button id="triggerGalleryPickerBtn" class="icon-btn" style="background: #0052cc; color: white; border: none;">🖼️ Gallery</button>
+              </div>
+              <input type="file" id="imageUploadInput" accept="image/*" class="hidden">
+            </div>
+            <img id="dashThumbImage" src="" class="dash-thumb hidden" title="Click to open fullscreen pinning">
+          </div>
+          
+          <div class="dash-columns">
+            <div class="data-column">
+                <div class="col-video-header" data-col="enfoque">
+                    <button class="add-col-video-btn icon-btn" title="Add Video Reference">➕ Add Video</button>
+                    <div class="col-video-thumb hidden">
+                        <img class="col-vid-img" src="" title="Click to view Video Player">
+                        <div class="col-vid-name"></div>
+                        <div class="col-vid-overlay">
+                            <button class="edit-vid-btn primary-btn" title="Edit Timestamps">✏️</button>
+                            <button class="remove-vid-btn danger-btn" title="Remove Video">🗑️</button>
+                        </div>
+                    </div>
+                </div>
+                <h4>Enfoque <span class="col-badge badge-enfoque" id="badge-enfoque">0</span></h4>
+                <div class="col-edit" id="col-enfoque" contenteditable="true"></div>
+            </div>
+            
+            <div class="data-column">
+                <div class="col-video-header" data-col="accion">
+                    <button class="add-col-video-btn icon-btn" title="Add Video Reference">➕ Add Video</button>
+                    <div class="col-video-thumb hidden">
+                        <img class="col-vid-img" src="" title="Click to view Video Player">
+                        <div class="col-vid-name"></div>
+                        <div class="col-vid-overlay">
+                            <button class="edit-vid-btn primary-btn" title="Edit Timestamps">✏️</button>
+                            <button class="remove-vid-btn danger-btn" title="Remove Video">🗑️</button>
+                        </div>
+                    </div>
+                </div>
+                <h4>Acción <span class="col-badge badge-accion" id="badge-accion">0</span></h4>
+                <div class="col-edit" id="col-accion" contenteditable="true"></div>
+            </div>
+            
+            <div class="data-column">
+                <div class="col-video-header" data-col="descripcion">
+                    <button class="add-col-video-btn icon-btn" title="Add Video Reference">➕ Add Video</button>
+                    <div class="col-video-thumb hidden">
+                        <img class="col-vid-img" src="" title="Click to view Video Player">
+                        <div class="col-vid-name"></div>
+                        <div class="col-vid-overlay">
+                            <button class="edit-vid-btn primary-btn" title="Edit Timestamps">✏️</button>
+                            <button class="remove-vid-btn danger-btn" title="Remove Video">🗑️</button>
+                        </div>
+                    </div>
+                </div>
+                <h4>Descripción <span class="col-badge badge-descripcion" id="badge-descripcion">0</span></h4>
+                <div class="col-edit" id="col-descripcion" contenteditable="true"></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="dashboard-bottom"><h3>Comments & Tasks</h3><div id="commentList" class="comment-list-container"></div></div>
+      </div>
+    </div>
+ 
+    <div id="drawingToolsMenu" class="hidden">
+        <button id="toggleDrawingToolsBtn" title="Drawing Tools" style="background: rgba(0,0,0,0.7); color: white; border: 2px solid white; border-radius: 50%; width: 45px; height: 45px; font-size: 20px; cursor: pointer; outline: none; transition: 0.2s;">〰️✏️</button>
+        <div id="drawingToolbar" class="hidden" style="background: rgba(0,0,0,0.7); padding: 10px; border-radius: 8px; display: flex; flex-direction: column; gap: 15px; border: 1px solid rgba(255,255,255,0.3); align-items: center;">
+            <div style="display: flex; gap: 10px; align-items: center;">
+                <button class="tool-btn" data-tool="pencil" title="Pencil">✏️</button>
+                <input type="range" id="pencilThickness" min="5" max="35" value="5" title="Thickness (5-35px)" style="width: 80px;">
+            </div>
+            <div style="display: flex; gap: 10px; align-items: center; border-top: 1px solid rgba(255,255,255,0.2); padding-top: 10px; width: 100%; justify-content: center;">
+                <button class="tool-btn" data-tool="eraser" title="Eraser">🧽</button>
+                <button class="tool-btn" data-tool="figure" title="Shapes">🟦</button>
+            </div>
+            <div id="figureMenu" class="hidden" style="display: flex; flex-wrap: wrap; gap: 8px; background: #222; padding: 8px; border-radius: 4px; border: 1px solid #444; justify-content: center; width: 180px;">
+                <button class="shape-btn" data-shape="square" title="Square">⬜</button>
+                <button class="shape-btn" data-shape="circle" title="Circle">⭕</button>
+                <button class="shape-btn" data-shape="arrow" title="Arrow">➡</button>
+                <button class="shape-btn" data-shape="line-arrow" title="Line Arrow">↗</button>
+                <button class="shape-btn" data-shape="speaker" title="Speaker">🔊</button>
+                <button class="shape-btn" data-shape="zoom-in" title="Zoom In">🗖</button>
+                <button class="shape-btn" data-shape="zoom-out" title="Zoom Out">🗗</button>
+                <button class="shape-btn" data-shape="hand-cube" title="Hand & Cube">🖐️</button>
+                <button class="shape-btn" data-shape="human-circle" title="Human Point">🧍</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="pinningModal" class="modal hidden" style="z-index: 2000;">
+      <div class="modal-content pinning-content">
+        <div class="image-wrapper" id="imageWrapper">
+          <div class="fullscreen-controls-left" id="pinningControls">
+            <button class="layer-btn active" data-layer="enfoque" style="background: var(--color-enfoque);">Enfoque (<span id="count-enfoque-layer">0</span>)</button>
+            <button class="layer-btn" data-layer="accion" style="background: var(--color-accion);">Acción (<span id="count-accion-layer">0</span>)</button>
+            <button class="layer-btn" data-layer="descripcion" style="background: var(--color-descripcion);">Descripción (<span id="count-descripcion-layer">0</span>)</button>
+            <div style="width: 1px; height: 25px; background: rgba(255,255,255,0.3); margin: 0 5px;"></div>
+            <button id="replaceImageBtn" class="danger-btn" style="border: 1px solid white;">🔄 Replace Image</button>
+          </div>
+          
+          <button class="close-btn fullscreen-close-btn" id="closePinningModal" title="Close Fullscreen">×</button>
+          
+          <img id="fullSizeImage" src="">
+          <svg id="drawingOverlay" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 5; pointer-events: none; overflow: visible;">
+             <rect id="drawingCatch" x="-5000" y="-5000" width="10000" height="10000" fill="transparent" style="pointer-events: none;"/>
+             <g id="drawingCanvas"></g>
+             <g id="manipulatorGroup" class="hidden">
+                <rect id="manipBox" x="-50" y="-50" width="100" height="100" class="figure-manipulator" style="pointer-events: all; cursor: move; fill: rgba(0,200,83,0.05);"/>
+                <line id="manipLine" x1="0" y1="-50" x2="0" y2="-80" class="figure-manipulator" />
+                <circle id="manipRotate" cx="0" cy="-80" r="8" class="manipulator-handle" style="cursor: crosshair;"/>
+                <rect id="manipScale" x="42" y="42" width="16" height="16" class="manipulator-handle" style="cursor: nwse-resize;"/>
+             </g>
+          </svg>
+        </div>
+      </div>
+    </div>
+
+    <div id="mapViewerModal" class="modal hidden" style="z-index: 2000;">
+      <div class="modal-content pinning-content">
+        <div class="image-wrapper" id="mapImageWrapper">
+          <div class="fullscreen-controls-left" id="mapViewerControls">
+            <span style="color: white; font-weight: bold; margin-right: 10px;">🗺️ Map Viewer</span>
+            <button id="replaceMapBtn" class="danger-btn" style="border: 1px solid white;">🔄 Replace Map</button>
+          </div>
+          
+          <button class="close-btn fullscreen-close-btn" id="closeMapViewerModal" title="Close Map Viewer">×</button>
+          
+          <img id="fullSizeMapImage" src="">
+          <svg id="mapDrawingOverlay" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 5; pointer-events: none; overflow: visible;">
+             <rect id="mapDrawingCatch" x="-5000" y="-5000" width="10000" height="10000" fill="transparent" style="pointer-events: none;"/>
+             <g id="mapDrawingCanvas"></g>
+             <g id="mapManipulatorGroup" class="hidden">
+                <rect id="mapManipBox" x="-50" y="-50" width="100" height="100" class="figure-manipulator" style="pointer-events: all; cursor: move; fill: rgba(0,200,83,0.05);"/>
+                <line id="mapManipLine" x1="0" y1="-50" x2="0" y2="-80" class="figure-manipulator" />
+                <circle id="mapManipRotate" cx="0" cy="-80" r="8" class="manipulator-handle" style="cursor: crosshair;"/>
+                <rect id="mapManipScale" x="42" y="42" width="16" height="16" class="manipulator-handle" style="cursor: nwse-resize;"/>
+             </g>
+          </svg>
+        </div>
+      </div>
+    </div>
+ 
+    <div id="replaceImageWarningModal" class="modal hidden" style="z-index: 7000;">
+      <div class="modal-content" style="width: 450px; background: var(--node-bg); padding: 25px; border-radius: 8px;">
+        <button class="close-btn" id="closeReplaceWarnModal" title="Close">×</button>
+        <h3 style="margin-top:0; color: #de350b;">¿Qué acción quieres tomar?</h3>
+        <p style="font-size: 14px; margin-bottom: 20px; color: #888;">Estás a punto de reemplazar la imagen de este nodo.</p>
+        <div style="display: flex; flex-direction: column; gap: 15px; margin-bottom: 25px;">
+          <label style="display: flex; align-items: center; gap: 10px; cursor: pointer; font-size: 14px;">
+            <input type="radio" name="replaceImageOption" value="borrar_todo" checked>
+            <strong>Borrar todo:</strong> Eliminar imagen actual y todos los comentarios/dibujos de este nodo.
+          </label>
+          <label style="display: flex; align-items: center; gap: 10px; cursor: pointer; font-size: 14px;">
+            <input type="radio" name="replaceImageOption" value="conservar">
+            <strong>Conservar contenido:</strong> Mantener pines y dibujos, solo cambiar la imagen de fondo.
+          </label>
+        </div>
+        <div style="display: flex; justify-content: flex-end; gap: 10px;">
+          <button id="cancelReplaceBtn" class="icon-btn">Cancel</button>
+          <button id="confirmReplaceBtn" class="primary-btn" style="background: #de350b;">Confirm</button>
+        </div>
+      </div>
+    </div>
+ 
+    <div id="pinCreationPopup" class="hidden pin-popup">
+      <h4>Create Pin <span id="popupAuthor" style="font-size: 10px; color: #888; float: right;"></span></h4>
+      <select id="pinTypeSelect">
+        <option value="enfoque">Enfoque</option>
+        <option value="accion">Acción</option>
+        <option value="descripcion">Descripción</option>
+      </select>
+      <textarea id="pinTextInput" placeholder="Write your comment..."></textarea>
+      <div class="popup-actions">
+        <button id="savePinBtn" class="primary-btn">Save</button>
+        <button id="cancelPinBtn" class="icon-btn">Cancel</button>
+      </div>
+    </div>
+ 
+    <?!= include('Script'); ?>
+  </body>
+</html>

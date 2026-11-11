@@ -1,0 +1,3107 @@
+<script>
+  window.onerror = function(message) { 
+      console.error("Script Error: ", message); 
+  };
+
+  let ytPlayer = null;
+  let activeVideoColumn = null; 
+  let pendingVideoGlobalId = null;
+  
+  function onYouTubeIframeAPIReady() { 
+      console.log("YT API Ready"); 
+  }
+  
+  function onPlayerStateChange(event) {
+      const snapBtn = document.getElementById('takeSnapshotBtn');
+      if (event.data === YT.PlayerState.PAUSED || event.data === YT.PlayerState.ENDED) {
+          snapBtn.disabled = false;
+          snapBtn.style.opacity = '1';
+          snapBtn.innerText = "📸 Add Mark (Ready)";
+      } else {
+          snapBtn.disabled = true;
+          snapBtn.style.opacity = '0.5';
+          snapBtn.innerText = "Timestamp (Pause to Mark)";
+      }
+  }
+
+  function extractVideoID(url) {
+      const regExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|\&v=)([^#\&\?]*).*/;
+      const match = url.match(regExp);
+      return (match && match[2].length == 11) ? match[2] : null;
+  }
+ 
+  document.addEventListener('DOMContentLoaded', function() {
+    
+    // DOM ELEMENTS
+    const viewport = document.getElementById('canvasViewport');
+    const canvas = document.getElementById('nodeCanvas');
+    const svgLayer = document.getElementById('connectionLayer');
+    const markerDefs = document.getElementById('markerDefs');
+    
+    const editModal = document.getElementById('nodeEditModal');
+    const dashThumbImage = document.getElementById('dashThumbImage');
+    const dashThumbDrop = document.getElementById('dashThumbDrop');
+    
+    const pinningModal = document.getElementById('pinningModal');
+    const fullSizeImage = document.getElementById('fullSizeImage');
+    const imageWrapper = document.getElementById('imageWrapper');
+    
+    const mapViewerModal = document.getElementById('mapViewerModal');
+    const fullSizeMapImage = document.getElementById('fullSizeMapImage');
+    const mapImageWrapper = document.getElementById('mapImageWrapper');
+    
+    let currentOverlay = document.getElementById('drawingOverlay');
+    let currentDrawings = document.getElementById('drawingCanvas');
+    let currentManipGroup = document.getElementById('manipulatorGroup');
+    
+    const commentList = document.getElementById('commentList');
+    const pinPopup = document.getElementById('pinCreationPopup');
+    
+    const lineHoverBtn = document.getElementById('lineEditHoverBtn');
+    const linePropsMenu = document.getElementById('linePropertiesMenu');
+    const textPropsMenu = document.getElementById('textPropertiesMenu');
+    const labelManagerModal = document.getElementById('labelManagerModal');
+    const addTextModal = document.getElementById('addTextModal');
+    const deleteWarnModal = document.getElementById('deleteWarningModal');
+    const storedNodesModal = document.getElementById('storedNodesModal');
+ 
+    const galleryModal = document.getElementById('galleryModal');
+    const galleryGrid = document.getElementById('galleryGrid');
+    const galleryLoading = document.getElementById('galleryLoading');
+    
+    const globalVideoModal = document.getElementById('globalVideoModal');
+    const videoSelectionModal = document.getElementById('videoSelectionModal');
+    const videoPlayerModal = document.getElementById('videoPlayerModal');
+ 
+    // DATABASES & STATE
+    let nodeData = {}; 
+    let connections = []; 
+    let textData = {}; 
+    let labelData = {}; 
+    let storedNodesData = {};
+    let globalVideos = [];
+    
+    let nodeCounter = 0; 
+    let connectionIdCounter = 0; 
+    let textCounter = 0;
+    
+    let activeEditNodeId = null; 
+    let activeConnectionId = null; 
+    let activeTextId = null; 
+    let pendingDeleteNodeId = null;
+    let isDashboardReadOnly = false; 
+    let pendingPinCoords = null;
+    let currentZoom = 1; 
+    
+    let currentUserName = "Anonymous";
+    let currentUserRole = "Editor";
+    
+    let pendingImageReplaceUrl = null;
+    let galleryMode = 'images-manage'; 
+    let selectedGalleryImages = new Set();
+    
+    let currentActiveLayer = 'enfoque'; 
+    let currentTool = 'none'; 
+    let currentShape = 'square';
+    let mapModeActive = false; 
+    const hexColors = { 
+        enfoque: '#0052cc', 
+        accion: '#ff5630', 
+        descripcion: '#36b37e', 
+        map: '#ffc400' 
+    };
+
+    // --- LOGIN SEQUENCE ---
+    document.getElementById('loginBtn').addEventListener('click', function() {
+        const user = document.getElementById('loginUsername').value.trim();
+        const pin = document.getElementById('loginPin').value.trim();
+        const errDiv = document.getElementById('loginError');
+
+        if (!user || !pin) {
+            errDiv.innerText = "Please enter both Username and PIN.";
+            return;
+        }
+
+        errDiv.innerText = "Verifying credentials...";
+        document.getElementById('loginBtn').disabled = true;
+
+        google.script.run.withSuccessHandler(function(res) {
+            document.getElementById('loginBtn').disabled = false;
+            
+            if (res.error) {
+                errDiv.innerText = res.error;
+            } else if (res.success) {
+                document.getElementById('loginModal').classList.add('hidden');
+                
+                currentUserName = res.name;
+                currentUserRole = res.role;
+                document.getElementById('popupAuthor').innerText = "by " + currentUserName;
+                
+                if (currentUserRole === 'Viewer') {
+                    document.getElementById('addNodeBtn').style.display = 'none';
+                }
+
+                google.script.run.withSuccessHandler(function(savedState) {
+                  if (savedState && !savedState.error) {
+                    nodeData = savedState.nodes || {}; 
+                    connections = savedState.connections || []; 
+                    textData = savedState.texts || {}; 
+                    labelData = savedState.labels || {}; 
+                    storedNodesData = savedState.storedNodes || {};
+                    globalVideos = savedState.globalVideos || [];
+                    
+                    Object.keys(nodeData).forEach(function(id) { 
+                        if (!nodeData[id].drawings) nodeData[id].drawings = []; 
+                        if (!nodeData[id].mapDrawings) nodeData[id].mapDrawings = []; 
+                        if (!nodeData[id].mapImage) nodeData[id].mapImage = null; 
+                        if (!nodeData[id].mapName) nodeData[id].mapName = ''; 
+                        
+                        if (!nodeData[id].videos || Array.isArray(nodeData[id].videos)) {
+                            nodeData[id].videos = { enfoque: null, accion: null, descripcion: null }; 
+                        }
+                    });
+                    
+                    const nIds = Object.keys(nodeData).map(function(id) { 
+                        return parseInt(id.split('-')[1]); 
+                    });
+                    nodeCounter = nIds.length > 0 ? Math.max.apply(null, nIds) : 0;
+                    
+                    const cIds = connections.map(function(c) { 
+                        return parseInt(c.id.split('-')[1]); 
+                    }); 
+                    connectionIdCounter = cIds.length > 0 ? Math.max.apply(null, cIds) : 0;
+                    
+                    const tIds = Object.keys(textData).map(function(id) { 
+                        return parseInt(id.split('-')[1]); 
+                    });
+                    textCounter = tIds.length > 0 ? Math.max.apply(null, tIds) : 0;
+             
+                    Object.keys(nodeData).forEach(function(id) { 
+                        rebuildNodeDOM(id, nodeData[id]); 
+                    });
+                    Object.keys(textData).forEach(function(id) { 
+                        rebuildTextDOM(id, textData[id]); 
+                    });
+                    
+                    updateStoredNodesCount();
+                    renderConnections(); 
+                    centerCanvas(); 
+                  }
+                }).loadAppState();
+            }
+        }).verifyUser(user, pin);
+    });
+
+ 
+    function saveToServer() {
+      if (currentUserRole === 'Viewer') return; 
+        
+      document.querySelectorAll('.workflow-node').forEach(function(n) {
+        if (nodeData[n.id]) { 
+            nodeData[n.id].x = n.style.left; 
+            nodeData[n.id].y = n.style.top; 
+        }
+      });
+      document.querySelectorAll('.canvas-text-node').forEach(function(t) {
+        if (textData[t.id]) { 
+            textData[t.id].x = t.style.left; 
+            textData[t.id].y = t.style.top; 
+        }
+      });
+      google.script.run.saveAppState({ 
+          nodes: nodeData, 
+          connections: connections, 
+          texts: textData, 
+          labels: labelData, 
+          storedNodes: storedNodesData, 
+          globalVideos: globalVideos 
+      });
+    }
+ 
+    function updateZoomUI() {
+      const zoomPercent = Math.round(currentZoom * 100);
+      const currentZoomOpt = document.getElementById('currentZoomOption');
+      if (currentZoomOpt) { 
+          currentZoomOpt.innerText = zoomPercent + '% Zoom'; 
+      }
+      document.getElementById('viewControlSelect').value = 'custom';
+    }
+ 
+    viewport.addEventListener('wheel', function(e) {
+      if (e.ctrlKey || e.metaKey || document.querySelector('.modal:not(.hidden)')) return; 
+      
+      e.preventDefault();
+      const rect = viewport.getBoundingClientRect(); 
+      const mouseX = e.clientX - rect.left; 
+      const mouseY = e.clientY - rect.top;
+      
+      const canvasX = (viewport.scrollLeft + mouseX) / currentZoom; 
+      const canvasY = (viewport.scrollTop + mouseY) / currentZoom;
+      
+      let newZoom = currentZoom + (e.deltaY < 0 ? 0.05 : -0.05); 
+      newZoom = Math.max(0.2, Math.min(newZoom, 3)); 
+      currentZoom = newZoom; 
+      
+      canvas.style.transform = `scale(${currentZoom})`;
+      
+      updateZoomUI();
+      viewport.scrollLeft = (canvasX * currentZoom) - mouseX; 
+      viewport.scrollTop = (canvasY * currentZoom) - mouseY;
+      lineHoverBtn.classList.add('hidden');
+    }, {passive: false});
+ 
+    document.getElementById('viewControlSelect').addEventListener('change', function(e) {
+      if (e.target.value === "100") { 
+          currentZoom = 1; 
+          canvas.style.transform = `scale(1)`; 
+          updateZoomUI(); 
+      }
+      if (e.target.value === "center") {
+          centerCanvas();
+      }
+      if (e.target.value === "fit") {
+          fitAllNodes();
+      }
+      document.getElementById('viewControlSelect').value = 'custom';
+    });
+ 
+    function centerCanvas() { 
+        currentZoom = 1; 
+        canvas.style.transform = `scale(1)`; 
+        viewport.scrollLeft = 2500 - (viewport.clientWidth / 2); 
+        viewport.scrollTop = 2500 - (viewport.clientHeight / 2); 
+        updateZoomUI();
+    }
+    
+    function fitAllNodes() { 
+        const nodes = document.querySelectorAll('.workflow-node, .canvas-text-node');
+        if (nodes.length === 0) { 
+            centerCanvas(); 
+            return; 
+        }
+        
+        let minX = Infinity;
+        let minY = Infinity;
+        let maxX = -Infinity;
+        let maxY = -Infinity;
+        
+        nodes.forEach(function(el) {
+            const x = parseFloat(el.style.left) || 0; 
+            const y = parseFloat(el.style.top) || 0;
+            const w = el.offsetWidth || 220; 
+            const h = el.offsetHeight || 150;
+            
+            if (x < minX) minX = x; 
+            if (y < minY) minY = y; 
+            if (x + w > maxX) maxX = x + w; 
+            if (y + h > maxY) maxY = y + h;
+        });
+        
+        const padding = 100; 
+        minX -= padding; 
+        minY -= padding; 
+        maxX += padding; 
+        maxY += padding;
+        
+        const contentWidth = maxX - minX; 
+        const contentHeight = maxY - minY;
+        const viewWidth = viewport.clientWidth; 
+        const viewHeight = viewport.clientHeight;
+        
+        const scaleX = viewWidth / contentWidth; 
+        const scaleY = viewHeight / contentHeight;
+        
+        let newZoom = Math.min(scaleX, scaleY);
+        newZoom = Math.max(0.2, Math.min(newZoom, 3)); 
+        currentZoom = newZoom;
+        
+        canvas.style.transform = `scale(${currentZoom})`;
+        
+        const boxCenterX = minX + (contentWidth / 2); 
+        const boxCenterY = minY + (contentHeight / 2);
+        
+        viewport.scrollLeft = (boxCenterX * currentZoom) - (viewWidth / 2); 
+        viewport.scrollTop = (boxCenterY * currentZoom) - (viewHeight / 2);
+        updateZoomUI();
+    }
+ 
+    document.getElementById('toggleDarkMode').addEventListener('click', function(e) { 
+        const isDark = document.documentElement.getAttribute('data-theme') === 'dark'; 
+        document.documentElement.setAttribute('data-theme', isDark ? 'light' : 'dark'); 
+        e.target.innerText = isDark ? '🌙' : '☀️'; 
+    });
+ 
+    let isPanning = false; 
+    let startX, startY, scrollLeft, scrollTop;
+    
+    viewport.addEventListener('mousedown', function(e) {
+      if (e.target.closest('.workflow-node') || 
+          e.target.closest('.canvas-text-node') || 
+          e.target.closest('.floating-menu') || 
+          e.target.closest('.modal') || 
+          e.target.id === 'lineEditHoverBtn') {
+          return;
+      }
+      
+      isPanning = true; 
+      viewport.style.cursor = 'grabbing';
+      
+      startX = e.pageX - viewport.offsetLeft; 
+      startY = e.pageY - viewport.offsetTop;
+      scrollLeft = viewport.scrollLeft; 
+      scrollTop = viewport.scrollTop;
+      
+      lineHoverBtn.classList.add('hidden'); 
+      linePropsMenu.classList.add('hidden'); 
+      textPropsMenu.classList.add('hidden');
+    });
+    
+    viewport.addEventListener('mouseup', function() { 
+        isPanning = false; 
+        viewport.style.cursor = 'default'; 
+    });
+    
+    viewport.addEventListener('mousemove', function(e) {
+      if (!isPanning) return; 
+      viewport.scrollLeft = scrollLeft - ((e.pageX - viewport.offsetLeft) - startX) * 1.5; 
+      viewport.scrollTop = scrollTop - ((e.pageY - viewport.offsetTop) - startY) * 1.5;
+    });
+ 
+    function getConnectedNodes(startNodeId) {
+      let visited = new Set(); 
+      let stack = [startNodeId];
+      
+      while(stack.length > 0) {
+        let curr = stack.pop();
+        if(!visited.has(curr)) {
+            visited.add(curr); 
+            connections.forEach(function(c) { 
+                if(c.source === curr && !visited.has(c.target)) {
+                    stack.push(c.target);
+                }
+                if(c.target === curr && !visited.has(c.source)) {
+                    stack.push(c.source); 
+                }
+            }); 
+        }
+      } 
+      return Array.from(visited);
+    }
+ 
+    function checkContainerDrop(elementId, type) {
+      const isNode = type === 'node'; 
+      const elData = isNode ? nodeData[elementId] : textData[elementId]; 
+      const elDOM = document.getElementById(elementId);
+      if(!elDOM) return;
+ 
+      const nx = parseFloat(elData.x) + (elDOM.offsetWidth / 2); 
+      const ny = parseFloat(elData.y) + (elDOM.offsetHeight / 2);
+      let droppedInto = null;
+ 
+      Object.keys(textData).forEach(function(tid) {
+        if(textData[tid].mode === 'container' && tid !== elementId) {
+            const tx = parseFloat(textData[tid].x); 
+            const ty = parseFloat(textData[tid].y); 
+            const tw = textData[tid].width || 300; 
+            const th = textData[tid].height || 200;
+            
+            if(nx >= tx && nx <= tx+tw && ny >= ty && ny <= ty+th) {
+                droppedInto = tid;
+            }
+        }
+      });
+ 
+      if (droppedInto && !isNode && textData[elementId].mode === 'container') {
+          let currentParent = textData[droppedInto].containerId; 
+          let isCircular = false;
+          while(currentParent) { 
+              if (currentParent === elementId) { 
+                  isCircular = true; 
+                  break; 
+              } 
+              currentParent = textData[currentParent].containerId; 
+          }
+          if(isCircular) {
+              droppedInto = null;
+          }
+      }
+ 
+      if(droppedInto) { 
+          elData.containerId = droppedInto; 
+          if (isNode) { 
+              const connected = getConnectedNodes(elementId); 
+              connected.forEach(function(id) { 
+                  if(nodeData[id]) {
+                      nodeData[id].containerId = droppedInto; 
+                  }
+              }); 
+          }
+      } else { 
+          elData.containerId = null; 
+          if (isNode) { 
+              const connected = getConnectedNodes(elementId); 
+              connected.forEach(function(id) { 
+                  if(nodeData[id]) {
+                      nodeData[id].containerId = null; 
+                  }
+              }); 
+          } 
+      }
+      
+      updateContainerBounds(); 
+      updateContainerBounds();
+    }
+ 
+    function updateContainerBounds() {
+      Object.keys(textData).forEach(function(tid) {
+        if(textData[tid].mode === 'container') {
+          let minX = Infinity;
+          let minY = Infinity;
+          let maxX = -Infinity;
+          let maxY = -Infinity; 
+          let hasNodes = false;
+          
+          Object.keys(nodeData).forEach(function(nid) { 
+              if(nodeData[nid].containerId === tid) { 
+                  hasNodes = true; 
+                  let nx = parseFloat(nodeData[nid].x); 
+                  let ny = parseFloat(nodeData[nid].y); 
+                  let nDOM = document.getElementById(nid); 
+                  let nw = nDOM ? nDOM.offsetWidth : 220; 
+                  let nh = nDOM ? nDOM.offsetHeight : 150;
+                  
+                  if(nx < minX) minX = nx; 
+                  if(ny < minY) minY = ny; 
+                  if(nx + nw > maxX) maxX = nx + nw; 
+                  if(ny + nh > maxY) maxY = ny + nh; 
+              } 
+          });
+          
+          Object.keys(textData).forEach(function(childTid) {
+              if(textData[childTid].containerId === tid && childTid !== tid) {
+                  hasNodes = true; 
+                  let cx = parseFloat(textData[childTid].x); 
+                  let cy = parseFloat(textData[childTid].y); 
+                  let cDOM = document.getElementById(childTid); 
+                  let cw = cDOM ? cDOM.offsetWidth : 100; 
+                  let ch = cDOM ? cDOM.offsetHeight : 50;
+                  
+                  if(cx < minX) minX = cx; 
+                  if(cy < minY) minY = cy; 
+                  if(cx + cw > maxX) maxX = cx + cw; 
+                  if(cy + ch > maxY) maxY = cy + ch;
+              }
+          });
+          
+          if(hasNodes) { 
+              textData[tid].x = (minX - 30) + 'px'; 
+              textData[tid].y = (minY - 50) + 'px'; 
+              textData[tid].width = (maxX - minX + 60); 
+              textData[tid].height = (maxY - minY + 80); 
+          } else { 
+              textData[tid].width = Math.max(textData[tid].width || 300, 300); 
+              textData[tid].height = Math.max(textData[tid].height || 200, 200); 
+          }
+          
+          const tEl = document.getElementById(tid); 
+          if(tEl) { 
+              tEl.style.left = textData[tid].x; 
+              tEl.style.top = textData[tid].y; 
+              tEl.style.width = textData[tid].width + 'px'; 
+              tEl.style.height = textData[tid].height + 'px'; 
+          }
+        }
+      }); 
+      
+      renderConnections();
+    }
+ 
+    let activeDragElement = null; 
+    let isDragging = false; 
+    let dragStartX, dragStartY; 
+    let wasDragged = false; 
+    let dragChildrenOffsets = []; 
+    let activeElementStartX = 0; 
+    let activeElementStartY = 0;
+    
+    canvas.addEventListener('click', function(e) {
+      if (currentUserRole === 'Viewer') return;
+      
+      const editBtn = e.target.closest('.edit-node-btn'); 
+      if (editBtn) {
+          openDashboardModal(editBtn.closest('.workflow-node').id, false);
+      }
+      
+      const textSetBtn = e.target.closest('.text-settings-btn'); 
+      if (textSetBtn) {
+          openTextMenu(e, textSetBtn.closest('.canvas-text-node').id);
+      }
+      
+      const deleteNodeBtn = e.target.closest('.delete-node-btn'); 
+      if (deleteNodeBtn) { 
+          pendingDeleteNodeId = deleteNodeBtn.closest('.workflow-node').id; 
+          deleteWarnModal.classList.remove('hidden'); 
+      }
+    });
+ 
+    canvas.addEventListener('mousedown', function(e) {
+      if (currentUserRole === 'Viewer') return;
+      
+      if (e.target.classList.contains('port') || 
+          e.target.closest('.node-action-bar') || 
+          e.target.closest('.text-settings-btn') || 
+          e.target.classList.contains('delete-text-btn') || 
+          e.target.classList.contains('unlink-text-btn') || 
+          document.activeElement.isContentEditable || 
+          e.target.isContentEditable) {
+          return;
+      }
+      
+      const node = e.target.closest('.workflow-node'); 
+      const textNode = e.target.closest('.canvas-text-node'); 
+      const targetElement = node || textNode; 
+      
+      if (!targetElement) return;
+      
+      isDragging = true; 
+      activeDragElement = targetElement; 
+      wasDragged = false;
+      
+      const canvasRect = canvas.getBoundingClientRect(); 
+      activeElementStartX = parseFloat(activeDragElement.style.left || 0); 
+      activeElementStartY = parseFloat(activeDragElement.style.top || 0);
+      
+      dragStartX = (e.clientX - canvasRect.left) / currentZoom - activeElementStartX; 
+      dragStartY = (e.clientY - canvasRect.top) / currentZoom - activeElementStartY;
+      
+      dragChildrenOffsets = [];
+      
+      if(textNode && textData[textNode.id].mode === 'container') { 
+          function getDescendants(parentId) {
+              let desc = [];
+              Object.keys(nodeData).forEach(function(nid) { 
+                  if(nodeData[nid].containerId === parentId) { 
+                      desc.push({ 
+                          id: nid, 
+                          type: 'node', 
+                          startX: parseFloat(nodeData[nid].x), 
+                          startY: parseFloat(nodeData[nid].y) 
+                      }); 
+                  } 
+              });
+              Object.keys(textData).forEach(function(tid) { 
+                  if(textData[tid].containerId === parentId && tid !== parentId) { 
+                      desc.push({ 
+                          id: tid, 
+                          type: 'text', 
+                          startX: parseFloat(textData[tid].x), 
+                          startY: parseFloat(textData[tid].y) 
+                      }); 
+                      if (textData[tid].mode === 'container') { 
+                          desc = desc.concat(getDescendants(tid)); 
+                      } 
+                  } 
+              }); 
+              return desc;
+          }
+          dragChildrenOffsets = getDescendants(textNode.id);
+      }
+      
+      activeDragElement.style.zIndex = 100; 
+      lineHoverBtn.classList.add('hidden');
+    });
+ 
+    document.addEventListener('mousemove', function(e) {
+      if (!isDragging || !activeDragElement) return;
+      
+      wasDragged = true; 
+      const canvasRect = canvas.getBoundingClientRect();
+      const newX = (e.clientX - canvasRect.left) / currentZoom - dragStartX; 
+      const newY = (e.clientY - canvasRect.top) / currentZoom - dragStartY;
+      const deltaX = newX - activeElementStartX; 
+      const deltaY = newY - activeElementStartY;
+ 
+      activeDragElement.style.left = `${newX}px`; 
+      activeDragElement.style.top = `${newY}px`;
+      
+      const isNode = activeDragElement.classList.contains('workflow-node');
+      if (isNode) { 
+          nodeData[activeDragElement.id].x = `${newX}px`; 
+          nodeData[activeDragElement.id].y = `${newY}px`; 
+      } else { 
+          textData[activeDragElement.id].x = `${newX}px`; 
+          textData[activeDragElement.id].y = `${newY}px`; 
+      }
+      
+      if(dragChildrenOffsets.length > 0) { 
+         dragChildrenOffsets.forEach(function(child) { 
+             const childEl = document.getElementById(child.id); 
+             if(childEl) { 
+                 childEl.style.left = `${child.startX + deltaX}px`; 
+                 childEl.style.top = `${child.startY + deltaY}px`;
+                 if(child.type === 'node') { 
+                     nodeData[child.id].x = childEl.style.left; 
+                     nodeData[child.id].y = childEl.style.top; 
+                 } else { 
+                     textData[child.id].x = childEl.style.left; 
+                     textData[child.id].y = childEl.style.top; 
+                 } 
+             }
+         }); 
+      }
+      
+      renderConnections(); 
+ 
+      let hoveredContainer = null; 
+      const mx = newX + (activeDragElement.offsetWidth / 2); 
+      const my = newY + (activeDragElement.offsetHeight / 2);
+      
+      Object.keys(textData).forEach(function(tid) {
+        if(textData[tid].mode === 'container' && tid !== activeDragElement.id) {
+           const tx = parseFloat(textData[tid].x); 
+           const ty = parseFloat(textData[tid].y); 
+           const tw = textData[tid].width || 300; 
+           const th = textData[tid].height || 200;
+           if(mx >= tx && mx <= tx+tw && my >= ty && my <= ty+th) {
+               hoveredContainer = tid;
+           }
+        }
+      });
+      
+      document.querySelectorAll('.text-mode-container').forEach(function(c) { 
+          c.classList.remove('container-hover'); 
+      });
+      
+      if (hoveredContainer) { 
+          document.getElementById(hoveredContainer).classList.add('container-hover'); 
+          document.body.style.cursor = 'copy'; 
+      } else { 
+          document.body.style.cursor = 'grabbing'; 
+      }
+    });
+ 
+    document.addEventListener('mouseup', function() {
+      if (activeDragElement) {
+        activeDragElement.style.zIndex = ''; 
+        document.body.style.cursor = 'default'; 
+        
+        document.querySelectorAll('.text-mode-container').forEach(function(c) { 
+            c.classList.remove('container-hover'); 
+        });
+        
+        if(isDragging && wasDragged) { 
+            const isNode = activeDragElement.classList.contains('workflow-node'); 
+            checkContainerDrop(activeDragElement.id, isNode ? 'node' : 'text'); 
+            saveToServer(); 
+        }
+      }
+      isDragging = false; 
+      activeDragElement = null; 
+      dragChildrenOffsets = [];
+    });
+ 
+    document.getElementById('addNodeBtn').addEventListener('click', function() {
+      nodeCounter++; 
+      const nodeId = 'node-' + nodeCounter;
+      const spawnX = (viewport.scrollLeft + (viewport.clientWidth / 2)) / currentZoom - 100; 
+      const spawnY = (viewport.scrollTop + (viewport.clientHeight / 2)) / currentZoom - 100;
+      
+      nodeData[nodeId] = { 
+          x: `${spawnX}px`, 
+          y: `${spawnY}px`, 
+          image: null, 
+          mapImage: null, 
+          mapName: '', 
+          enfoque: '', 
+          accion: '', 
+          descripcion: '', 
+          pins: [], 
+          drawings: [], 
+          mapDrawings: [], 
+          videos: { enfoque: null, accion: null, descripcion: null }, 
+          pinCounter: 0, 
+          containerId: null, 
+          title: `Scene ${nodeCounter}` 
+      };
+      
+      rebuildNodeDOM(nodeId, nodeData[nodeId]); 
+      saveToServer();
+    });
+ 
+    function rebuildNodeDOM(nodeId, data) {
+      const newNode = document.createElement('div'); 
+      newNode.className = 'workflow-node'; 
+      newNode.id = nodeId; 
+      newNode.style.left = data.x; 
+      newNode.style.top = data.y;
+      
+      const thumbHtml = data.image ? `<img src="${data.image}" class="node-thumb" style="display:block;">` : '';
+      const dropHtml = data.image ? `<div class="node-image-drop" style="display:none;"></div>` : `<div class="node-image-drop">Paste Image</div>`;
+      
+      newNode.innerHTML = `
+        <div class="node-action-bar">
+            <button class="action-btn unlink-node-btn" title="Unlink from Container">🔗</button>
+            <button class="action-btn edit-node-btn" title="Edit Properties">✏️</button>
+            <button class="action-btn delete-node-btn" title="Delete Node">🗑️</button>
+        </div>
+        <div class="port port-top" data-port="top" data-node="${nodeId}"></div>
+        <div class="port port-left" data-port="left" data-node="${nodeId}"></div>
+        <div class="port port-right" data-port="right" data-node="${nodeId}"></div>
+        <div class="port port-bottom" data-port="bottom" data-node="${nodeId}"></div>
+        <div class="node-header" contenteditable="true">${data.title || 'Scene'}</div>
+        <div class="node-thumb-container">
+            ${dropHtml}
+            ${thumbHtml}
+            <div class="comment-badge" title="Total Comments">${data.pins ? data.pins.length : 0}</div>
+        </div>
+      `;
+      
+      newNode.querySelector('.node-header').addEventListener('focusout', function(e) { 
+          nodeData[nodeId].title = e.target.innerText; 
+          saveToServer(); 
+      });
+      
+      newNode.querySelector('.unlink-node-btn').addEventListener('click', function(e) { 
+          e.stopPropagation(); 
+          if(nodeData[nodeId].containerId) { 
+              nodeData[nodeId].containerId = null; 
+              updateContainerBounds(); 
+              saveToServer(); 
+          } 
+      });
+      
+      canvas.appendChild(newNode);
+    }
+ 
+    window.openTextCreate = function(type) {
+        document.getElementById('newTextType').value = type;
+        document.getElementById('newTextLabelText').innerText = type === 'annotation' ? 'Note Title:' : 'Text:'; 
+        document.getElementById('newTextInput').placeholder = type === 'annotation' ? 'Enter Note Title...' : 'Enter text...';
+        document.getElementById('newTextInput').value = '';
+        addTextModal.classList.remove('hidden'); 
+        document.getElementById('newTextInput').focus();
+    };
+ 
+    document.getElementById('confirmAddTextBtn').addEventListener('click', function() {
+      const type = document.getElementById('newTextType').value; 
+      const text = document.getElementById('newTextInput').value || (type === 'annotation' ? 'New Note' : 'New Text'); 
+      textCounter++; 
+      const textId = 'text-' + textCounter;
+      const spawnX = (viewport.scrollLeft + (viewport.clientWidth / 2)) / currentZoom; 
+      const spawnY = (viewport.scrollTop + (viewport.clientHeight / 2)) / currentZoom;
+      
+      const initialSize = type === 'floating' ? 50 : 16;
+      const initialColor = type === 'floating' ? '#bebebe' : '#333333';
+      
+      textData[textId] = { 
+          x: `${spawnX}px`, 
+          y: `${spawnY}px`, 
+          text: text, 
+          mode: type, 
+          color: initialColor, 
+          size: initialSize, 
+          bold: false, 
+          italic: false, 
+          labelId: '', 
+          body: '' 
+      };
+      
+      rebuildTextDOM(textId, textData[textId]); 
+      saveToServer(); 
+      addTextModal.classList.add('hidden');
+    });
+ 
+    document.getElementById('closeAddTextModal').addEventListener('click', function(e) { 
+        addTextModal.classList.add('hidden'); 
+    });
+ 
+    function rebuildTextDOM(textId, data) {
+      let tEl = document.getElementById(textId); 
+      if(!tEl) { 
+          tEl = document.createElement('div'); 
+          tEl.id = textId; 
+          canvas.appendChild(tEl); 
+      }
+      
+      tEl.className = `canvas-text-node text-mode-${data.mode}`; 
+      tEl.style.left = data.x; 
+      tEl.style.top = data.y; 
+      tEl.style.color = data.color; 
+      tEl.style.fontSize = `${data.size}px`; 
+      tEl.style.fontWeight = data.bold ? 'bold' : 'normal'; 
+      tEl.style.fontStyle = data.italic ? 'italic' : 'normal';
+      
+      let badgeHtml = ''; 
+      let themeColor = '#0052cc'; 
+      
+      if(data.mode === 'container') { 
+          if(data.width) { 
+              tEl.style.width = `${data.width}px`; 
+              tEl.style.height = `${data.height}px`; 
+          } 
+          if(data.labelId && labelData[data.labelId]) { 
+              const lbl = labelData[data.labelId]; 
+              themeColor = lbl.color; 
+              badgeHtml = `<div class="container-label-badge" style="background-color: ${themeColor};">${lbl.name}</div>`; 
+          } 
+          tEl.style.borderColor = themeColor; 
+          tEl.style.backgroundColor = themeColor + '1A'; 
+      } else { 
+          tEl.style.width = 'auto'; 
+          tEl.style.height = 'auto'; 
+          tEl.style.borderColor = ''; 
+          tEl.style.backgroundColor = ''; 
+      }
+ 
+      let innerHtml = `
+          <button class="unlink-text-btn" title="Unlink from Container">🔗</button>
+          <button class="delete-text-btn" title="Delete Element">X</button>
+          <button class="text-settings-btn" title="Text Settings">⚙️</button>
+          ${badgeHtml}
+      `;
+      
+      if (data.mode === 'annotation') { 
+          innerHtml += `<div class="note-title">${data.text}</div><div class="note-body">${data.body || ''}</div>`; 
+      } else { 
+          innerHtml += `<div class="text-content-box" ${data.mode === 'container' ? `style="background-color: ${themeColor}; color: white;"` : ''}>${data.text}</div>`; 
+      }
+      
+      tEl.innerHTML = innerHtml;
+ 
+      tEl.querySelector('.unlink-text-btn').addEventListener('click', function(e) { 
+          e.stopPropagation(); 
+          if(textData[textId].containerId) { 
+              textData[textId].containerId = null; 
+              updateContainerBounds(); 
+              saveToServer(); 
+          } 
+      });
+      
+      tEl.querySelector('.delete-text-btn').addEventListener('click', function(e) { 
+          e.stopPropagation(); 
+          if(confirm("Are you sure you want to delete this element?")) { 
+              tEl.remove(); 
+              delete textData[textId]; 
+              Object.keys(nodeData).forEach(function(nid) { 
+                  if(nodeData[nid].containerId === textId) {
+                      nodeData[nid].containerId = null; 
+                  }
+              }); 
+              textPropsMenu.classList.add('hidden'); 
+              saveToServer(); 
+          } 
+      });
+ 
+      if (data.mode === 'annotation') { 
+          const titleEl = tEl.querySelector('.note-title'); 
+          const bodyEl = tEl.querySelector('.note-body'); 
+          
+          titleEl.addEventListener('dblclick', function(e) { 
+              e.stopPropagation(); 
+              titleEl.setAttribute('contenteditable', 'true'); 
+              titleEl.focus(); 
+          });
+          
+          bodyEl.addEventListener('dblclick', function(e) { 
+              e.stopPropagation(); 
+              bodyEl.setAttribute('contenteditable', 'true'); 
+              bodyEl.focus(); 
+          });
+          
+          titleEl.addEventListener('focusout', function() { 
+              titleEl.removeAttribute('contenteditable'); 
+              textData[textId].text = titleEl.innerText; 
+              saveToServer(); 
+          }); 
+          
+          bodyEl.addEventListener('focusout', function() { 
+              bodyEl.removeAttribute('contenteditable'); 
+              textData[textId].body = bodyEl.innerText; 
+              saveToServer(); 
+          }); 
+      } else { 
+          const box = tEl.querySelector('.text-content-box'); 
+          box.addEventListener('dblclick', function() { 
+              box.setAttribute('contenteditable', 'true'); 
+              box.focus(); 
+          }); 
+          box.addEventListener('focusout', function() { 
+              box.removeAttribute('contenteditable'); 
+              textData[textId].text = box.innerText; 
+              saveToServer(); 
+          }); 
+      }
+    }
+ 
+    function updateStoredNodesCount() { 
+        document.getElementById('storedCountBadge').innerText = Object.keys(storedNodesData).length; 
+    }
+    
+    document.getElementById('warnCancelBtn').addEventListener('click', function() { 
+        deleteWarnModal.classList.add('hidden'); 
+        pendingDeleteNodeId = null; 
+    });
+    
+    document.getElementById('closeDeleteWarnModal').addEventListener('click', function() { 
+        deleteWarnModal.classList.add('hidden'); 
+        pendingDeleteNodeId = null; 
+    });
+    
+    document.getElementById('warnConfirmBtn').addEventListener('click', function() { 
+        const id = pendingDeleteNodeId; 
+        connections = connections.filter(function(c) { return c.source !== id && c.target !== id; }); 
+        delete nodeData[id]; 
+        document.getElementById(id).remove(); 
+        saveToServer(); 
+        deleteWarnModal.classList.add('hidden'); 
+        pendingDeleteNodeId = null; 
+        renderConnections(); 
+    });
+    
+    document.getElementById('warnStoreBtn').addEventListener('click', function() { 
+        const id = pendingDeleteNodeId; 
+        storedNodesData[id] = { ...nodeData[id], storedAt: new Date().toLocaleString(), storedBy: currentUserName, storeNote: '' }; 
+        connections = connections.filter(function(c) { return c.source !== id && c.target !== id; }); 
+        delete nodeData[id]; 
+        document.getElementById(id).remove(); 
+        saveToServer(); 
+        updateStoredNodesCount(); 
+        deleteWarnModal.classList.add('hidden'); 
+        pendingDeleteNodeId = null; 
+        renderConnections(); 
+    });
+    
+    document.getElementById('openStoredNodesBtn').addEventListener('click', function() { 
+        renderStoredNodesList(); 
+        storedNodesModal.classList.remove('hidden'); 
+    }); 
+    
+    document.getElementById('closeStoredNodes').addEventListener('click', function() { 
+        storedNodesModal.classList.add('hidden'); 
+    });
+ 
+    function renderStoredNodesList() {
+       const list = document.getElementById('storedNodesList'); 
+       list.innerHTML = '';
+       
+       if(Object.keys(storedNodesData).length === 0) { 
+           list.innerHTML = '<p style="color:#888; text-align:center;">Archive is empty.</p>'; 
+           return; 
+       }
+       
+       Object.keys(storedNodesData).forEach(function(id) {
+          const data = storedNodesData[id]; 
+          const item = document.createElement('div'); 
+          item.className = 'stored-node-item';
+          
+          item.innerHTML = `
+              <div class="stored-node-header">
+                  <strong>${data.title || 'Scene'} (ID: ${id})</strong>
+                  <span>Stored: ${data.storedAt} by ${data.storedBy}</span>
+              </div>
+              <input type="text" class="stored-node-note" id="note-${id}" placeholder="Add a note for this archive..." value="${data.storeNote || ''}">
+              <div class="stored-node-actions">
+                  <button class="icon-btn" onclick="viewStoredNode('${id}')">👁️ View</button>
+                  <button class="primary-btn" onclick="restoreNode('${id}')">Restore</button>
+                  <button class="danger-btn" onclick="deleteStoredNode('${id}')">Delete</button>
+              </div>
+          `;
+          list.appendChild(item); 
+          document.getElementById(`note-${id}`).addEventListener('input', function(e) { 
+              storedNodesData[id].storeNote = e.target.value; 
+              saveToServer(); 
+          });
+       });
+    }
+ 
+    window.restoreNode = function(id) { 
+        nodeData[id] = { ...storedNodesData[id] }; 
+        nodeData[id].containerId = null; 
+        delete storedNodesData[id]; 
+        rebuildNodeDOM(id, nodeData[id]); 
+        saveToServer(); 
+        updateStoredNodesCount(); 
+        renderStoredNodesList(); 
+    };
+    
+    window.deleteStoredNode = function(id) { 
+        if(confirm("Are you sure you want to permanently delete this archived node?")) { 
+            delete storedNodesData[id]; 
+            saveToServer(); 
+            updateStoredNodesCount(); 
+            renderStoredNodesList(); 
+        } 
+    };
+    
+    document.getElementById('deleteAllStoredBtn').addEventListener('click', function() { 
+        if(confirm("Are you sure you want to permanently delete ALL archived nodes? This cannot be undone.")) { 
+            storedNodesData = {}; 
+            saveToServer(); 
+            updateStoredNodesCount(); 
+            renderStoredNodesList(); 
+        } 
+    });
+    
+    window.viewStoredNode = function(id) { 
+        openDashboardModal(id, true); 
+    };
+ 
+    function populateLabelDropdown() { 
+        const select = document.getElementById('textLabelSelect'); 
+        select.innerHTML = '<option value="">None</option>'; 
+        Object.keys(labelData).forEach(function(id) { 
+            select.innerHTML += `<option value="${id}">${labelData[id].name}</option>`; 
+        }); 
+    }
+    
+    function openTextMenu(e, textId) { 
+        activeTextId = textId; 
+        const data = textData[textId]; 
+        
+        document.getElementById('textModeSelect').value = data.mode; 
+        document.getElementById('textColorInput').value = data.color || '#333333'; 
+        document.getElementById('textSizeInput').value = data.size || 16; 
+        
+        if(data.mode === 'container') { 
+            document.getElementById('labelSelectorRow').classList.remove('hidden'); 
+            document.getElementById('openLabelManagerBtn').classList.remove('hidden'); 
+            populateLabelDropdown(); 
+            document.getElementById('textLabelSelect').value = data.labelId || ''; 
+        } else { 
+            document.getElementById('labelSelectorRow').classList.add('hidden'); 
+            document.getElementById('openLabelManagerBtn').classList.add('hidden'); 
+        } 
+        
+        textPropsMenu.style.left = `${e.clientX + 10}px`; 
+        textPropsMenu.style.top = `${e.clientY + 10}px`; 
+        textPropsMenu.classList.remove('hidden'); 
+        e.stopPropagation(); 
+    }
+    
+    document.getElementById('textModeSelect').addEventListener('change', function(e) { 
+        textData[activeTextId].mode = e.target.value; 
+        if(e.target.value === 'container') {
+            checkContainerDrop(activeTextId); 
+        }
+        openTextMenu({clientX: parseInt(textPropsMenu.style.left), clientY: parseInt(textPropsMenu.style.top)}, activeTextId); 
+        updateContainerBounds(); 
+        rebuildTextDOM(activeTextId, textData[activeTextId]); 
+        saveToServer(); 
+    });
+    
+    document.getElementById('textColorInput').addEventListener('input', function(e) { 
+        textData[activeTextId].color = e.target.value; 
+        rebuildTextDOM(activeTextId, textData[activeTextId]); 
+        saveToServer(); 
+    }); 
+    
+    document.getElementById('textSizeInput').addEventListener('input', function(e) { 
+        textData[activeTextId].size = e.target.value; 
+        rebuildTextDOM(activeTextId, textData[activeTextId]); 
+        saveToServer(); 
+    }); 
+    
+    document.getElementById('textBoldBtn').addEventListener('click', function() { 
+        textData[activeTextId].bold = !textData[activeTextId].bold; 
+        rebuildTextDOM(activeTextId, textData[activeTextId]); 
+        saveToServer(); 
+    }); 
+    
+    document.getElementById('textItalicBtn').addEventListener('click', function() { 
+        textData[activeTextId].italic = !textData[activeTextId].italic; 
+        rebuildTextDOM(activeTextId, textData[activeTextId]); 
+        saveToServer(); 
+    });
+    
+    document.getElementById('textLabelSelect').addEventListener('change', function(e) { 
+        textData[activeTextId].labelId = e.target.value; 
+        rebuildTextDOM(activeTextId, textData[activeTextId]); 
+        saveToServer(); 
+    });
+    
+    document.getElementById('openLabelManagerBtn').addEventListener('click', function() { 
+        textPropsMenu.classList.add('hidden'); 
+        renderLabelManagerList(); 
+        labelManagerModal.classList.remove('hidden'); 
+    }); 
+    
+    document.getElementById('closeLabelManager').addEventListener('click', function() { 
+        labelManagerModal.classList.add('hidden'); 
+    });
+    
+    function renderLabelManagerList() { 
+        const list = document.getElementById('labelManagerList'); 
+        list.innerHTML = ''; 
+        Object.keys(labelData).forEach(function(id) { 
+            const li = document.createElement('li'); 
+            li.className = 'label-list-item'; 
+            li.innerHTML = `<div><span class="label-color-swatch" style="background:${labelData[id].color}"></span> <strong>${labelData[id].name}</strong></div><button class="icon-btn" style="color:#de350b; font-size:10px; padding:2px 6px;" onclick="deleteLabel('${id}')">X</button>`; 
+            list.appendChild(li); 
+        }); 
+    }
+    
+    document.getElementById('addNewLabelBtn').addEventListener('click', function() { 
+        const name = document.getElementById('newLabelName').value.trim(); 
+        const color = document.getElementById('newLabelColor').value; 
+        if(name) { 
+            const id = 'lbl-' + Date.now(); 
+            labelData[id] = { name: name, color: color }; 
+            document.getElementById('newLabelName').value = ''; 
+            renderLabelManagerList(); 
+            saveToServer(); 
+        } 
+    });
+    
+    window.deleteLabel = function(id) { 
+        if(confirm("Are you sure you want to delete this label?")) { 
+            delete labelData[id]; 
+            Object.keys(textData).forEach(function(tid) { 
+                if(textData[tid].labelId === id) { 
+                    textData[tid].labelId = ''; 
+                    rebuildTextDOM(tid, textData[tid]); 
+                }
+            }); 
+            renderLabelManagerList(); 
+            saveToServer(); 
+        } 
+    };
+ 
+    const tempLine = document.getElementById('tempLine'); 
+    let isDrawingLine = false; 
+    let startPort = null; 
+    let startNode = null;
+    
+    canvas.addEventListener('mousedown', function(e) { 
+        if (e.target.classList.contains('port')) { 
+            isDrawingLine = true; 
+            startPort = e.target.dataset.port; 
+            startNode = e.target.closest('.workflow-node').id; 
+            tempLine.style.display = 'block'; 
+            updateTempLine(e); 
+            e.stopPropagation(); 
+            lineHoverBtn.classList.add('hidden'); 
+            linePropsMenu.classList.add('hidden'); 
+        } 
+    });
+    
+    document.addEventListener('mousemove', function(e) { 
+        if (isDrawingLine) {
+            updateTempLine(e); 
+        }
+    });
+    
+    document.addEventListener('mouseup', function(e) { 
+        if (isDrawingLine) { 
+            isDrawingLine = false; 
+            tempLine.style.display = 'none'; 
+            
+            if (e.target.classList.contains('port')) { 
+                const endNode = e.target.closest('.workflow-node').id; 
+                const endPort = e.target.dataset.port; 
+                
+                if (startNode !== endNode) { 
+                    connectionIdCounter++; 
+                    connections.push({ 
+                        id: 'conn-' + connectionIdCounter, 
+                        source: startNode, 
+                        sourcePort: startPort, 
+                        target: endNode, 
+                        targetPort: endPort, 
+                        type: 'curve', 
+                        style: 'solid', 
+                        color: '#5e6c84', 
+                        label: '', 
+                        arrows: 'end' 
+                    }); 
+                    
+                    if(nodeData[startNode].containerId || nodeData[endNode].containerId) { 
+                        const targetContainer = nodeData[startNode].containerId || nodeData[endNode].containerId; 
+                        nodeData[startNode].containerId = targetContainer; 
+                        nodeData[endNode].containerId = targetContainer; 
+                        updateContainerBounds(); 
+                    } 
+                    
+                    renderConnections(); 
+                    saveToServer(); 
+                } 
+            } 
+        } 
+    });
+    
+    function updateTempLine(e) { 
+        const startEl = document.querySelector(`#${startNode} .port-${startPort}`); 
+        const cRect = canvas.getBoundingClientRect(); 
+        const x1 = (startEl.getBoundingClientRect().left - cRect.left + 7) / currentZoom; 
+        const y1 = (startEl.getBoundingClientRect().top - cRect.top + 7) / currentZoom; 
+        const x2 = (e.clientX - cRect.left) / currentZoom; 
+        const y2 = (e.clientY - cRect.top) / currentZoom; 
+        
+        const offsetX = Math.abs(x2 - x1) * 0.5; 
+        const offsetY = Math.abs(y2 - y1) * 0.5; 
+        
+        let c1x = x1;
+        let c1y = y1;
+        let c2x = x2;
+        let c2y = y2; 
+        
+        if (startPort === 'left') {
+            c1x -= offsetX; 
+        } else if (startPort === 'right') {
+            c1x += offsetX; 
+        } else if (startPort === 'top') {
+            c1y -= offsetY; 
+        } else {
+            c1y += offsetY; 
+        }
+        
+        tempLine.setAttribute('d', `M ${x1} ${y1} C ${c1x} ${c1y}, ${c2x} ${c2y}, ${x2} ${y2}`); 
+    }
+    
+    function buildArrowMarkers(color) { 
+        const hex = color.replace('#', ''); 
+        const endId = 'arrow-end-' + hex; 
+        const startId = 'arrow-start-' + hex; 
+        
+        if(!document.getElementById(endId)) { 
+            const endMarker = document.createElementNS('http://www.w3.org/2000/svg', 'marker'); 
+            endMarker.setAttribute('id', endId); 
+            endMarker.setAttribute('viewBox', '0 0 10 10'); 
+            endMarker.setAttribute('refX', '9'); 
+            endMarker.setAttribute('refY', '5'); 
+            endMarker.setAttribute('markerWidth', '6'); 
+            endMarker.setAttribute('markerHeight', '6'); 
+            endMarker.setAttribute('orient', 'auto'); 
+            
+            const endPath = document.createElementNS('http://www.w3.org/2000/svg', 'path'); 
+            endPath.setAttribute('d', 'M 0 0 L 10 5 L 0 10 z'); 
+            endPath.setAttribute('fill', color); 
+            endMarker.appendChild(endPath); 
+            markerDefs.appendChild(endMarker); 
+            
+            const startMarker = document.createElementNS('http://www.w3.org/2000/svg', 'marker'); 
+            startMarker.setAttribute('id', startId); 
+            startMarker.setAttribute('viewBox', '0 0 10 10'); 
+            startMarker.setAttribute('refX', '1'); 
+            startMarker.setAttribute('refY', '5'); 
+            startMarker.setAttribute('markerWidth', '6'); 
+            startMarker.setAttribute('markerHeight', '6'); 
+            startMarker.setAttribute('orient', 'auto'); 
+            
+            const startPath = document.createElementNS('http://www.w3.org/2000/svg', 'path'); 
+            startPath.setAttribute('d', 'M 10 0 L 0 5 L 10 10 z'); 
+            startPath.setAttribute('fill', color); 
+            startMarker.appendChild(startPath); 
+            markerDefs.appendChild(startMarker); 
+        } 
+        
+        return { end: `url(#${endId})`, start: `url(#${startId})` }; 
+    }
+    
+    function renderConnections() { 
+        Array.from(svgLayer.children).forEach(function(child) { 
+            if(child.id !== 'markerDefs') {
+                child.remove(); 
+            }
+        }); 
+        
+        connections.forEach(function(c) { 
+            const sNode = document.getElementById(c.source); 
+            const tNode = document.getElementById(c.target); 
+            if (!sNode || !tNode) return; 
+            
+            const sPortEl = sNode.querySelector(`.port-${c.sourcePort}`); 
+            const tPortEl = tNode.querySelector(`.port-${c.targetPort}`); 
+            const cRect = canvas.getBoundingClientRect(); 
+            
+            const x1 = (sPortEl.getBoundingClientRect().left - cRect.left + 7) / currentZoom; 
+            const y1 = (sPortEl.getBoundingClientRect().top - cRect.top + 7) / currentZoom; 
+            const x2 = (tPortEl.getBoundingClientRect().left - cRect.left + 7) / currentZoom; 
+            const y2 = (tPortEl.getBoundingClientRect().top - cRect.top + 7) / currentZoom; 
+            
+            let pathData = "";
+            if (c.type === 'straight') {
+                pathData = `M ${x1} ${y1} L ${x2} ${y2}`;
+            } else {
+                const offsetX = Math.max(Math.abs(x2 - x1) * 0.5, 30); 
+                const offsetY = Math.max(Math.abs(y2 - y1) * 0.5, 30); 
+                let c1x = x1;
+                let c1y = y1;
+                let c2x = x2;
+                let c2y = y2; 
+                
+                if (c.sourcePort === 'left') {
+                    c1x -= offsetX; 
+                } else if (c.sourcePort === 'right') {
+                    c1x += offsetX; 
+                } else if (c.sourcePort === 'top') {
+                    c1y -= offsetY; 
+                } else {
+                    c1y += offsetY; 
+                }
+                
+                if (c.targetPort === 'left') {
+                    c2x -= offsetX; 
+                } else if (c.targetPort === 'right') {
+                    c2x += offsetX; 
+                } else if (c.targetPort === 'top') {
+                    c2y -= offsetY; 
+                } else {
+                    c2y += offsetY; 
+                }
+                
+                pathData = `M ${x1} ${y1} C ${c1x} ${c1y}, ${c2x} ${c2y}, ${x2} ${y2}`;
+            }
+            
+            const group = document.createElementNS('http://www.w3.org/2000/svg', 'g'); 
+            group.style.cursor = 'pointer'; 
+            
+            const path = document.createElementNS('http://www.w3.org/2000/svg', 'path'); 
+            path.setAttribute('d', pathData); 
+            path.setAttribute('class', 'connection-line'); 
+            path.setAttribute('stroke', c.color); 
+            
+            if (c.style === 'dotted') {
+                path.setAttribute('stroke-dasharray', '8 8'); 
+            }
+            
+            const markers = buildArrowMarkers(c.color); 
+            if (c.arrows === 'end' || c.arrows === 'both') {
+                path.setAttribute('marker-end', markers.end); 
+            }
+            if (c.arrows === 'both') {
+                path.setAttribute('marker-start', markers.start); 
+            }
+            
+            const hitPath = document.createElementNS('http://www.w3.org/2000/svg', 'path'); 
+            hitPath.setAttribute('d', pathData); 
+            hitPath.setAttribute('stroke', 'rgba(0,0,0,0.01)'); 
+            hitPath.setAttribute('stroke-width', '25'); 
+            hitPath.setAttribute('fill', 'none'); 
+            hitPath.style.pointerEvents = 'stroke'; 
+            
+            hitPath.addEventListener('mouseenter', function(e) { 
+                if(isDragging || isDrawingLine) return; 
+                activeConnectionId = c.id; 
+                lineHoverBtn.style.left = `${e.clientX}px`; 
+                lineHoverBtn.style.top = `${e.clientY}px`; 
+                lineHoverBtn.classList.remove('hidden'); 
+            }); 
+            
+            group.appendChild(path); 
+            group.appendChild(hitPath); 
+            svgLayer.appendChild(group); 
+            
+            if (c.label) { 
+                const text = document.createElementNS('http://www.w3.org/2000/svg', 'text'); 
+                text.setAttribute('x', (x1 + x2) / 2); 
+                text.setAttribute('y', (y1 + y2) / 2 - 10); 
+                text.setAttribute('class', 'connection-label'); 
+                text.setAttribute('text-anchor', 'middle'); 
+                text.textContent = c.label; 
+                svgLayer.appendChild(text); 
+            } 
+        }); 
+    }
+    
+    lineHoverBtn.addEventListener('click', function(e) { 
+        e.stopPropagation(); 
+        const conn = connections.find(function(c) { 
+            return c.id === activeConnectionId; 
+        }); 
+        
+        if(!conn) return; 
+        
+        document.getElementById('lineLabelInput').value = conn.label || ''; 
+        document.getElementById('lineStyleSelect').value = conn.style || 'solid'; 
+        document.getElementById('lineArrowSelect').value = conn.arrows || 'end'; 
+        document.getElementById('lineColorInput').value = conn.color || '#5e6c84'; 
+        
+        linePropsMenu.style.left = `${e.clientX + 10}px`; 
+        linePropsMenu.style.top = `${e.clientY + 10}px`; 
+        linePropsMenu.classList.remove('hidden'); 
+        lineHoverBtn.classList.add('hidden'); 
+    });
+    
+    ['lineLabelInput', 'lineStyleSelect', 'lineArrowSelect', 'lineColorInput'].forEach(function(id) { 
+        document.getElementById(id).addEventListener('input', function(e) { 
+            const conn = connections.find(function(c) { 
+                return c.id === activeConnectionId; 
+            }); 
+            
+            const prop = id.replace('line', '').replace('Input', '').replace('Select', '').toLowerCase(); 
+            conn[prop] = e.target.value; 
+            
+            renderConnections(); 
+            saveToServer(); 
+        }); 
+    });
+    
+    document.getElementById('deleteLineBtn').addEventListener('click', function() { 
+        if(confirm("Are you sure you want to remove this connection?")) {
+            connections = connections.filter(function(c) { 
+                return c.id !== activeConnectionId; 
+            }); 
+            
+            linePropsMenu.classList.add('hidden'); 
+            renderConnections(); 
+            saveToServer(); 
+        }
+    });
+ 
+    function openDashboardModal(nodeId, readOnly = false) { 
+       activeEditNodeId = nodeId; 
+       isDashboardReadOnly = readOnly; 
+       const data = nodeData[nodeId] || storedNodesData[nodeId]; 
+       
+       if(!data) return;
+       
+       if(isDashboardReadOnly) { 
+           editModal.classList.add('read-only-mode'); 
+           document.querySelectorAll('.col-edit').forEach(function(el) { 
+               el.removeAttribute('contenteditable'); 
+           }); 
+           document.querySelector('.node-header').removeAttribute('contenteditable'); 
+       } else { 
+           editModal.classList.remove('read-only-mode'); 
+           document.querySelectorAll('.col-edit').forEach(function(el) { 
+               el.setAttribute('contenteditable', 'true'); 
+           }); 
+           document.querySelector('.node-header').setAttribute('contenteditable', 'true'); 
+       }
+       
+       if (data.image) { 
+           dashThumbImage.src = data.image; 
+           dashThumbImage.classList.remove('hidden'); 
+           dashThumbDrop.classList.add('hidden'); 
+       } else { 
+           dashThumbImage.src = ''; 
+           dashThumbImage.classList.add('hidden'); 
+           dashThumbDrop.classList.remove('hidden'); 
+       } 
+       
+       document.getElementById('mapSidePanel').classList.add('hidden'); 
+       refreshMapSidePanelUI();
+       
+       refreshColumnVideos();
+
+       document.getElementById('col-enfoque').innerText = data.enfoque || ''; 
+       document.getElementById('col-accion').innerText = data.accion || ''; 
+       document.getElementById('col-descripcion').innerText = data.descripcion || ''; 
+       
+       refreshDashboardData(); 
+       editModal.classList.remove('hidden'); 
+    }
+    
+    document.getElementById('toggleMapSidePanelBtn').addEventListener('click', function() { 
+        document.getElementById('mapSidePanel').classList.toggle('hidden'); 
+    });
+    
+    document.getElementById('closeMapSidePanelBtn').addEventListener('click', function(e) { 
+        e.stopPropagation();
+        document.getElementById('mapSidePanel').classList.add('hidden'); 
+    });
+    
+    function refreshMapSidePanelUI() {
+        const data = nodeData[activeEditNodeId];
+        
+        if(data && data.mapImage) {
+            document.getElementById('sideMapEmptyState').classList.add('hidden');
+            document.getElementById('sideMapFilledState').classList.remove('hidden');
+            document.getElementById('sideMapThumbImage').src = data.mapImage;
+            document.getElementById('sideMapNameDisplay').innerText = data.mapName || 'Unnamed Map';
+        } else {
+            document.getElementById('sideMapEmptyState').classList.remove('hidden');
+            document.getElementById('sideMapFilledState').classList.add('hidden');
+            document.getElementById('sideMapThumbImage').src = '';
+            document.getElementById('sideMapNameDisplay').innerText = '';
+        }
+    }
+    
+    function refreshDashboardData() { 
+       const data = nodeData[activeEditNodeId] || storedNodesData[activeEditNodeId]; 
+       
+       if(nodeData[activeEditNodeId]) { 
+           document.querySelector(`#${activeEditNodeId} .comment-badge`).innerText = data.pins.length; 
+       }
+       
+       document.getElementById('badge-enfoque').innerText = data.pins.filter(function(p) { 
+           return p.type === 'enfoque'; 
+       }).length; 
+       
+       document.getElementById('badge-accion').innerText = data.pins.filter(function(p) { 
+           return p.type === 'accion'; 
+       }).length; 
+       
+       document.getElementById('badge-descripcion').innerText = data.pins.filter(function(p) { 
+           return p.type === 'descripcion'; 
+       }).length; 
+       
+       commentList.innerHTML = ''; 
+       
+       data.pins.forEach(function(pin) { 
+           const typeName = pin.type.charAt(0).toUpperCase() + pin.type.slice(1); 
+           const card = document.createElement('div'); 
+           card.className = `comment-card card-${pin.type}`; 
+           
+           let repliesHtml = pin.replies.map(function(r) { 
+               return `- <strong>${r.author}:</strong> ${r.text}`; 
+           }).join('<br>'); 
+           
+           const isOwner = pin.author === currentUserName;
+           const editBtnHtml = isOwner && !isDashboardReadOnly ? `<button class="reply-btn" onclick="editPin('${pin.id}')">✏️ Edit</button>` : '';
+           const editedTag = pin.edited ? '<span style="font-size:10px; color:#888; font-style:italic; margin-left:8px;">(edited)</span>' : '';
+           
+           card.innerHTML = `
+               <div class="comment-header"><span>Pin #${pin.num} [${typeName}]</span> <span class="author-tag">${pin.author || 'User'}</span></div>
+               <div class="comment-body">${pin.text}${editedTag}</div>
+               <div class="reply-list" id="replies-${pin.id}">${repliesHtml}</div>
+               <div class="comment-actions">
+                   <label class="checkbox-group"><input type="checkbox" onchange="toggleCheck('${pin.id}', 'review')" ${pin.review ? 'checked' : ''} ${isDashboardReadOnly ? 'disabled' : ''}> Review</label>
+                   <label class="checkbox-group"><input type="checkbox" onchange="toggleCheck('${pin.id}', 'done')" ${pin.done ? 'checked' : ''} ${isDashboardReadOnly ? 'disabled' : ''}> Done</label>
+                   <button class="reply-btn" onclick="addReply('${pin.id}')" ${isDashboardReadOnly ? 'disabled style="opacity:0.5;"' : ''}>↳ Reply</button>
+                   ${editBtnHtml}
+                   <button class="reply-btn" style="color:#de350b;" onclick="deletePin('${pin.id}')" ${isDashboardReadOnly ? 'disabled style="opacity:0.5;"' : ''}>Delete</button>
+               </div>
+           `; 
+           commentList.appendChild(card); 
+       }); 
+    }
+    
+    document.getElementById('closeEditModal').addEventListener('click', function(e) { 
+       e.stopPropagation();
+       
+       if (activeEditNodeId && !isDashboardReadOnly && nodeData[activeEditNodeId]) { 
+           nodeData[activeEditNodeId].enfoque = document.getElementById('col-enfoque').innerText; 
+           nodeData[activeEditNodeId].accion = document.getElementById('col-accion').innerText; 
+           nodeData[activeEditNodeId].descripcion = document.getElementById('col-descripcion').innerText; 
+           saveToServer(); 
+       } 
+       
+       editModal.classList.add('hidden'); 
+       activeEditNodeId = null; 
+       isDashboardReadOnly = false; 
+    });
+ 
+    function executeImageReplacement(url, clearContent) {
+        const data = nodeData[activeEditNodeId]; 
+        
+        if(clearContent) { 
+            data.pins = []; 
+            data.pinCounter = 0; 
+            data.drawings = []; 
+        }
+        
+        data.image = url; 
+        dashThumbImage.src = url; 
+        dashThumbImage.classList.remove('hidden'); 
+        dashThumbDrop.classList.add('hidden'); 
+        dashThumbDrop.classList.remove('missing-image-warning');
+        
+        const nodeEl = document.getElementById(activeEditNodeId); 
+        const nodeDrop = nodeEl.querySelector('.node-image-drop'); 
+        nodeDrop.style.display = 'none'; 
+        nodeDrop.classList.remove('missing-image-warning'); 
+        
+        let thumb = nodeEl.querySelector('.node-thumb'); 
+        if (!thumb) { 
+            thumb = document.createElement('img'); 
+            thumb.className = 'node-thumb'; 
+            nodeEl.querySelector('.node-thumb-container').prepend(thumb); 
+        } 
+        
+        thumb.src = url; 
+        thumb.style.display = 'block'; 
+        
+        document.getElementById('replaceImageWarningModal').classList.add('hidden'); 
+        pinningModal.classList.add('hidden'); 
+        galleryModal.classList.add('hidden');
+        
+        refreshDashboardData(); 
+        saveToServer();
+    }
+    
+    function initiateImageApplication(url) {
+        const data = nodeData[activeEditNodeId];
+        
+        if (data.image) { 
+            pendingImageReplaceUrl = url; 
+            document.getElementById('replaceImageWarningModal').classList.remove('hidden'); 
+        } else { 
+            executeImageReplacement(url, false); 
+        }
+    }
+ 
+    function processImageFile(file, isMap = false) { 
+        if (!file) return; 
+        
+        const reader = new FileReader(); 
+        const targetDrop = isMap ? document.getElementById('sideMapDrop') : document.getElementById('dashThumbDrop');
+        const dropZoneText = targetDrop.querySelector('span'); 
+        
+        if(dropZoneText) {
+            dropZoneText.innerText = "Uploading..."; 
+        }
+        
+        const folderType = isMap ? 'maps' : 'images';
+        
+        reader.onload = function(event) { 
+            const base64Data = event.target.result; 
+            const filename = `Node_${activeEditNodeId}_${Date.now()}.png`; 
+            
+            google.script.run.withSuccessHandler(function(res) { 
+                if(res.error) { 
+                    console.error("Upload Error"); 
+                    return; 
+                } 
+                
+                if(dropZoneText) {
+                    dropZoneText.innerText = isMap ? "Paste Map Here" : "Paste Image Here"; 
+                }
+                
+                if (isMap) { 
+                    applyMapImage(res.url); 
+                } else { 
+                    initiateImageApplication(res.url); 
+                }
+            }).uploadImageToDrive(base64Data, filename, folderType); 
+        }; 
+        reader.readAsDataURL(file); 
+    }
+    
+    document.addEventListener('paste', function(e) { 
+        if (!activeEditNodeId || editModal.classList.contains('hidden') || isDashboardReadOnly) {
+            return; 
+        }
+        
+        const items = (e.clipboardData || e.originalEvent.clipboardData).items; 
+        for (let i in items) { 
+            if (items[i].kind === 'file') {
+                processImageFile(items[i].getAsFile(), !document.getElementById('mapSidePanel').classList.contains('hidden')); 
+            }
+        }
+    });
+    
+    document.getElementById('triggerUploadBtn').addEventListener('click', function() { 
+        document.getElementById('imageUploadInput').click(); 
+    }); 
+    
+    document.getElementById('imageUploadInput').addEventListener('change', function(e) { 
+        if (e.target.files.length > 0) {
+            processImageFile(e.target.files[0]); 
+        }
+    });
+    
+    document.getElementById('triggerSideMapUploadBtn').addEventListener('click', function() { 
+        document.getElementById('sideMapUploadInput').click(); 
+    }); 
+    
+    document.getElementById('sideMapUploadInput').addEventListener('change', function(e) { 
+        if (e.target.files.length > 0) {
+            processImageFile(e.target.files[0], true); 
+        }
+    });
+ 
+    document.getElementById('openGalleryBtn').addEventListener('click', function() { 
+        openGallery('images-manage'); 
+    });
+    
+    document.getElementById('openMapGalleryGlobalBtn').addEventListener('click', function() { 
+        openGallery('maps-manage'); 
+    });
+    
+    document.getElementById('triggerGalleryPickerBtn').addEventListener('click', function() { 
+        openGallery('images-picker'); 
+    });
+    
+    document.getElementById('triggerSideMapGalleryBtn').addEventListener('click', function() { 
+        openGallery('maps-picker'); 
+    });
+    
+    document.getElementById('closeGalleryModal').addEventListener('click', function(e) { 
+        e.stopPropagation();
+        galleryModal.classList.add('hidden'); 
+    });
+ 
+    function openGallery(mode) {
+        galleryMode = mode; 
+        selectedGalleryImages.clear(); 
+        updateDeleteSelectedBtn();
+        galleryModal.classList.remove('hidden');
+        document.getElementById('galleryTitle').innerText = mode.includes('maps') ? "🗺️ Map Gallery" : "🖼️ Image Gallery";
+        refreshGallery();
+    }
+ 
+    function updateDeleteSelectedBtn() {
+        const btn = document.getElementById('deleteSelectedGalleryBtn');
+        if(selectedGalleryImages.size > 0 && galleryMode.includes('manage')) { 
+            btn.classList.remove('hidden'); 
+            document.getElementById('selectedGalleryCount').innerText = selectedGalleryImages.size; 
+        } else { 
+            btn.classList.add('hidden'); 
+        }
+    }
+ 
+    function refreshGallery() {
+        galleryGrid.innerHTML = ''; 
+        galleryLoading.style.display = 'block';
+        const folderType = galleryMode.includes('maps') ? 'maps' : 'images';
+        
+        google.script.run.withSuccessHandler(function(images) {
+            galleryLoading.style.display = 'none';
+            if (images.length === 0) { 
+                galleryGrid.innerHTML = '<p style="color:#888; text-align:center; grid-column: 1 / -1;">Gallery is empty.</p>'; 
+                return; 
+            }
+            
+            images.forEach(function(img) {
+                const item = document.createElement('div'); 
+                item.className = 'gallery-item ' + (galleryMode.includes('picker') ? 'picker-mode' : '');
+                
+                let inner = `<img src="${img.url}" class="gallery-img" title="${img.name}">`;
+                if (galleryMode.includes('picker')) {
+                    inner += `<div class="gallery-overlay-select">Select</div>`;
+                }
+                item.innerHTML = inner;
+                
+                item.addEventListener('click', function() {
+                   if (galleryMode === 'images-picker') { 
+                       executeImageReplacement(img.url, false); 
+                   } else if (galleryMode === 'maps-picker') { 
+                       applyMapImage(img.url); 
+                   } else {
+                       if(selectedGalleryImages.has(img.id)) { 
+                           selectedGalleryImages.delete(img.id); 
+                           item.classList.remove('selected'); 
+                       } else { 
+                           selectedGalleryImages.add(img.id); 
+                           item.classList.add('selected'); 
+                       }
+                       updateDeleteSelectedBtn();
+                   }
+                });
+                galleryGrid.appendChild(item);
+            });
+        }).getGalleryImages(folderType);
+    }
+
+    document.getElementById('deleteSelectedGalleryBtn').addEventListener('click', function() {
+        if(selectedGalleryImages.size === 0) return;
+        if(confirm(`Are you sure you want to permanently delete ${selectedGalleryImages.size} file(s) from Google Drive?`)) {
+            galleryLoading.style.display = 'block'; 
+            galleryLoading.innerText = 'Deleting...';
+            google.script.run.withSuccessHandler(function() { 
+                galleryLoading.innerText = 'Loading from Google Drive...';
+                selectedGalleryImages.clear(); 
+                updateDeleteSelectedBtn(); 
+                refreshGallery(); 
+            }).deleteGalleryImages(Array.from(selectedGalleryImages));
+        }
+    });
+
+    function processGalleryUploads(files) {
+        if (!files || files.length === 0) return;
+        const statusText = document.getElementById('galleryUploadStatus'); 
+        let currentIndex = 0;
+        const folderType = galleryMode.includes('maps') ? 'maps' : 'images';
+        
+        function uploadNext() {
+            if (currentIndex >= files.length) { 
+                statusText.innerText = "Drop files here or Click to upload to Drive"; 
+                refreshGallery(); 
+                document.getElementById('galleryUploadInput').value = ''; 
+                return; 
+            }
+            statusText.innerText = `Uploading image ${currentIndex + 1} of ${files.length}...`;
+            const file = files[currentIndex]; 
+            const reader = new FileReader();
+            
+            reader.onload = function(event) {
+                const base64Data = event.target.result; 
+                const filename = `GalleryImg_${Date.now()}_${currentIndex}.png`;
+                google.script.run.withSuccessHandler(function(res) { 
+                    currentIndex++; 
+                    uploadNext(); 
+                }).uploadImageToDrive(base64Data, filename, folderType);
+            }; 
+            reader.readAsDataURL(file);
+        } 
+        uploadNext();
+    }
+    
+    const galleryDropZone = document.getElementById('galleryUploadDrop');
+    
+    galleryDropZone.addEventListener('click', function() { 
+        document.getElementById('galleryUploadInput').click(); 
+    });
+    
+    document.getElementById('galleryUploadInput').addEventListener('change', function(e) { 
+        if (e.target.files.length > 0) {
+            processGalleryUploads(e.target.files); 
+        }
+    });
+    
+    galleryDropZone.addEventListener('dragover', function(e) { 
+        e.preventDefault(); 
+        galleryDropZone.style.borderColor = "var(--accent-color)"; 
+    });
+    
+    galleryDropZone.addEventListener('dragleave', function(e) { 
+        e.preventDefault(); 
+        galleryDropZone.style.borderColor = "var(--node-border)"; 
+    });
+    
+    galleryDropZone.addEventListener('drop', function(e) { 
+        e.preventDefault(); 
+        galleryDropZone.style.borderColor = "var(--node-border)"; 
+        if (e.dataTransfer.files.length > 0) {
+            processGalleryUploads(e.dataTransfer.files); 
+        }
+    });
+
+    function applyMapImage(url) {
+        const mapName = prompt("Name this Map:", "My Map");
+        if(mapName !== null) {
+            nodeData[activeEditNodeId].mapImage = url;
+            nodeData[activeEditNodeId].mapName = mapName.trim() || 'Unnamed Map';
+            refreshMapSidePanelUI();
+            galleryModal.classList.add('hidden'); 
+            saveToServer();
+        }
+    }
+    
+    document.getElementById('removeSideMapBtn').addEventListener('click', function() {
+        if(confirm("Are you sure you want to remove this map from the node? All specific map drawings will be deleted.")) {
+            nodeData[activeEditNodeId].mapImage = null; 
+            nodeData[activeEditNodeId].mapName = ''; 
+            nodeData[activeEditNodeId].mapDrawings = [];
+            refreshMapSidePanelUI(); 
+            saveToServer();
+        }
+    });
+
+    document.getElementById('openGlobalVideosBtn').addEventListener('click', function() { 
+        renderGlobalVideos(); 
+        globalVideoModal.classList.remove('hidden'); 
+    });
+    
+    document.getElementById('closeGlobalVideoModal').addEventListener('click', function(e) { 
+        e.stopPropagation();
+        globalVideoModal.classList.add('hidden'); 
+    });
+    
+    document.getElementById('addGlobalVideoBtn').addEventListener('click', function() {
+        const url = document.getElementById('newVideoUrl').value; 
+        const name = document.getElementById('newVideoName').value || 'Video Ref';
+        const ytId = extractVideoID(url); 
+        
+        if(!ytId) { 
+            alert("Invalid YouTube URL"); 
+            return; 
+        }
+        
+        globalVideos.push({ 
+            id: ytId, 
+            name: name, 
+            date: new Date().toLocaleDateString(), 
+            author: currentUserName 
+        });
+        
+        document.getElementById('newVideoUrl').value = ''; 
+        document.getElementById('newVideoName').value = ''; 
+        saveToServer(); 
+        renderGlobalVideos();
+    });
+
+    function renderGlobalVideos() {
+        const list = document.getElementById('globalVideoList'); 
+        list.innerHTML = '';
+        
+        if(globalVideos.length === 0) { 
+            list.innerHTML = '<p style="color:#888; text-align:center;">Video library is empty.</p>'; 
+            return; 
+        }
+        
+        globalVideos.forEach(function(v) {
+            const el = document.createElement('div'); 
+            el.className = 'video-list-item';
+            el.innerHTML = `
+                <img src="https://img.youtube.com/vi/${v.id}/mqdefault.jpg">
+                <div><h4>${v.name}</h4><p>Added by ${v.author} on ${v.date}</p></div>
+                <button class="danger-btn" style="margin-left:auto;" onclick="deleteGlobalVideo('${v.id}')">Delete</button>
+            `;
+            list.appendChild(el);
+        });
+    }
+    
+    window.deleteGlobalVideo = function(id) { 
+        if(confirm("Are you sure you want to delete this from the Global Library? Any nodes actively using it will lose their reference.")) { 
+            globalVideos = globalVideos.filter(function(v) {
+                return v.id !== id;
+            }); 
+            saveToServer(); 
+            renderGlobalVideos(); 
+            refreshColumnVideos(); 
+        } 
+    };
+
+    function refreshColumnVideos() {
+        const data = nodeData[activeEditNodeId];
+        if(!data || !data.videos) return;
+        
+        ['enfoque', 'accion', 'descripcion'].forEach(function(col) {
+            const wrapper = document.querySelector(`.col-video-header[data-col="${col}"]`);
+            const addBtn = wrapper.querySelector('.add-col-video-btn');
+            const thumb = wrapper.querySelector('.col-video-thumb');
+            const vData = data.videos[col];
+            
+            if(vData && vData.globalId) {
+                const gv = globalVideos.find(function(g) {
+                    return g.id === vData.globalId;
+                });
+                
+                if(gv) {
+                    addBtn.classList.add('hidden'); 
+                    thumb.classList.remove('hidden');
+                    thumb.querySelector('.col-vid-img').src = `https://img.youtube.com/vi/${gv.id}/default.jpg`;
+                    thumb.querySelector('.col-vid-name').innerText = gv.name; 
+                    return;
+                }
+            }
+            
+            addBtn.classList.remove('hidden'); 
+            thumb.classList.add('hidden');
+        });
+    }
+
+    document.querySelectorAll('.add-col-video-btn').forEach(function(btn) {
+        btn.addEventListener('click', function() {
+            if(globalVideos.length === 0) { 
+                alert("No videos in global library. Add one first."); 
+                return; 
+            }
+            activeVideoColumn = this.closest('.col-video-header').dataset.col;
+            renderVideoSelectionModal();
+            videoSelectionModal.classList.remove('hidden');
+        });
+    });
+    
+    document.getElementById('cancelVideoSelectBtn').addEventListener('click', function() {
+        videoSelectionModal.classList.add('hidden');
+        activeVideoColumn = null;
+        pendingVideoGlobalId = null;
+    });
+    
+    document.getElementById('closeVideoSelectModalBtn').addEventListener('click', function(e) {
+        e.stopPropagation();
+        videoSelectionModal.classList.add('hidden');
+        activeVideoColumn = null;
+        pendingVideoGlobalId = null;
+    });
+    
+    document.getElementById('shortcutToVideoLibBtn').addEventListener('click', function() {
+        videoSelectionModal.classList.add('hidden');
+        renderGlobalVideos(); 
+        globalVideoModal.classList.remove('hidden'); 
+    });
+    
+    function renderVideoSelectionModal() {
+        const list = document.getElementById('videoSelectionList');
+        list.innerHTML = '';
+        pendingVideoGlobalId = null;
+        document.getElementById('confirmVideoSelectBtn').disabled = true;
+        
+        globalVideos.forEach(function(v) {
+            const el = document.createElement('div');
+            el.className = 'vid-select-item';
+            el.innerHTML = `
+                <img src="https://img.youtube.com/vi/${v.id}/default.jpg">
+                <div><strong>${v.name}</strong></div>
+            `;
+            el.addEventListener('click', function() {
+                document.querySelectorAll('.vid-select-item').forEach(function(i) {
+                    i.classList.remove('selected-vid');
+                });
+                el.classList.add('selected-vid');
+                pendingVideoGlobalId = v.id;
+                document.getElementById('confirmVideoSelectBtn').disabled = false;
+            });
+            list.appendChild(el);
+        });
+    }
+    
+    document.getElementById('confirmVideoSelectBtn').addEventListener('click', function() {
+        if(pendingVideoGlobalId && activeVideoColumn) {
+            nodeData[activeEditNodeId].videos[activeVideoColumn] = { 
+                globalId: pendingVideoGlobalId, 
+                snapshots: [] 
+            };
+            saveToServer(); 
+            refreshColumnVideos();
+            videoSelectionModal.classList.add('hidden');
+        }
+    });
+
+    document.querySelectorAll('.remove-vid-btn').forEach(function(btn) {
+        btn.addEventListener('click', function(e) {
+            e.stopPropagation();
+            if(confirm("Are you sure you want to remove this video reference?")) {
+                const col = this.closest('.col-video-header').dataset.col;
+                nodeData[activeEditNodeId].videos[col] = null;
+                saveToServer(); 
+                refreshColumnVideos();
+            }
+        });
+    });
+
+    document.querySelectorAll('.edit-vid-btn').forEach(function(btn) {
+        btn.addEventListener('click', function(e) {
+            e.stopPropagation();
+            const col = this.closest('.col-video-header').dataset.col;
+            openVideoPlayer(col);
+        });
+    });
+
+    // --- VIDEO PLAYER & SNAPSHOTS ---
+    window.openVideoPlayer = function(columnKey) {
+        activeVideoColumn = columnKey; 
+        const vData = nodeData[activeEditNodeId].videos[activeVideoColumn];
+        
+        const gv = globalVideos.find(function(g) {
+            return g.id === vData.globalId;
+        }); 
+        
+        document.getElementById('videoPlayerTitle').innerText = gv.name + ` (${columnKey.toUpperCase()})`;
+        
+        const snapBtn = document.getElementById('takeSnapshotBtn');
+        snapBtn.disabled = true;
+        snapBtn.style.opacity = '0.5';
+        snapBtn.innerText = "Timestamp (Pause to Mark)";
+        
+        if(ytPlayer) { 
+            ytPlayer.loadVideoById(vData.globalId); 
+        } else { 
+            ytPlayer = new YT.Player('ytPlayer', { 
+                height: '100%', 
+                width: '100%', 
+                videoId: vData.globalId, 
+                playerVars: { 'vq': 'hd720', 'autoplay': 1 },
+                events: {
+                    'onStateChange': onPlayerStateChange
+                }
+            }); 
+        }
+        
+        renderSnapshots(); 
+        videoPlayerModal.classList.remove('hidden');
+    };
+    
+    document.getElementById('closeVideoPlayerModal').addEventListener('click', function(e) { 
+        e.stopPropagation();
+        if(ytPlayer) {
+            ytPlayer.pauseVideo(); 
+        }
+        videoPlayerModal.classList.add('hidden'); 
+        activeVideoColumn = null; 
+    });
+    
+    document.getElementById('takeSnapshotBtn').addEventListener('click', function() {
+        if(!ytPlayer || !ytPlayer.getCurrentTime) return;
+        
+        const t = ytPlayer.getCurrentTime(); 
+        const vData = nodeData[activeEditNodeId].videos[activeVideoColumn];
+        
+        vData.snapshots.push({ 
+            id: `snap-${Date.now()}`, 
+            time: t, 
+            comment: 'New Comment...' 
+        });
+        
+        saveToServer(); 
+        renderSnapshots();
+    });
+
+    function formatTime(sec) { 
+        const m = Math.floor(sec / 60); 
+        const s = Math.floor(sec % 60); 
+        return `${m}:${s < 10 ? '0' : ''}${s}`; 
+    }
+    
+    function renderSnapshots() {
+        const list = document.getElementById('videoSnapshotList'); 
+        list.innerHTML = '';
+        const vData = nodeData[activeEditNodeId].videos[activeVideoColumn];
+        
+        if(!vData.snapshots || vData.snapshots.length === 0) { 
+            list.innerHTML = '<p style="color:#888; text-align:center; padding-top:20px;">No snapshots yet.</p>'; 
+            return; 
+        }
+        
+        const gv = globalVideos.find(function(g) {
+            return g.id === vData.globalId;
+        });
+        
+        vData.snapshots.sort(function(a,b) {
+            return a.time - b.time;
+        }).forEach(function(snap, i) {
+            const el = document.createElement('div'); 
+            el.className = 'snapshot-item';
+            el.innerHTML = `
+                <div style="display:flex; flex-direction:column; align-items:center; gap:5px;">
+                    <span class="snap-time" onclick="if(ytPlayer) ytPlayer.seekTo(${snap.time}, true);">${formatTime(snap.time)}</span>
+                    <img src="https://img.youtube.com/vi/${gv.id}/default.jpg" style="width: 60px; height: 34px; object-fit:cover; border-radius: 4px; cursor: pointer;" onclick="if(ytPlayer) ytPlayer.seekTo(${snap.time}, true);">
+                </div>
+                <textarea class="snap-comment" rows="3" style="resize:none;">${snap.comment}</textarea>
+                <button class="danger-btn" onclick="deleteSnapshot(${i})">X</button>
+            `;
+            
+            el.querySelector('.snap-comment').addEventListener('change', function(e) { 
+                snap.comment = e.target.value; 
+                saveToServer(); 
+            });
+            
+            list.appendChild(el);
+        });
+    }
+    
+    window.deleteSnapshot = function(idx) { 
+        if(confirm("Are you sure you want to delete this snapshot?")) {
+            nodeData[activeEditNodeId].videos[activeVideoColumn].snapshots.splice(idx, 1); 
+            saveToServer(); 
+            renderSnapshots(); 
+        }
+    };
+
+    function updateLayerVisibility() {
+       const data = nodeData[activeEditNodeId] || storedNodesData[activeEditNodeId]; 
+       if(!data) return;
+       
+      document.getElementById('count-enfoque-layer').innerText = data.pins.filter(function(p) { return p.type === 'enfoque'; }).length; 
+      document.getElementById('count-accion-layer').innerText = data.pins.filter(function(p) { return p.type === 'accion'; }).length; 
+      document.getElementById('count-descripcion-layer').innerText = data.pins.filter(function(p) { return p.type === 'descripcion'; }).length;
+      
+      document.querySelectorAll('.layer-btn').forEach(function(btn) { 
+          if(btn.dataset.layer === currentActiveLayer) {
+              btn.classList.add('active'); 
+          } else {
+              btn.classList.remove('active'); 
+          }
+      });
+      
+      document.querySelectorAll('.comment-pin').forEach(function(pin) { 
+          if(pin.classList.contains(`pin-${currentActiveLayer}`)) {
+              pin.classList.remove('pin-hidden'); 
+          } else {
+              pin.classList.add('pin-hidden'); 
+          }
+      });
+      
+      document.querySelectorAll('.drawing-figure').forEach(function(draw) { 
+          if(draw.getAttribute('data-layer') === currentActiveLayer) {
+              draw.classList.remove('layer-hidden'); 
+          } else {
+              draw.classList.add('layer-hidden'); 
+          }
+      });
+      
+      if(activeFigure && activeFigure.getAttribute('data-layer') !== currentActiveLayer) { 
+          deactivateManipulator(); 
+      }
+    }
+ 
+    document.querySelectorAll('.layer-btn').forEach(function(btn) { 
+        btn.addEventListener('click', function(e) { 
+            currentActiveLayer = e.currentTarget.dataset.layer; 
+            updateLayerVisibility(); 
+            deactivateManipulator(); 
+        }); 
+    });
+ 
+    document.getElementById('sideMapThumbImage').addEventListener('click', function() {
+        const url = nodeData[activeEditNodeId].mapImage; 
+        if(!url) return;
+        
+        fullSizeMapImage.src = url; 
+        mapModeActive = true; 
+        currentActiveLayer = 'map'; 
+        resetDrawingTools();
+        
+        function openMapModalDirect() {
+            currentOverlay = document.getElementById('mapDrawingOverlay'); 
+            currentDrawings = document.getElementById('mapDrawingCanvas'); 
+            currentManipGroup = document.getElementById('mapManipulatorGroup');
+            
+            document.getElementById('mapImageWrapper').appendChild(document.getElementById('drawingToolsMenu'));
+            
+            currentOverlay.setAttribute('viewBox', `0 0 ${fullSizeMapImage.naturalWidth || 800} ${fullSizeMapImage.naturalHeight || 600}`); 
+            renderDrawings(); 
+            document.getElementById('drawingToolsMenu').classList.remove('hidden');
+            mapViewerModal.classList.remove('hidden'); 
+        }
+        
+        if (fullSizeMapImage.complete && fullSizeMapImage.naturalWidth !== 0) {
+            openMapModalDirect();
+        } else {
+            fullSizeMapImage.onload = openMapModalDirect;
+        }
+    });
+    
+    document.getElementById('closeMapViewerModal').addEventListener('click', function(e) { 
+        e.stopPropagation();
+        mapViewerModal.classList.add('hidden'); 
+        mapModeActive = false; 
+        document.getElementById('drawingToolsMenu').classList.add('hidden'); 
+        resetDrawingTools(); 
+        deactivateManipulator(); 
+    });
+
+    dashThumbImage.addEventListener('click', function() { 
+       const data = nodeData[activeEditNodeId]; 
+       fullSizeImage.src = data.image; 
+       mapModeActive = false; 
+       currentActiveLayer = 'enfoque'; 
+       resetDrawingTools();
+       
+       document.querySelectorAll('.comment-pin').forEach(function(p) { 
+           p.remove(); 
+       }); 
+       
+       data.pins.forEach(function(pin) { 
+           renderVisualPin(pin); 
+       }); 
+       
+       function openPinningModalDirect() {
+           currentOverlay = document.getElementById('drawingOverlay'); 
+           currentDrawings = document.getElementById('drawingCanvas'); 
+           currentManipGroup = document.getElementById('manipulatorGroup');
+           
+           document.getElementById('imageWrapper').appendChild(document.getElementById('drawingToolsMenu'));
+           
+           currentOverlay.setAttribute('viewBox', `0 0 ${fullSizeImage.naturalWidth || 800} ${fullSizeImage.naturalHeight || 600}`); 
+           renderDrawings(); 
+           updateLayerVisibility(); 
+           document.getElementById('drawingToolsMenu').classList.remove('hidden');
+           pinningModal.classList.remove('hidden'); 
+       }
+       
+       if (fullSizeImage.complete && fullSizeImage.naturalWidth !== 0) {
+           openPinningModalDirect();
+       } else {
+           fullSizeImage.onload = openPinningModalDirect;
+       }
+    });
+    
+    document.getElementById('closePinningModal').addEventListener('click', function(e) { 
+        e.stopPropagation();
+        pinningModal.classList.add('hidden'); 
+        document.getElementById('drawingToolsMenu').classList.add('hidden'); 
+        refreshDashboardData(); 
+        deactivateManipulator(); 
+        resetDrawingTools(); 
+        document.getElementById('pinTooltip').classList.add('hidden'); 
+    });
+
+    imageWrapper.addEventListener('click', function(e) { 
+       if (e.target.closest('.close-btn') || 
+           e.target.closest('button') || 
+           e.target.closest('.fullscreen-controls-left') || 
+           e.target.closest('#drawingToolsMenu') || 
+           e.target.closest('.comment-pin') || 
+           e.target.closest('.manipulator-handle') || 
+           isDashboardReadOnly || 
+           currentTool !== 'none' || 
+           mapModeActive) {
+           return; 
+       }
+       
+       if(wasDraggingPin) { 
+           wasDraggingPin = false; 
+           return; 
+       }
+       if(wasDraggingFigure) { 
+           wasDraggingFigure = false; 
+           return; 
+       }
+ 
+       const rect = imageWrapper.getBoundingClientRect(); 
+       let pctX = ((e.clientX - rect.left) / rect.width) * 100; 
+       let pctY = ((e.clientY - rect.top) / rect.height) * 100; 
+       pctX = Math.max(0, Math.min(100, pctX));
+       pctY = Math.max(0, Math.min(100, pctY));
+       
+       pendingPinCoords = { x: pctX, y: pctY }; 
+       
+       pinPopup.style.left = `${e.clientX}px`; 
+       pinPopup.style.top = `${e.clientY}px`; 
+       pinPopup.classList.remove('hidden'); 
+       document.getElementById('pinTypeSelect').value = currentActiveLayer; 
+       document.getElementById('pinTypeSelect').disabled = true; 
+       document.getElementById('pinTextInput').value = ''; 
+       document.getElementById('pinTextInput').focus(); 
+    });
+    
+    document.getElementById('savePinBtn').addEventListener('click', function() { 
+        const type = document.getElementById('pinTypeSelect').value; 
+        const text = document.getElementById('pinTextInput').value; 
+        
+        if (text && pendingPinCoords) { 
+            const data = nodeData[activeEditNodeId]; 
+            data.pinCounter++; 
+            const newPin = { 
+                id: `pin-${activeEditNodeId}-${data.pinCounter}`, 
+                num: data.pinCounter, 
+                type: type, 
+                text: text, 
+                author: currentUserName, 
+                x: pendingPinCoords.x, 
+                y: pendingPinCoords.y, 
+                replies: [], 
+                review: false, 
+                done: false, 
+                edited: false 
+            }; 
+            data.pins.push(newPin); 
+            renderVisualPin(newPin); 
+            saveToServer(); 
+            updateLayerVisibility(); 
+        } 
+        pinPopup.classList.add('hidden'); 
+        pendingPinCoords = null; 
+    });
+    
+    document.getElementById('cancelPinBtn').addEventListener('click', function() { 
+        pinPopup.classList.add('hidden'); 
+        pendingPinCoords = null; 
+    });
+    
+    let activePinDrag = null; 
+    let wasDraggingPin = false; 
+    let wasDraggingFigure = false;
+    
+    function renderVisualPin(pinData) { 
+        const pin = document.createElement('div'); 
+        pin.className = `comment-pin pin-${pinData.type}`; 
+        pin.style.left = `${pinData.x}%`; 
+        pin.style.top = `${pinData.y}%`; 
+        pin.id = pinData.id; 
+        pin.innerHTML = `<span>${pinData.num}</span>`;
+        
+        pin.addEventListener('mouseenter', function() { 
+            if(currentTool === 'none' && !activePinDrag) { 
+                const tt = document.getElementById('pinTooltip'); 
+                tt.innerText = pinData.text; 
+                tt.classList.remove('hidden'); 
+                const rect = pin.getBoundingClientRect(); 
+                tt.style.left = `${rect.left + rect.width/2}px`; 
+                tt.style.top = `${rect.top - 10}px`; 
+            } 
+        });
+        
+        pin.addEventListener('mouseleave', function() { 
+            document.getElementById('pinTooltip').classList.add('hidden'); 
+        });
+        
+        pin.addEventListener('mousedown', function(e) { 
+            if(currentTool === 'none') { 
+                activePinDrag = pinData; 
+                wasDraggingPin = false; 
+                document.getElementById('pinTooltip').classList.add('hidden'); 
+                e.stopPropagation(); 
+            } 
+        });
+        
+        imageWrapper.appendChild(pin); 
+    }
+ 
+    document.addEventListener('mousemove', function(e) {
+        if(activePinDrag) {
+            wasDraggingPin = true; 
+            const rect = imageWrapper.getBoundingClientRect(); 
+            let pctX = ((e.clientX - rect.left) / rect.width) * 100; 
+            let pctY = ((e.clientY - rect.top) / rect.height) * 100; 
+            pctX = Math.max(0, Math.min(100, pctX)); 
+            pctY = Math.max(0, Math.min(100, pctY)); 
+            
+            activePinDrag.x = pctX; 
+            activePinDrag.y = pctY;
+            
+            const pinEl = document.getElementById(activePinDrag.id); 
+            if(pinEl) { 
+                pinEl.style.left = `${pctX}%`; 
+                pinEl.style.top = `${pctY}%`; 
+            }
+        }
+    });
+ 
+    window.editPin = function(pinId) { 
+        if(isDashboardReadOnly) return; 
+        const data = nodeData[activeEditNodeId] || storedNodesData[activeEditNodeId]; 
+        const pin = data.pins.find(function(p) { return p.id === pinId; }); 
+        const newText = prompt("Edit your comment:", pin.text); 
+        
+        if (newText && newText.trim() !== "" && newText !== pin.text) { 
+            pin.text = newText; 
+            pin.edited = true; 
+            refreshDashboardData(); 
+            saveToServer(); 
+        } 
+    };
+ 
+    document.getElementById('replaceImageBtn').addEventListener('click', function() { 
+        pendingImageReplaceUrl = null; 
+        document.getElementById('replaceImageWarningModal').classList.remove('hidden'); 
+    });
+    
+    document.getElementById('cancelReplaceBtn').addEventListener('click', function() { 
+        document.getElementById('replaceImageWarningModal').classList.add('hidden'); 
+        pendingImageReplaceUrl = null; 
+    });
+    
+    document.getElementById('closeReplaceWarnModal').addEventListener('click', function(e) { 
+        e.stopPropagation();
+        document.getElementById('replaceImageWarningModal').classList.add('hidden'); 
+        pendingImageReplaceUrl = null; 
+    });
+    
+    document.getElementById('confirmReplaceBtn').addEventListener('click', function() {
+        const option = document.querySelector('input[name="replaceImageOption"]:checked').value; 
+        const data = nodeData[activeEditNodeId];
+        
+        if (pendingImageReplaceUrl) { 
+            executeImageReplacement(pendingImageReplaceUrl, option === 'borrar_todo'); 
+        } else { 
+            if(option === 'borrar_todo') { 
+                data.pins = []; 
+                data.pinCounter = 0; 
+                data.drawings = []; 
+            } 
+            data.image = null; 
+            document.getElementById('replaceImageWarningModal').classList.add('hidden'); 
+            pinningModal.classList.add('hidden'); 
+            dashThumbImage.classList.add('hidden'); 
+            dashThumbImage.src = ''; 
+            dashThumbDrop.classList.remove('hidden'); 
+            dashThumbDrop.classList.add('missing-image-warning'); 
+            
+            const dropSpan = dashThumbDrop.querySelector('span'); 
+            if (dropSpan) {
+                dropSpan.innerHTML = "⚠️ Missing Image<br>Paste/Upload new image for this node"; 
+            }
+            
+            const nodeEl = document.getElementById(activeEditNodeId); 
+            const thumbImg = nodeEl.querySelector('.node-thumb'); 
+            if (thumbImg) { 
+                thumbImg.style.display = 'none'; 
+                thumbImg.src = ''; 
+            } 
+            const nodeDrop = nodeEl.querySelector('.node-image-drop'); 
+            nodeDrop.style.display = 'flex'; 
+            nodeDrop.classList.add('missing-image-warning'); 
+            nodeDrop.innerText = "⚠️ Missing Image"; 
+            
+            refreshDashboardData(); 
+            saveToServer(); 
+        } 
+        pendingImageReplaceUrl = null;
+    });
+    
+    window.toggleCheck = function(pinId, field) { 
+        if(isDashboardReadOnly) return; 
+        const data = nodeData[activeEditNodeId] || storedNodesData[activeEditNodeId]; 
+        const pin = data.pins.find(function(p) { return p.id === pinId; }); 
+        if (pin) { 
+            pin[field] = !pin[field]; 
+            saveToServer(); 
+        } 
+    }; 
+    
+    window.addReply = function(pinId) { 
+        if(isDashboardReadOnly) return; 
+        const replyText = prompt("Type your reply:"); 
+        if (replyText) { 
+            const data = nodeData[activeEditNodeId] || storedNodesData[activeEditNodeId]; 
+            const pin = data.pins.find(function(p) { return p.id === pinId; }); 
+            pin.replies.push({ author: currentUserName, text: replyText }); 
+            refreshDashboardData(); 
+            saveToServer(); 
+        } 
+    }; 
+    
+    window.deletePin = function(pinId) { 
+        if(isDashboardReadOnly) return; 
+        if (confirm("Are you sure you want to delete this pin and its replies?")) { 
+            const data = nodeData[activeEditNodeId] || storedNodesData[activeEditNodeId]; 
+            data.pins = data.pins.filter(function(p) { return p.id !== pinId; }); 
+            refreshDashboardData(); 
+            saveToServer(); 
+        } 
+    };
+ 
+    let isPathDrawing = false; 
+    let currentPathPts = []; 
+    let currentPathEl = null;
+    
+    let manipAction = null;
+    let activeFigure = null;
+    let activeTransform = null;
+    let startManipCoords = null;
+    let startManipAngle = 0;
+    let startManipScale = 1;
+    
+    document.getElementById('toggleDrawingToolsBtn').addEventListener('click', function(e) { 
+        const tBar = document.getElementById('drawingToolbar'); 
+        tBar.classList.toggle('hidden'); 
+        if(tBar.classList.contains('hidden')) { 
+            resetDrawingTools(); 
+            e.currentTarget.classList.remove('active'); 
+        } else { 
+            e.currentTarget.classList.add('active'); 
+        } 
+    });
+    
+    function resetDrawingTools() { 
+        currentTool = 'none'; 
+        pinningModal.classList.remove('drawing-mode-active', 'eraser-mode-active', 'pinning-modal-tool-active'); 
+        pinningModal.classList.add('tool-mode-none'); 
+        
+        mapViewerModal.classList.remove('drawing-mode-active', 'eraser-mode-active', 'pinning-modal-tool-active'); 
+        mapViewerModal.classList.add('tool-mode-none'); 
+        
+        document.querySelectorAll('.tool-btn').forEach(function(b) { 
+            b.classList.remove('active'); 
+        }); 
+        document.getElementById('figureMenu').classList.add('hidden'); 
+        deactivateManipulator(); 
+    }
+    
+    document.querySelectorAll('.tool-btn').forEach(function(btn) { 
+        btn.addEventListener('click', function(e) { 
+            document.querySelectorAll('.tool-btn').forEach(function(b) { 
+                b.classList.remove('active'); 
+            }); 
+            e.currentTarget.classList.add('active'); 
+            currentTool = e.currentTarget.dataset.tool; 
+            deactivateManipulator(); 
+            
+            pinningModal.classList.toggle('drawing-mode-active', currentTool !== 'none'); 
+            pinningModal.classList.toggle('eraser-mode-active', currentTool === 'eraser'); 
+            
+            mapViewerModal.classList.toggle('drawing-mode-active', currentTool !== 'none'); 
+            mapViewerModal.classList.toggle('eraser-mode-active', currentTool === 'eraser'); 
+            
+            if(currentTool !== 'none') { 
+                pinningModal.classList.add('pinning-modal-tool-active'); 
+                pinningModal.classList.remove('tool-mode-none'); 
+                mapViewerModal.classList.add('pinning-modal-tool-active'); 
+                mapViewerModal.classList.remove('tool-mode-none'); 
+            } else { 
+                pinningModal.classList.remove('pinning-modal-tool-active'); 
+                pinningModal.classList.add('tool-mode-none'); 
+                mapViewerModal.classList.remove('pinning-modal-tool-active'); 
+                mapViewerModal.classList.add('tool-mode-none'); 
+            } 
+            
+            if(currentTool === 'figure') { 
+                document.getElementById('figureMenu').classList.remove('hidden'); 
+            } else { 
+                document.getElementById('figureMenu').classList.add('hidden'); 
+            } 
+        }); 
+    });
+    
+    document.querySelectorAll('.shape-btn').forEach(function(btn) { 
+        btn.addEventListener('click', function(e) { 
+            document.querySelectorAll('.shape-btn').forEach(function(b) { 
+                b.classList.remove('active'); 
+            }); 
+            e.currentTarget.classList.add('active'); 
+            currentShape = e.currentTarget.dataset.shape; 
+            spawnFigure(currentShape); 
+        }); 
+    });
+ 
+    function getMouseSVGPoint(e) { 
+        const pt = currentOverlay.createSVGPoint(); 
+        pt.x = e.clientX; 
+        pt.y = e.clientY; 
+        const ctm = currentOverlay.getScreenCTM(); 
+        if(!ctm) {
+            return { x: e.offsetX, y: e.offsetY }; 
+        }
+        return pt.matrixTransform(ctm.inverse()); 
+    }
+    
+    function deleteDrawing(id) {
+        const data = nodeData[activeEditNodeId];
+        if (mapModeActive) {
+            data.mapDrawings = data.mapDrawings.filter(function(d) { 
+                return d.id !== id; 
+            });
+        } else {
+            data.drawings = data.drawings.filter(function(d) { 
+                return d.id !== id; 
+            });
+        }
+        
+        const el = document.getElementById(id);
+        if (el) {
+            el.remove();
+        }
+        
+        saveToServer();
+        if (activeFigure && activeFigure.id === id) {
+            deactivateManipulator();
+        }
+    }
+ 
+    document.addEventListener('mousedown', function(e) {
+        if (currentTool === 'eraser') {
+            const target = e.target.closest('.drawing-figure');
+            if (target && target.getAttribute('data-layer') === currentActiveLayer) {
+                deleteDrawing(target.id);
+            }
+            return; 
+        }
+        
+        if (e.target.closest('#manipulatorGroup') || e.target.closest('#mapManipulatorGroup')) {
+            if (!activeFigure) return;
+            e.preventDefault();
+            e.stopPropagation();
+            startManipCoords = getMouseSVGPoint(e);
+            
+            if (e.target.id.includes('manipRotate')) {
+                manipAction = 'rotate';
+                startManipAngle = activeTransform.rotate;
+            } else if (e.target.id.includes('manipScale')) {
+                manipAction = 'scale';
+                startManipScale = activeTransform.scale;
+            } else {
+                manipAction = 'move';
+            }
+            return;
+        }
+
+        if(e.target.id === 'drawingCatch' || e.target.id === 'mapDrawingCatch') {
+            if(currentTool === 'none') { 
+                deactivateManipulator(); 
+                return; 
+            }
+            if(currentTool === 'pencil') { 
+                isPathDrawing = true; 
+                currentPathPts = [getMouseSVGPoint(e)]; 
+                deactivateManipulator(); 
+                
+                const strokeW = document.getElementById('pencilThickness').value; 
+                currentPathEl = document.createElementNS('http://www.w3.org/2000/svg', 'path'); 
+                currentPathEl.setAttribute('class', 'drawing-path'); 
+                currentPathEl.setAttribute('stroke', hexColors[currentActiveLayer]); 
+                currentPathEl.setAttribute('stroke-width', strokeW); 
+                currentPathEl.setAttribute('data-layer', currentActiveLayer); 
+                currentDrawings.appendChild(currentPathEl); 
+            }
+        }
+    });
+
+    document.addEventListener('mouseover', function(e) {
+        if (currentTool === 'eraser' && e.buttons === 1) { 
+            const target = e.target.closest('.drawing-figure');
+            if (target && target.getAttribute('data-layer') === currentActiveLayer) {
+                deleteDrawing(target.id);
+            }
+        }
+    });
+ 
+    document.addEventListener('mousemove', function(e) {
+        if (isPathDrawing && e.buttons !== 1) {
+            stopDrawing();
+            return;
+        }
+
+        if (currentTool === 'eraser' && e.buttons === 1) { 
+            if (e.target.closest('#drawingOverlay') || e.target.closest('#mapDrawingOverlay')) {
+                currentOverlay.style.pointerEvents = 'none'; 
+                const hitEl = document.elementFromPoint(e.clientX, e.clientY); 
+                currentOverlay.style.pointerEvents = 'all'; 
+                
+                if (hitEl) {
+                    const target = hitEl.closest('.drawing-figure');
+                    if (target && target.getAttribute('data-layer') === currentActiveLayer) {
+                        deleteDrawing(target.id);
+                    }
+                }
+            }
+            return;
+        }
+
+        if (currentTool === 'pencil' && isPathDrawing) {
+            if (e.target.closest('#drawingOverlay') || e.target.closest('#mapDrawingOverlay')) {
+                currentPathPts.push(getMouseSVGPoint(e)); 
+                const pathString = currentPathPts.map(function(p) { 
+                    return p.x + ' ' + p.y; 
+                }).join(' L ');
+                currentPathEl.setAttribute('d', `M ${pathString}`); 
+            }
+            return;
+        }
+        
+        if (manipAction && activeFigure) {
+            const pt = getMouseSVGPoint(e);
+            const objCenterX = activeTransform.x + (activeTransform.cx || 0);
+            const objCenterY = activeTransform.y + (activeTransform.cy || 0);
+            const dx = pt.x - objCenterX;
+            const dy = pt.y - objCenterY;
+
+            if (manipAction === 'move') {
+                wasDraggingFigure = true;
+                activeTransform.x += (pt.x - startManipCoords.x);
+                activeTransform.y += (pt.y - startManipCoords.y);
+                startManipCoords = pt;
+            } else if (manipAction === 'rotate') {
+                wasDraggingFigure = true;
+                activeTransform.rotate = Math.atan2(dy, dx) * (180 / Math.PI) + 90;
+            } else if (manipAction === 'scale') {
+                wasDraggingFigure = true;
+                const currentDist = Math.sqrt(dx * dx + dy * dy);
+                const startDx = startManipCoords.x - objCenterX;
+                const startDy = startManipCoords.y - objCenterY;
+                const startDist = Math.sqrt(startDx * startDx + startDy * startDy);
+                activeTransform.scale = Math.max(0.1, startManipScale * (currentDist / startDist));
+            }
+            syncManipulator();
+        }
+    });
+ 
+    function stopDrawing() {
+        if (activePinDrag) { 
+            activePinDrag = null; 
+            saveToServer(); 
+        }
+        if(manipAction && activeFigure) { 
+            manipAction = null; 
+            saveToServer(); 
+        }
+        if(isPathDrawing) {
+            isPathDrawing = false; 
+            if(currentTool === 'pencil' && currentPathEl) {
+                try {
+                    let d = "";
+                    if (currentPathPts.length > 2) { 
+                        d = `M ${currentPathPts[0].x} ${currentPathPts[0].y}`; 
+                        for (let i = 1; i < currentPathPts.length - 2; i++) { 
+                            const xc = (currentPathPts[i].x + currentPathPts[i + 1].x) / 2; 
+                            const yc = (currentPathPts[i].y + currentPathPts[i + 1].y) / 2; 
+                            d += ` Q ${currentPathPts[i].x} ${currentPathPts[i].y}, ${xc} ${yc}`; 
+                        } 
+                        d += ` Q ${currentPathPts[currentPathPts.length-2].x} ${currentPathPts[currentPathPts.length-2].y}, ${currentPathPts[currentPathPts.length-1].x} ${currentPathPts[currentPathPts.length-1].y}`; 
+                        currentPathEl.setAttribute('d', d); 
+                    } else if(currentPathPts.length > 0) { 
+                        currentPathEl.setAttribute('d', `M ${currentPathPts[0].x} ${currentPathPts[0].y} L ${currentPathPts[0].x+1} ${currentPathPts[0].y+1}`); 
+                    }
+                    
+                    const drawId = `draw-${Date.now()}`; 
+                    let cx = 0;
+                    let cy = 0;
+                    
+                    if (currentPathPts.length > 0) {
+                        let minX = currentPathPts[0].x;
+                        let maxX = currentPathPts[0].x;
+                        let minY = currentPathPts[0].y;
+                        let maxY = currentPathPts[0].y;
+                        
+                        for (let i = 1; i < currentPathPts.length; i++) {
+                            if (currentPathPts[i].x < minX) { minX = currentPathPts[i].x; }
+                            if (currentPathPts[i].x > maxX) { maxX = currentPathPts[i].x; }
+                            if (currentPathPts[i].y < minY) { minY = currentPathPts[i].y; }
+                            if (currentPathPts[i].y > maxY) { maxY = currentPathPts[i].y; }
+                        }
+                        
+                        cx = (minX + maxX) / 2;
+                        cy = (minY + maxY) / 2;
+                    }
+                    
+                    const array = mapModeActive ? nodeData[activeEditNodeId].mapDrawings : nodeData[activeEditNodeId].drawings;
+                    
+                    array.push({ 
+                        id: drawId, 
+                        layer: currentActiveLayer, 
+                        type: 'path', 
+                        d: currentPathEl.getAttribute('d'), 
+                        stroke: hexColors[currentActiveLayer], 
+                        width: currentPathEl.getAttribute('stroke-width'), 
+                        transform: { x: 0, y: 0, scale: 1, rotate: 0, cx: cx, cy: cy } 
+                    });
+                    
+                    saveToServer(); 
+                } catch(err) {
+                    console.error("Drawing save error:", err);
+                } finally {
+                    currentPathPts = []; 
+                    currentPathEl = null; 
+                    renderDrawings(); 
+                    updateLayerVisibility();
+                }
+            }
+        }
+    }
+    
+    document.addEventListener('mouseup', function(e) {
+        if (isPathDrawing) {
+            stopDrawing();
+        }
+        if (activePinDrag) { 
+            activePinDrag = null; 
+            saveToServer(); 
+        }
+        if (manipAction && activeFigure) { 
+            manipAction = null; 
+            saveToServer(); 
+        }
+    }, true);
+    
+    window.addEventListener('mouseup', function(e) {
+        if (isPathDrawing) {
+            stopDrawing();
+        }
+    }, true);
+    
+    document.addEventListener('mouseleave', function() { 
+        if (isPathDrawing) {
+            stopDrawing(); 
+        }
+    });
+ 
+    function spawnFigure(shape) {
+        const cx = (mapModeActive ? fullSizeMapImage : fullSizeImage).naturalWidth / 2 || 250; 
+        const cy = (mapModeActive ? fullSizeMapImage : fullSizeImage).naturalHeight / 2 || 250; 
+        const color = hexColors[currentActiveLayer]; 
+        const drawId = `fig-${Date.now()}`; 
+        const data = nodeData[activeEditNodeId]; 
+        const array = mapModeActive ? data.mapDrawings : data.drawings;
+        
+        let pathD = "";
+        if (shape === 'square') {
+            pathD = "M -50 -50 L 50 -50 L 50 50 L -50 50 Z"; 
+        } else if (shape === 'circle') {
+            pathD = "M 0 -50 C 27 -50, 50 -27, 50 0 C 50 27, 27 50, 0 50 C -27 50, -50 27, -50 0 C -50 -27, -27 -50, 0 -50 Z"; 
+        } else if (shape === 'arrow') {
+            pathD = "M -30 -15 L 10 -15 L 10 -30 L 40 0 L 10 30 L 10 15 L -30 15 Z"; 
+        } else if (shape === 'line-arrow') {
+            pathD = "M -40 0 L 30 0 M 15 -15 L 40 0 L 15 15"; 
+        } else if (shape === 'speaker') {
+            pathD = "M 0 -10 L 0 10 L 15 20 L 15 -20 Z M -10 -10 L 0 -10 L 0 10 L -10 10 Z M 22 -10 Q 30 0 22 10 M 28 -20 Q 45 0 28 20"; 
+        } else if (shape === 'zoom-in') {
+            pathD = "M -20 -20 L -30 -30 M -30 -30 L -15 -30 M -30 -30 L -30 -15 M 20 -20 L 30 -30 M 30 -30 L 15 -30 M 30 -30 L 30 -15 M -20 20 L -30 30 M -30 30 L -15 30 M -30 30 L -30 15 M 20 20 L 30 30 M 30 30 L 15 30 M 30 30 L 30 15"; 
+        } else if (shape === 'zoom-out') {
+            pathD = "M -30 -30 L -20 -20 M -20 -20 L -35 -20 M -20 -20 L -20 -35 M 30 -30 L 20 -20 M 20 -20 L 35 -20 M 20 -20 L 20 -35 M -30 30 L -20 20 M -20 20 L -35 20 M -20 20 L -20 35 M 30 30 L 20 20 M 20 20 L 35 20 M 20 20 L 20 35"; 
+        } else if (shape === 'hand-cube') {
+            pathD = "M -15 0 L 0 -10 L 15 0 L 0 10 Z M -15 0 L -15 15 L 0 25 L 0 10 M 15 0 L 15 15 L 0 25 M 5 20 L 5 8 A 4 4 0 0 1 13 8 L 13 25 M 13 15 A 4 4 0 0 1 20 15 L 20 28 M 20 18 A 4 4 0 0 1 27 18 L 27 30 M 27 22 A 4 4 0 0 1 34 22 L 34 35 A 15 15 0 0 1 5 35 Z"; 
+        } else if (shape === 'human-circle') {
+            pathD = "M -25 35 A 25 8 0 1 0 25 35 A 25 8 0 1 0 -25 35 M 0 -25 A 7 7 0 1 0 0 -39 A 7 7 0 1 0 0 -25 M 0 -25 L 0 10 M -15 -10 L 15 -10 M 0 10 L -10 32 M 0 10 L 10 32";
+        }
+        
+        const newFig = { 
+            id: drawId, 
+            layer: currentActiveLayer, 
+            type: 'figure', 
+            shape: shape, 
+            d: pathD, 
+            stroke: color, 
+            transform: { x: cx, y: cy, scale: 1, rotate: 0, cx: 0, cy: 0 } 
+        };
+        
+        array.push(newFig); 
+        saveToServer(); 
+        renderDrawings(); 
+        updateLayerVisibility();
+    }
+ 
+    function renderDrawings() {
+        currentDrawings.innerHTML = ''; 
+        const data = nodeData[activeEditNodeId]; 
+        if(!data) return;
+        
+        const array = mapModeActive ? data.mapDrawings : data.drawings;
+        array.forEach(function(d) {
+            
+            const g = document.createElementNS('http://www.w3.org/2000/svg', 'g'); 
+            g.id = d.id; 
+            g.setAttribute('class', 'drawing-figure'); 
+            g.setAttribute('data-layer', d.layer);
+            
+            if (!mapModeActive && d.layer !== currentActiveLayer) {
+                g.classList.add('layer-hidden');
+            }
+            
+            const tx = d.transform && d.transform.x ? d.transform.x : 0; 
+            const ty = d.transform && d.transform.y ? d.transform.y : 0; 
+            const rot = d.transform && d.transform.rotate ? d.transform.rotate : 0; 
+            const scl = d.transform && d.transform.scale ? d.transform.scale : 1; 
+            const cx = d.transform && d.transform.cx ? d.transform.cx : 0; 
+            const cy = d.transform && d.transform.cy ? d.transform.cy : 0;
+            
+            g.setAttribute('transform', `translate(${tx}, ${ty}) translate(${cx}, ${cy}) rotate(${rot}) scale(${scl}) translate(${-cx}, ${-cy})`);
+            
+            const p = document.createElementNS('http://www.w3.org/2000/svg', 'path'); 
+            p.setAttribute('d', d.d); 
+            p.setAttribute('stroke', d.stroke); 
+            p.setAttribute('stroke-width', d.type === 'path' ? d.width : '4'); 
+            p.setAttribute('fill', 'none'); 
+            p.setAttribute('stroke-linecap', 'round'); 
+            p.setAttribute('stroke-linejoin', 'round');
+            
+            if(d.type === 'path') { 
+                const hitPath = document.createElementNS('http://www.w3.org/2000/svg', 'path'); 
+                hitPath.setAttribute('d', d.d); 
+                hitPath.setAttribute('stroke', 'transparent'); 
+                hitPath.setAttribute('stroke-width', '25'); 
+                hitPath.setAttribute('fill', 'none'); 
+                hitPath.setAttribute('class', 'drawing-path-hit');
+                g.appendChild(hitPath); 
+            }
+            
+            g.appendChild(p); 
+            currentDrawings.appendChild(g);
+            
+            g.addEventListener('mousedown', function(e) { 
+                if(currentTool === 'none' && g.getAttribute('data-layer') === currentActiveLayer) { 
+                    e.preventDefault(); 
+                    activateManipulator(g, d.transform); 
+                    manipAction = 'move'; 
+                    startManipCoords = getMouseSVGPoint(e); 
+                    wasDraggingFigure = false; 
+                    e.stopPropagation(); 
+                } 
+            });
+        });
+    }
+ 
+    function activateManipulator(figureGroup, transformData) {
+        activeFigure = figureGroup; 
+        activeTransform = transformData;
+        
+        const bbox = figureGroup.getBBox(); 
+        const pad = 10; 
+        const bx = bbox.x - pad; 
+        const by = bbox.y - pad; 
+        const bw = bbox.width + pad * 2; 
+        const bh = bbox.height + pad * 2;
+        
+        const manipBox = currentManipGroup.querySelector('#manipBox') || currentManipGroup.querySelector('#mapManipBox'); 
+        manipBox.setAttribute('x', bx); 
+        manipBox.setAttribute('y', by); 
+        manipBox.setAttribute('width', bw); 
+        manipBox.setAttribute('height', bh);
+        
+        const manipLine = currentManipGroup.querySelector('#manipLine') || currentManipGroup.querySelector('#mapManipLine'); 
+        manipLine.setAttribute('x1', bx + bw / 2); 
+        manipLine.setAttribute('y1', by); 
+        manipLine.setAttribute('x2', bx + bw / 2); 
+        manipLine.setAttribute('y2', by - 30);
+        
+        const manipRotate = currentManipGroup.querySelector('#manipRotate') || currentManipGroup.querySelector('#mapManipRotate'); 
+        manipRotate.setAttribute('cx', bx + bw / 2); 
+        manipRotate.setAttribute('cy', by - 30);
+        
+        const manipScale = currentManipGroup.querySelector('#manipScale') || currentManipGroup.querySelector('#mapManipScale'); 
+        manipScale.setAttribute('x', bx + bw - 8); 
+        manipScale.setAttribute('y', by + bh - 8);
+        
+        currentManipGroup.classList.remove('hidden'); 
+        syncManipulator();
+    }
+    
+    function deactivateManipulator() { 
+        activeFigure = null; 
+        activeTransform = null; 
+        currentManipGroup.classList.add('hidden'); 
+    }
+    
+    function syncManipulator() {
+        if(!activeFigure) return;
+        
+        const cx = activeTransform.cx || 0; 
+        const cy = activeTransform.cy || 0;
+        const transformStr = `translate(${activeTransform.x}, ${activeTransform.y}) translate(${cx}, ${cy}) rotate(${activeTransform.rotate}) scale(${activeTransform.scale}) translate(${-cx}, ${-cy})`;
+        
+        currentManipGroup.setAttribute('transform', transformStr); 
+        activeFigure.setAttribute('transform', transformStr);
+        
+        const invScale = 1 / activeTransform.scale;
+        
+        const manipLine = currentManipGroup.querySelector('#manipLine') || currentManipGroup.querySelector('#mapManipLine'); 
+        manipLine.setAttribute('stroke-width', 2 * invScale); 
+        
+        const manipBox = currentManipGroup.querySelector('#manipBox') || currentManipGroup.querySelector('#mapManipBox'); 
+        manipBox.setAttribute('stroke-width', 2 * invScale); 
+        
+        const manipRotate = currentManipGroup.querySelector('#manipRotate') || currentManipGroup.querySelector('#mapManipRotate'); 
+        manipRotate.setAttribute('r', 8 * invScale); 
+        manipRotate.setAttribute('stroke-width', 2 * invScale);
+        
+        const manipScale = currentManipGroup.querySelector('#manipScale') || currentManipGroup.querySelector('#mapManipScale'); 
+        manipScale.setAttribute('width', 16 * invScale); 
+        manipScale.setAttribute('height', 16 * invScale);
+        
+        const bbox = activeFigure.getBBox(); 
+        const bx = bbox.x - 10; 
+        const by = bbox.y - 10; 
+        const bw = bbox.width + 20; 
+        const bh = bbox.height + 20;
+        
+        manipScale.setAttribute('x', bx + bw - (8 * invScale)); 
+        manipScale.setAttribute('y', by + bh - (8 * invScale));
+    }
+ 
+    document.body.addEventListener('mousedown', function(e) {
+        if(e.target.closest('#manipulatorGroup') || e.target.closest('#mapManipulatorGroup')) {
+            if(!activeFigure) return; 
+            e.preventDefault(); 
+            e.stopPropagation(); 
+            startManipCoords = getMouseSVGPoint(e);
+            
+            if(e.target.id.includes('manipRotate')) { 
+                manipAction = 'rotate'; 
+                startManipAngle = activeTransform.rotate; 
+            } 
+            else if(e.target.id.includes('manipScale')) { 
+                manipAction = 'scale'; 
+                startManipScale = activeTransform.scale; 
+            } 
+            else { 
+                manipAction = 'move'; 
+            }
+        }
+    });
+    
+    document.addEventListener('mousemove', function(e) {
+        if(!manipAction || !activeFigure) return; 
+        
+        const pt = getMouseSVGPoint(e);
+        const objCenterX = activeTransform.x + (activeTransform.cx || 0); 
+        const objCenterY = activeTransform.y + (activeTransform.cy || 0);
+        const dx = pt.x - objCenterX; 
+        const dy = pt.y - objCenterY;
+        
+        if (manipAction === 'move') { 
+            wasDraggingFigure = true; 
+            activeTransform.x += (pt.x - startManipCoords.x); 
+            activeTransform.y += (pt.y - startManipCoords.y); 
+            startManipCoords = pt; 
+        } 
+        else if (manipAction === 'rotate') { 
+            wasDraggingFigure = true; 
+            activeTransform.rotate = Math.atan2(dy, dx) * (180 / Math.PI) + 90; 
+        } 
+        else if (manipAction === 'scale') { 
+            wasDraggingFigure = true; 
+            const currentDist = Math.sqrt(dx*dx + dy*dy); 
+            const startDx = startManipCoords.x - objCenterX; 
+            const startDy = startManipCoords.y - objCenterY; 
+            const startDist = Math.sqrt(startDx*startDx + startDy*startDy); 
+            activeTransform.scale = Math.max(0.1, startManipScale * (currentDist / startDist)); 
+        }
+        
+        syncManipulator();
+    });
+    
+  });
+</script>

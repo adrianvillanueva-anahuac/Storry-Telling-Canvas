@@ -1,0 +1,100 @@
+@import "tailwindcss";
+@custom-variant dark (&:where(.dark, .dark *));
+
+:root {
+  --color-enfoque: #2563eb;
+  --color-accion: #f97316;
+  --color-descripcion: #10b981;
+  --color-map: #f59e0b;
+}
+
+body {
+  font-family: 'DM Sans', system-ui, -apple-system, sans-serif;
+}
+
+h1, h2, h3, h4, h5, h6, .font-display {
+  font-family: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+}
+
+/* Custom Canvas Grid Background */
+.canvas-grid {
+  background-image: radial-gradient(circle, #334155 1px, transparent 1px);
+  background-size: 24px 24px;
+}
+
+.light .canvas-grid {
+  background-image: radial-gradient(circle, #cbd5e1 1px, transparent 1px);
+}
+
+/* Custom Scrollbars */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.25);
+  border-radius: 9999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(148, 163, 184, 0.45);
+}
+
+/* Pin marker triangle */
+.comment-pin::after {
+  content: '';
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  margin-left: -6px;
+  border-width: 6px;
+  border-style: solid;
+}
+
+.pin-enfoque::after {
+  border-color: var(--color-enfoque) transparent transparent transparent;
+}
+
+.pin-accion::after {
+  border-color: var(--color-accion) transparent transparent transparent;
+}
+
+.pin-descripcion::after {
+  border-color: var(--color-descripcion) transparent transparent transparent;
+}
+
+/* Figure Manipulator Styles */
+.figure-manipulator {
+  stroke: #10b981;
+  stroke-width: 2px;
+  stroke-dasharray: 4 4;
+  fill: none;
+  pointer-events: none;
+}
+
+.manipulator-handle {
+  fill: #ffffff;
+  stroke: #10b981;
+  stroke-width: 2px;
+  pointer-events: all;
+  transition: transform 0.1s;
+}
+
+.manipulator-handle:hover {
+  fill: #10b981;
+}
+
+/* Drawing tool hit areas */
+.drawing-path-hit {
+  pointer-events: stroke;
+}
+
+.eraser-mode-active #drawingCatch,
+.eraser-mode-active #mapDrawingCatch {
+  cursor: crosshair;
+}
