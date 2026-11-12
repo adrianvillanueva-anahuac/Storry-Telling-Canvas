@@ -5,6 +5,7 @@ import { Unlink, Edit3, Trash2, MessageSquare, Image as ImageIcon } from 'lucide
 interface WorkflowNodeCardProps {
   node: WorkflowNode;
   isReadOnly: boolean;
+  isHoveringContainer?: boolean;
   onStartPortDrag: (nodeId: string, port: 'top' | 'bottom' | 'left' | 'right', e: React.MouseEvent) => void;
   onOpenDashboard: (nodeId: string) => void;
   onDeleteRequest: (nodeId: string) => void;
@@ -16,6 +17,7 @@ interface WorkflowNodeCardProps {
 export const WorkflowNodeCard: React.FC<WorkflowNodeCardProps> = ({
   node,
   isReadOnly,
+  isHoveringContainer = false,
   onStartPortDrag,
   onOpenDashboard,
   onDeleteRequest,
@@ -51,19 +53,24 @@ export const WorkflowNodeCard: React.FC<WorkflowNodeCardProps> = ({
         top: node.y,
         width: 220,
       }}
-      className="absolute bg-neutral-850 dark:bg-neutral-900 border border-neutral-700/80 hover:border-blue-500/80 rounded-xl shadow-lg transition-shadow duration-200 group cursor-grab active:cursor-grabbing z-10 select-none"
+      className={`workflow-node absolute bg-neutral-850 dark:bg-neutral-900 border rounded-xl transition-[border-color,box-shadow] duration-150 group cursor-grab active:cursor-grabbing z-10 select-none ${
+        isHoveringContainer
+          ? 'border-blue-400 ring-2 ring-blue-400/70 shadow-[0_0_24px_rgba(59,130,246,0.6)]'
+          : 'border-neutral-700/80 hover:border-blue-500/80 shadow-lg'
+      }`}
     >
       {/* Floating Action Bar on Hover */}
       {!isReadOnly && (
         <div className="absolute -top-10 left-1/2 -translate-x-1/2 opacity-0 group-hover:opacity-100 transition-opacity bg-neutral-900/95 border border-neutral-700 rounded-full py-1 px-2.5 flex items-center gap-1.5 shadow-xl z-20 pointer-events-none group-hover:pointer-events-auto backdrop-blur-sm">
           {node.containerId && (
             <button
+              onMouseDown={(e) => e.stopPropagation()}
               onClick={(e) => {
                 e.stopPropagation();
                 onUnlinkContainer(node.id);
               }}
-              className="p-1 hover:bg-neutral-800 text-neutral-400 hover:text-neutral-100 rounded-full transition-colors"
-              title="Unlink from Container"
+              className="p-1 hover:bg-red-500/20 text-amber-300 hover:text-red-300 rounded-full transition-colors"
+              title="Romper conexión con el contenedor"
             >
               <Unlink className="w-3.5 h-3.5" />
             </button>
@@ -110,7 +117,7 @@ export const WorkflowNodeCard: React.FC<WorkflowNodeCardProps> = ({
               e.stopPropagation();
               onStartPortDrag(node.id, port, e);
             }}
-            className={`absolute ${posClass} w-3.5 h-3.5 rounded-full bg-neutral-900 border-2 border-blue-500 hover:bg-blue-500 hover:scale-125 cursor-crosshair z-30 transition-transform shadow-md`}
+            className={`port absolute ${posClass} w-3.5 h-3.5 rounded-full bg-neutral-900 border-2 border-blue-500 hover:bg-blue-500 hover:scale-125 cursor-crosshair z-30 transition-transform shadow-md`}
             title={`Connect from ${port}`}
           />
         );
@@ -141,7 +148,7 @@ export const WorkflowNodeCard: React.FC<WorkflowNodeCardProps> = ({
               e.stopPropagation();
               if (!isReadOnly) setIsEditingTitle(true);
             }}
-            className="text-xs font-semibold text-neutral-200 truncate cursor-text hover:text-white"
+            className="text-xs font-semibold text-neutral-200 truncate cursor-text hover:text-white flex-1 min-w-0"
             title="Double-click to rename"
           >
             {node.title || 'Scene'}

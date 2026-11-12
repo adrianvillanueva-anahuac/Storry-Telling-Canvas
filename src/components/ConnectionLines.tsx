@@ -12,13 +12,15 @@ interface ConnectionLinesProps {
     currentX: number;
     currentY: number;
   } | null;
-  onHoverConnection: (connectionId: string, clientX: number, clientY: number) => void;
+  onClickConnection?: (connectionId: string, clientX: number, clientY: number) => void;
+  onHoverConnection?: (connectionId: string, clientX: number, clientY: number) => void;
 }
 
 export const ConnectionLines: React.FC<ConnectionLinesProps> = ({
   connections,
   nodes,
   tempConnection,
+  onClickConnection,
   onHoverConnection,
 }) => {
   // Unique colors for arrow markers
@@ -36,8 +38,8 @@ export const ConnectionLines: React.FC<ConnectionLinesProps> = ({
     const x = parseFloat(node.x) || 0;
     const y = parseFloat(node.y) || 0;
     const w = 220;
-    // Standard node card height
-    const h = node.image ? 175 : 175;
+    // Exact WorkflowNodeCard rendered height (border 2 + header 37 + padding 20 + aspect-video 112)
+    const h = 171;
 
     let px = x;
     let py = y;
@@ -152,7 +154,7 @@ export const ConnectionLines: React.FC<ConnectionLinesProps> = ({
 
         return (
           <g key={conn.id} className="cursor-pointer">
-            {/* Visible rendered connection line */}
+            {/* Visible rendered connection line - immediate tracking without CSS transition delay */}
             <path
               d={pathD}
               stroke={conn.color || '#0052cc'}
@@ -161,18 +163,23 @@ export const ConnectionLines: React.FC<ConnectionLinesProps> = ({
               fill="none"
               markerEnd={markerEnd}
               markerStart={markerStart}
-              className="transition-all duration-150"
             />
 
-            {/* Wide transparent hover stroke */}
+            {/* Wide transparent hit stroke - on roll over do nothing, on click the options appear */}
             <path
               d={pathD}
               stroke="transparent"
               strokeWidth="24"
               fill="none"
-              className="pointer-events-auto"
-              onMouseEnter={(e) => onHoverConnection(conn.id, e.clientX, e.clientY)}
-              onClick={(e) => onHoverConnection(conn.id, e.clientX, e.clientY)}
+              className="pointer-events-auto cursor-pointer"
+              onClick={(e) => {
+                e.stopPropagation();
+                if (onClickConnection) {
+                  onClickConnection(conn.id, e.clientX, e.clientY);
+                } else if (onHoverConnection) {
+                  onHoverConnection(conn.id, e.clientX, e.clientY);
+                }
+              }}
             />
 
             {/* Optional label */}

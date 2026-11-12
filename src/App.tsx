@@ -62,6 +62,7 @@ import { PinningModal } from './components/modals/PinningModal';
 import { MapViewerModal } from './components/modals/MapViewerModal';
 import { ReplaceImageWarningModal } from './components/modals/ReplaceImageWarningModal';
 import { AdminConsoleModal } from './components/modals/AdminConsoleModal';
+import { DeploymentGuideModal } from './components/modals/DeploymentGuideModal';
 
 export default function App() {
   // Authentication & Role
@@ -100,11 +101,24 @@ export default function App() {
 
   // Zoom & Viewport
   const [zoom, setZoom] = useState(1);
+  const currentZoomRef = useRef(1);
+  const targetZoomRef = useRef(1);
+  const zoomVelocityRef = useRef(0);
+  const zoomRafRef = useRef<number | null>(null);
+  const lastZoomFrameTimeRef = useRef<number>(0);
+  const lastStateSyncTimeRef = useRef<number>(0);
+  const zoomAnchorRef = useRef<{
+    mouseX: number;
+    mouseY: number;
+    canvasX: number;
+    canvasY: number;
+  } | null>(null);
   const viewportRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLDivElement>(null);
 
   // Modals & Panels
   const [adminConsoleOpen, setAdminConsoleOpen] = useState(false);
+  const [deploymentGuideOpen, setDeploymentGuideOpen] = useState(false);
   const [activeEditNodeId, setActiveEditNodeId] = useState<string | null>(null);
   const [pinningNodeId, setPinningNodeId] = useState<string | null>(null);
   const [mapViewerNodeId, setMapViewerNodeId] = useState<string | null>(null);
@@ -150,6 +164,16 @@ export default function App() {
     scrollLeft: 0,
     scrollTop: 0,
   });
+
+  const [hoveredDropContainerId, setHoveredDropContainerId] = useState<string | null>(null);
+  const pendingExitContainerRef = useRef<Record<string, string>>({});
+  const dragStartContainerBoundsRef = useRef<{
+    id: string;
+    left: number;
+    top: number;
+    right: number;
+    bottom: number;
+  } | null>(null);
 
   const [activeDragElement, setActiveDragElement] = useState<{
     id: string;
@@ -248,9 +272,60 @@ export default function App() {
     };
   }, []);
 
+  // Check if an element bounding box overlaps a container with generous magnetic tolerance
+  const findOverlappingContainer = useCallback(
+    (
+      elX: number,
+      elY: number,
+      elW: number,
+      elH: number,
+      texts: Record<string, TextElement>,
+      selfId: string,
+      ignoreContainerId?: string | null
+    ): string | null => {
+      const elRight = elX + elW;
+      const elBottom = elY + elH;
+      const margin = 18;
+
+      let bestId: string | null = null;
+      let bestArea = 0;
+
+      Object.entries(texts).forEach(([tid, textEl]) => {
+        if (!textEl || textEl.mode !== 'container' || tid === selfId || tid === ignoreContainerId) return;
+        const tx = (parseFloat(textEl.x) || 0) - margin;
+        const ty = (parseFloat(textEl.y) || 0) - margin;
+        const tw = (textEl.width || 340) + margin * 2;
+        const th = (textEl.height || 240) + margin * 2;
+
+        const overlapW = Math.max(0, Math.min(elRight, tx + tw) - Math.max(elX, tx));
+        const overlapH = Math.max(0, Math.min(elBottom, ty + th) - Math.max(elY, ty));
+        const area = overlapW * overlapH;
+
+        if (overlapW >= 24 && overlapH >= 24 && area > bestArea) {
+          bestArea = area;
+          bestId = tid;
+        }
+      });
+
+      return bestId;
+    },
+    []
+  );
+
   // Update Container Bounds dynamically
   const updateContainerBounds = useCallback(
-    (state: AppState): AppState => {
+    (
+      state: AppState,
+      options?: {
+        syncToFirestore?: boolean;
+        extendOnly?: boolean;
+        forceSyncIds?: string[];
+      }
+    ): AppState => {
+      const syncToFirestore = options?.syncToFirestore ?? true;
+      const extendOnly = options?.extendOnly ?? false;
+      const forceSyncSet = new Set(options?.forceSyncIds || []);
+
       const updatedTexts = { ...state.texts };
       let hasChanges = false;
 
@@ -268,7 +343,7 @@ export default function App() {
               const nx = parseFloat(n.x) || 0;
               const ny = parseFloat(n.y) || 0;
               const nw = 220;
-              const nh = 175;
+              const nh = 171;
 
               if (nx < minX) minX = nx;
               if (ny < minY) minY = ny;
@@ -293,17 +368,39 @@ export default function App() {
           });
 
           if (hasNodes && minX !== Infinity) {
-            const newX = `${minX - 35}px`;
-            const newY = `${minY - 50}px`;
-            const newW = maxX - minX + 70;
-            const newH = maxY - minY + 85;
+            let targetLeft = minX - 35;
+            let targetTop = minY - 50;
+            let targetRight = maxX + 35;
+            let targetBottom = maxY + 35;
 
-            if (
+            if (extendOnly) {
+              const base =
+                dragStartContainerBoundsRef.current?.id === tid
+                  ? dragStartContainerBoundsRef.current
+                  : {
+                      left: parseFloat(textEl.x) || 0,
+                      top: parseFloat(textEl.y) || 0,
+                      right: (parseFloat(textEl.x) || 0) + (textEl.width || 340),
+                      bottom: (parseFloat(textEl.y) || 0) + (textEl.height || 240),
+                    };
+              targetLeft = Math.min(base.left, targetLeft);
+              targetTop = Math.min(base.top, targetTop);
+              targetRight = Math.max(base.right, targetRight);
+              targetBottom = Math.max(base.bottom, targetBottom);
+            }
+
+            const newX = `${targetLeft}px`;
+            const newY = `${targetTop}px`;
+            const newW = targetRight - targetLeft;
+            const newH = targetBottom - targetTop;
+
+            const changed =
               textEl.x !== newX ||
               textEl.y !== newY ||
               textEl.width !== newW ||
-              textEl.height !== newH
-            ) {
+              textEl.height !== newH;
+
+            if (changed) {
               hasChanges = true;
               updatedTexts[tid] = {
                 ...textEl,
@@ -312,11 +409,10 @@ export default function App() {
                 width: newW,
                 height: newH,
               };
+            }
 
-              // Sync updated container bounds to Firestore
-              if (activeProjectId) {
-                saveTextToFirestore(activeProjectId, updatedTexts[tid]);
-              }
+            if (syncToFirestore && activeProjectId && (changed || forceSyncSet.has(tid))) {
+              saveTextToFirestore(activeProjectId, updatedTexts[tid]);
             }
           }
         }
@@ -327,12 +423,44 @@ export default function App() {
     [activeProjectId]
   );
 
+  const stopZoomAnimation = useCallback(() => {
+    if (zoomRafRef.current !== null) {
+      cancelAnimationFrame(zoomRafRef.current);
+      zoomRafRef.current = null;
+    }
+    zoomVelocityRef.current = 0;
+    zoomAnchorRef.current = null;
+    targetZoomRef.current = currentZoomRef.current;
+  }, []);
+
+  const applyZoomImmediate = useCallback(
+    (newZoom: number, nextScrollLeft?: number, nextScrollTop?: number) => {
+      stopZoomAnimation();
+      const clamped = Math.max(0.2, Math.min(newZoom, 3.0));
+      currentZoomRef.current = clamped;
+      targetZoomRef.current = clamped;
+      if (canvasRef.current) {
+        canvasRef.current.style.transform = `scale(${clamped})`;
+      }
+      if (viewportRef.current) {
+        if (typeof nextScrollLeft === 'number') viewportRef.current.scrollLeft = nextScrollLeft;
+        if (typeof nextScrollTop === 'number') viewportRef.current.scrollTop = nextScrollTop;
+      }
+      setZoom(clamped);
+    },
+    [stopZoomAnimation]
+  );
+
   // Viewport helper functions
   const centerCanvas = () => {
-    setZoom(1);
     if (viewportRef.current) {
-      viewportRef.current.scrollLeft = 2500 - viewportRef.current.clientWidth / 2;
-      viewportRef.current.scrollTop = 2500 - viewportRef.current.clientHeight / 2;
+      applyZoomImmediate(
+        1,
+        2500 - viewportRef.current.clientWidth / 2,
+        2500 - viewportRef.current.clientHeight / 2
+      );
+    } else {
+      applyZoomImmediate(1);
     }
   };
 
@@ -374,38 +502,127 @@ export default function App() {
       const scaleY = viewH / height;
       const newZoom = Math.max(0.2, Math.min(Math.min(scaleX, scaleY), 2.5));
 
-      setZoom(newZoom);
       const centerX = minX + width / 2;
       const centerY = minY + height / 2;
 
-      viewportRef.current.scrollLeft = centerX * newZoom - viewW / 2;
-      viewportRef.current.scrollTop = centerY * newZoom - viewH / 2;
+      applyZoomImmediate(newZoom, centerX * newZoom - viewW / 2, centerY * newZoom - viewH / 2);
     }
   };
 
-  // Wheel zoom handler
-  const handleWheel = (e: React.WheelEvent) => {
-    if (e.ctrlKey || e.metaKey) return;
-    if (!viewportRef.current) return;
+  // Smooth spring-damped zoom animation loop (acceleration & deceleration)
+  const stepZoomAnimation = useCallback((now: number) => {
+    const dt = lastZoomFrameTimeRef.current
+      ? Math.max(0.001, Math.min((now - lastZoomFrameTimeRef.current) / 1000, 0.05))
+      : 1 / 60;
+    lastZoomFrameTimeRef.current = now;
 
-    e.preventDefault();
-    const rect = viewportRef.current.getBoundingClientRect();
-    const mouseX = e.clientX - rect.left;
-    const mouseY = e.clientY - rect.top;
+    const prevZoom = currentZoomRef.current;
+    const target = targetZoomRef.current;
 
-    const canvasX = (viewportRef.current.scrollLeft + mouseX) / zoom;
-    const canvasY = (viewportRef.current.scrollTop + mouseY) / zoom;
+    // Second-order critically damped spring for progressive acceleration & smooth deceleration
+    const stiffness = 170;
+    const damping = 26;
+    const force = (target - prevZoom) * stiffness;
+    let vel = (zoomVelocityRef.current + force * dt) * Math.exp(-damping * dt);
+    let nextZoom = prevZoom + vel * dt;
 
-    const delta = e.deltaY < 0 ? 0.08 : -0.08;
-    const newZoom = Math.max(0.2, Math.min(zoom + delta, 3.0));
+    if (nextZoom <= 0.2) {
+      nextZoom = 0.2;
+      if (vel < 0) vel = 0;
+    } else if (nextZoom >= 3.0) {
+      nextZoom = 3.0;
+      if (vel > 0) vel = 0;
+    }
 
-    setZoom(newZoom);
+    const settled = Math.abs(target - nextZoom) < 0.0005 && Math.abs(vel) < 0.0005;
+    if (settled) {
+      nextZoom = target;
+      vel = 0;
+    }
 
-    viewportRef.current.scrollLeft = canvasX * newZoom - mouseX;
-    viewportRef.current.scrollTop = canvasY * newZoom - mouseY;
+    currentZoomRef.current = nextZoom;
+    zoomVelocityRef.current = vel;
 
-    setActiveLinePopover(null);
-  };
+    const vp = viewportRef.current;
+    const canvas = canvasRef.current;
+    const anchor = zoomAnchorRef.current;
+
+    if (canvas) {
+      canvas.style.transform = `scale(${nextZoom})`;
+    }
+    if (vp && anchor) {
+      vp.scrollLeft = anchor.canvasX * nextZoom - anchor.mouseX;
+      vp.scrollTop = anchor.canvasY * nextZoom - anchor.mouseY;
+    }
+
+    if (settled || now - lastStateSyncTimeRef.current >= 60) {
+      lastStateSyncTimeRef.current = now;
+      setZoom(nextZoom);
+    }
+
+    if (settled) {
+      zoomRafRef.current = null;
+      zoomAnchorRef.current = null;
+    } else {
+      zoomRafRef.current = requestAnimationFrame(stepZoomAnimation);
+    }
+  }, []);
+
+  // Non-passive wheel listener so preventDefault works cleanly without scroll jumps
+  useEffect(() => {
+    const vp = viewportRef.current;
+    if (!vp) return;
+
+    const onWheel = (e: WheelEvent) => {
+      if (e.ctrlKey || e.metaKey) return;
+      e.preventDefault();
+
+      const rect = vp.getBoundingClientRect();
+      const mouseX = e.clientX - rect.left;
+      const mouseY = e.clientY - rect.top;
+
+      const prevAnchor = zoomAnchorRef.current;
+      if (
+        zoomRafRef.current === null ||
+        !prevAnchor ||
+        Math.abs(mouseX - prevAnchor.mouseX) > 0.5 ||
+        Math.abs(mouseY - prevAnchor.mouseY) > 0.5
+      ) {
+        const z = currentZoomRef.current;
+        zoomAnchorRef.current = {
+          mouseX,
+          mouseY,
+          canvasX: (vp.scrollLeft + mouseX) / z,
+          canvasY: (vp.scrollTop + mouseY) / z,
+        };
+      }
+
+      let normalizedDelta = e.deltaY;
+      if (e.deltaMode === 1) normalizedDelta *= 16;
+      else if (e.deltaMode === 2) normalizedDelta *= 400;
+      normalizedDelta = Math.max(-240, Math.min(240, normalizedDelta));
+
+      const zoomFactor = Math.exp(-normalizedDelta * 0.0015);
+      targetZoomRef.current = Math.max(0.2, Math.min(targetZoomRef.current * zoomFactor, 3.0));
+
+      setActiveLinePopover(null);
+
+      if (zoomRafRef.current === null) {
+        lastZoomFrameTimeRef.current = 0;
+        lastStateSyncTimeRef.current = 0;
+        zoomRafRef.current = requestAnimationFrame(stepZoomAnimation);
+      }
+    };
+
+    vp.addEventListener('wheel', onWheel, { passive: false });
+    return () => {
+      vp.removeEventListener('wheel', onWheel);
+      if (zoomRafRef.current !== null) {
+        cancelAnimationFrame(zoomRafRef.current);
+        zoomRafRef.current = null;
+      }
+    };
+  }, [stepZoomAnimation]);
 
   // Background Canvas Panning
   const handleCanvasMouseDown = (e: React.MouseEvent) => {
@@ -415,6 +632,7 @@ export default function App() {
     if (e.button !== 0 && e.button !== 1) return;
 
     if (!viewportRef.current) return;
+    stopZoomAnimation();
     setIsPanningCanvas(true);
     setPanStart({
       x: e.pageX - viewportRef.current.offsetLeft,
@@ -475,13 +693,30 @@ export default function App() {
       });
     }
 
+    const parentCid =
+      type === 'node' ? appState.nodes[id]?.containerId : appState.texts[id]?.containerId;
+    if (parentCid && appState.texts[parentCid]) {
+      const c = appState.texts[parentCid];
+      const cx = parseFloat(c.x) || 0;
+      const cy = parseFloat(c.y) || 0;
+      dragStartContainerBoundsRef.current = {
+        id: parentCid,
+        left: cx,
+        top: cy,
+        right: cx + (c.width || 340),
+        bottom: cy + (c.height || 240),
+      };
+    } else {
+      dragStartContainerBoundsRef.current = null;
+    }
+
     setActiveDragElement({
       id,
       type,
       startX: currentX,
       startY: currentY,
-      initialMouseX: (e.clientX - canvasRect.left) / zoom,
-      initialMouseY: (e.clientY - canvasRect.top) / zoom,
+      initialMouseX: (e.clientX - canvasRect.left) / currentZoomRef.current,
+      initialMouseY: (e.clientY - canvasRect.top) / currentZoomRef.current,
       childrenOffsets,
     });
 
@@ -500,43 +735,92 @@ export default function App() {
 
     if (tempConnection && canvasRef.current) {
       const cRect = canvasRef.current.getBoundingClientRect();
+      const liveZoom = currentZoomRef.current;
       setTempConnection({
         ...tempConnection,
-        currentX: (e.clientX - cRect.left) / zoom,
-        currentY: (e.clientY - cRect.top) / zoom,
+        currentX: (e.clientX - cRect.left) / liveZoom,
+        currentY: (e.clientY - cRect.top) / liveZoom,
       });
       return;
     }
 
     if (activeDragElement && canvasRef.current) {
       const cRect = canvasRef.current.getBoundingClientRect();
-      const mouseCanvasX = (e.clientX - cRect.left) / zoom;
-      const mouseCanvasY = (e.clientY - cRect.top) / zoom;
+      const liveZoom = currentZoomRef.current;
+      const mouseCanvasX = (e.clientX - cRect.left) / liveZoom;
+      const mouseCanvasY = (e.clientY - cRect.top) / liveZoom;
 
       const deltaX = mouseCanvasX - activeDragElement.initialMouseX;
       const deltaY = mouseCanvasY - activeDragElement.initialMouseY;
 
-      const newX = `${activeDragElement.startX + deltaX}px`;
-      const newY = `${activeDragElement.startY + deltaY}px`;
+      let finalX = activeDragElement.startX + deltaX;
+      let finalY = activeDragElement.startY + deltaY;
 
-      let nextState = { ...appState };
+      let nextState: AppState = {
+        ...appState,
+        nodes: { ...appState.nodes },
+        texts: { ...appState.texts },
+      };
+      let nextHoveredContainer: string | null = null;
+      let shouldExtendContainer = false;
 
       if (activeDragElement.type === 'node') {
         const node = nextState.nodes[activeDragElement.id];
         if (node) {
-          nextState.nodes = {
-            ...nextState.nodes,
-            [activeDragElement.id]: { ...node, x: newX, y: newY },
+          const elW = 220;
+          const elH = 171;
+          if (node.containerId) {
+            // Node stays attached to its container and extends container bounds dynamically as dragged
+            shouldExtendContainer = true;
+          } else {
+            nextHoveredContainer = findOverlappingContainer(
+              finalX,
+              finalY,
+              elW,
+              elH,
+              nextState.texts,
+              node.id,
+              pendingExitContainerRef.current[node.id]
+            );
+          }
+
+          nextState.nodes[activeDragElement.id] = {
+            ...node,
+            x: `${finalX}px`,
+            y: `${finalY}px`,
           };
         }
       } else {
         const textEl = nextState.texts[activeDragElement.id];
         if (textEl) {
-          nextState.texts = {
-            ...nextState.texts,
-            [activeDragElement.id]: { ...textEl, x: newX, y: newY },
+          const isContainerSelf = textEl.mode === 'container';
+          const elW = textEl.width || 220;
+          const elH = textEl.height || 100;
+
+          if (!isContainerSelf && textEl.containerId) {
+            shouldExtendContainer = true;
+          } else if (!isContainerSelf) {
+            nextHoveredContainer = findOverlappingContainer(
+              finalX,
+              finalY,
+              elW,
+              elH,
+              nextState.texts,
+              textEl.id,
+              pendingExitContainerRef.current[textEl.id]
+            );
+          }
+
+          nextState.texts[activeDragElement.id] = {
+            ...textEl,
+            x: `${finalX}px`,
+            y: `${finalY}px`,
           };
         }
+      }
+
+      if (hoveredDropContainerId !== nextHoveredContainer) {
+        setHoveredDropContainerId(nextHoveredContainer);
       }
 
       if (activeDragElement.childrenOffsets.length > 0) {
@@ -551,6 +835,13 @@ export default function App() {
         });
       }
 
+      if (shouldExtendContainer) {
+        nextState = updateContainerBounds(nextState, {
+          syncToFirestore: false,
+          extendOnly: true,
+        });
+      }
+
       setAppState(nextState);
     }
   };
@@ -562,7 +853,7 @@ export default function App() {
     }
 
     if (tempConnection && activeProjectId) {
-      const targetPortEl = (e.target as HTMLElement).closest('.port') as HTMLElement | null;
+      const targetPortEl = ((e.target as HTMLElement).closest('.port') || (e.target as HTMLElement).closest('[data-port]')) as HTMLElement | null;
       if (targetPortEl) {
         const targetNodeId = targetPortEl.getAttribute('data-node');
         const targetPort = targetPortEl.getAttribute('data-port') as 'top' | 'bottom' | 'left' | 'right';
@@ -590,36 +881,106 @@ export default function App() {
 
     if (activeDragElement && activeProjectId) {
       const el = activeDragElement;
-      let nextState = { ...appState };
-
-      const elX =
-        el.type === 'node'
-          ? parseFloat(nextState.nodes[el.id]?.x || '0')
-          : parseFloat(nextState.texts[el.id]?.x || '0');
-      const elY =
-        el.type === 'node'
-          ? parseFloat(nextState.nodes[el.id]?.y || '0')
-          : parseFloat(nextState.texts[el.id]?.y || '0');
-
-      let droppedContainerId: string | null = null;
-      Object.entries(nextState.texts).forEach(([tid, textEl]) => {
-        if (textEl.mode === 'container' && tid !== el.id) {
-          const tx = parseFloat(textEl.x) || 0;
-          const ty = parseFloat(textEl.y) || 0;
-          const tw = textEl.width || 340;
-          const th = textEl.height || 240;
-
-          if (elX >= tx && elX <= tx + tw && elY >= ty && elY <= ty + th) {
-            droppedContainerId = tid;
-          }
-        }
-      });
+      const nextState: AppState = {
+        ...appState,
+        nodes: { ...appState.nodes },
+        texts: { ...appState.texts },
+      };
+      const forceSyncIds: string[] = [];
 
       if (el.type === 'node' && nextState.nodes[el.id]) {
-        const updatedNode = { ...nextState.nodes[el.id], containerId: droppedContainerId };
+        const currNode = nextState.nodes[el.id];
+        const elX = parseFloat(currNode.x) || 0;
+        const elY = parseFloat(currNode.y) || 0;
+        const ignoredId = pendingExitContainerRef.current[el.id];
+
+        let nextContainerId = currNode.containerId;
+        if (!currNode.containerId) {
+          nextContainerId = findOverlappingContainer(
+            elX,
+            elY,
+            220,
+            171,
+            nextState.texts,
+            el.id,
+            ignoredId
+          );
+
+          // If node was unlinked and now dropped outside its old container (or into a new one), it's ready for future groupings
+          if (ignoredId) {
+            const oldContainer = nextState.texts[ignoredId];
+            const stillInOld = oldContainer
+              ? Boolean(
+                  findOverlappingContainer(
+                    elX,
+                    elY,
+                    220,
+                    171,
+                    { [ignoredId]: oldContainer },
+                    el.id
+                  )
+                )
+              : false;
+            if (!stillInOld || nextContainerId !== null) {
+              delete pendingExitContainerRef.current[el.id];
+            }
+          }
+        }
+
+        if (nextContainerId) {
+          forceSyncIds.push(nextContainerId);
+        }
+
+        const updatedNode = { ...currNode, containerId: nextContainerId };
+        nextState.nodes[el.id] = updatedNode;
         saveNodeToFirestore(activeProjectId, updatedNode);
       } else if (el.type === 'text' && nextState.texts[el.id]) {
-        const updatedText = { ...nextState.texts[el.id], containerId: droppedContainerId };
+        const currText = nextState.texts[el.id];
+        const isContainerSelf = currText.mode === 'container';
+        const elX = parseFloat(currText.x) || 0;
+        const elY = parseFloat(currText.y) || 0;
+        const elW = currText.width || 220;
+        const elH = currText.height || 100;
+        const ignoredId = pendingExitContainerRef.current[el.id];
+
+        let nextContainerId = currText.containerId;
+        if (!isContainerSelf && !currText.containerId) {
+          nextContainerId = findOverlappingContainer(
+            elX,
+            elY,
+            elW,
+            elH,
+            nextState.texts,
+            el.id,
+            ignoredId
+          );
+
+          if (ignoredId) {
+            const oldContainer = nextState.texts[ignoredId];
+            const stillInOld = oldContainer
+              ? Boolean(
+                  findOverlappingContainer(
+                    elX,
+                    elY,
+                    elW,
+                    elH,
+                    { [ignoredId]: oldContainer },
+                    el.id
+                  )
+                )
+              : false;
+            if (!stillInOld || nextContainerId !== null) {
+              delete pendingExitContainerRef.current[el.id];
+            }
+          }
+        }
+
+        if (!isContainerSelf && nextContainerId) {
+          forceSyncIds.push(nextContainerId);
+        }
+
+        const updatedText = { ...currText, containerId: isContainerSelf ? null : (nextContainerId ?? null) };
+        nextState.texts[el.id] = updatedText;
         saveTextToFirestore(activeProjectId, updatedText);
       }
 
@@ -633,7 +994,14 @@ export default function App() {
         });
       }
 
-      updateContainerBounds(nextState);
+      const boundedState = updateContainerBounds(nextState, {
+        syncToFirestore: true,
+        extendOnly: true,
+        forceSyncIds,
+      });
+      dragStartContainerBoundsRef.current = null;
+      setAppState(boundedState);
+      setHoveredDropContainerId(null);
       setActiveDragElement(null);
     }
   };
@@ -645,10 +1013,10 @@ export default function App() {
     const nodeId = `node-${Date.now()}`;
 
     const centerX = viewportRef.current
-      ? (viewportRef.current.scrollLeft + viewportRef.current.clientWidth / 2) / zoom - 110
+      ? (viewportRef.current.scrollLeft + viewportRef.current.clientWidth / 2) / currentZoomRef.current - 110
       : 2400;
     const centerY = viewportRef.current
-      ? (viewportRef.current.scrollTop + viewportRef.current.clientHeight / 2) / zoom - 80
+      ? (viewportRef.current.scrollTop + viewportRef.current.clientHeight / 2) / currentZoomRef.current - 80
       : 2400;
 
     const newNode: WorkflowNode = {
@@ -664,10 +1032,12 @@ export default function App() {
       accion: '',
       descripcion: '',
       pins: [],
+      mapPins: [],
       drawings: [],
       mapDrawings: [],
       videos: { enfoque: null, accion: null, descripcion: null },
       pinCounter: 0,
+      mapPinCounter: 0,
       containerId: null,
     };
 
@@ -680,6 +1050,13 @@ export default function App() {
     if (!curr) return;
 
     const updatedNode = { ...curr, ...updates };
+    setAppState((prev) => ({
+      ...prev,
+      nodes: {
+        ...prev.nodes,
+        [nodeId]: updatedNode,
+      },
+    }));
     saveNodeToFirestore(activeProjectId, updatedNode);
   };
 
@@ -708,10 +1085,10 @@ export default function App() {
     if (!activeProjectId) return;
     const textId = `text-${Date.now()}`;
     const centerX = viewportRef.current
-      ? (viewportRef.current.scrollLeft + viewportRef.current.clientWidth / 2) / zoom - 100
+      ? (viewportRef.current.scrollLeft + viewportRef.current.clientWidth / 2) / currentZoomRef.current - 100
       : 2400;
     const centerY = viewportRef.current
-      ? (viewportRef.current.scrollTop + viewportRef.current.clientHeight / 2) / zoom - 50
+      ? (viewportRef.current.scrollTop + viewportRef.current.clientHeight / 2) / currentZoomRef.current - 50
       : 2400;
 
     const newElement: TextElement = {
@@ -741,6 +1118,50 @@ export default function App() {
 
     const updatedText = { ...curr, ...updates };
     saveTextToFirestore(activeProjectId, updatedText);
+  };
+
+  const handleUnlinkNode = (nodeId: string) => {
+    if (!activeProjectId) return;
+    const curr = appState.nodes[nodeId];
+    if (!curr) return;
+
+    if (curr.containerId) {
+      pendingExitContainerRef.current[nodeId] = curr.containerId;
+    }
+
+    const updatedNode = { ...curr, containerId: null };
+    const nextState: AppState = {
+      ...appState,
+      nodes: {
+        ...appState.nodes,
+        [nodeId]: updatedNode,
+      },
+    };
+    saveNodeToFirestore(activeProjectId, updatedNode);
+    const boundedState = updateContainerBounds(nextState);
+    setAppState(boundedState);
+  };
+
+  const handleUnlinkText = (textId: string) => {
+    if (!activeProjectId) return;
+    const curr = appState.texts[textId];
+    if (!curr) return;
+
+    if (curr.containerId) {
+      pendingExitContainerRef.current[textId] = curr.containerId;
+    }
+
+    const updatedText = { ...curr, containerId: null };
+    const nextState: AppState = {
+      ...appState,
+      texts: {
+        ...appState.texts,
+        [textId]: updatedText,
+      },
+    };
+    saveTextToFirestore(activeProjectId, updatedText);
+    const boundedState = updateContainerBounds(nextState);
+    setAppState(boundedState);
   };
 
   const handleDeleteText = (textId: string) => {
@@ -844,13 +1265,26 @@ export default function App() {
           setTimeout(() => centerCanvas(), 150);
         }}
         onOpenAdminConsole={() => setAdminConsoleOpen(true)}
+        onOpenDeploymentGuide={() => setDeploymentGuideOpen(true)}
         onOpenGallery={(mode) => setGalleryModalState({ open: true, mode })}
         onOpenVideoLib={() => setGlobalVideoModalOpen(true)}
         onOpenArchive={() => setArchiveModalOpen(true)}
         onAddNode={handleAddNode}
         onOpenAddText={(type) => setAddTextModalState({ open: true, type })}
         onZoomChange={(type) => {
-          if (type === '100') setZoom(1);
+          if (type === '100') {
+            if (viewportRef.current) {
+              const vp = viewportRef.current;
+              const cx = vp.clientWidth / 2;
+              const cy = vp.clientHeight / 2;
+              const prevZ = currentZoomRef.current;
+              const canvasX = (vp.scrollLeft + cx) / prevZ;
+              const canvasY = (vp.scrollTop + cy) / prevZ;
+              applyZoomImmediate(1, canvasX - cx, canvasY - cy);
+            } else {
+              applyZoomImmediate(1);
+            }
+          }
           if (type === 'center') centerCanvas();
           if (type === 'fit') fitAllNodes();
         }}
@@ -861,7 +1295,6 @@ export default function App() {
       {/* Infinite Canvas Viewport */}
       <div
         ref={viewportRef}
-        onWheel={handleWheel}
         onMouseDown={handleCanvasMouseDown}
         onMouseMove={handleGlobalMouseMove}
         onMouseUp={handleGlobalMouseUp}
@@ -872,8 +1305,9 @@ export default function App() {
           style={{
             width: 5000,
             height: 5000,
-            transform: `scale(${zoom})`,
+            transform: `scale(${currentZoomRef.current})`,
             transformOrigin: '0 0',
+            willChange: 'transform',
           }}
           className="absolute inset-0 canvas-grid"
         >
@@ -882,7 +1316,7 @@ export default function App() {
             connections={appState.connections}
             nodes={appState.nodes}
             tempConnection={tempConnection}
-            onHoverConnection={(connectionId, x, y) => {
+            onClickConnection={(connectionId, x, y) => {
               setActiveLinePopover({ connectionId, x, y });
             }}
           />
@@ -897,11 +1331,12 @@ export default function App() {
                 element={element}
                 label={element.labelId ? appState.labels[element.labelId] : undefined}
                 isReadOnly={currentUser.role === 'Viewer'}
+                isDropTarget={element.mode === 'container' && hoveredDropContainerId === element.id}
                 onOpenSettings={(id, e) => {
                   setActiveTextPopover({ elementId: id, x: e.clientX, y: e.clientY });
                 }}
                 onDelete={handleDeleteText}
-                onUnlink={(id) => handleUpdateText(id, { containerId: null })}
+                onUnlink={handleUnlinkText}
                 onUpdateText={handleUpdateText}
               />
             </div>
@@ -916,11 +1351,16 @@ export default function App() {
               <WorkflowNodeCard
                 node={node}
                 isReadOnly={currentUser.role === 'Viewer'}
+                isHoveringContainer={
+                  activeDragElement?.type === 'node' &&
+                  activeDragElement.id === node.id &&
+                  Boolean(hoveredDropContainerId)
+                }
                 onStartPortDrag={(nodeId, port, e) => {
                   if (!canvasRef.current) return;
                   const cRect = canvasRef.current.getBoundingClientRect();
-                  const startX = (e.clientX - cRect.left) / zoom;
-                  const startY = (e.clientY - cRect.top) / zoom;
+                  const startX = (e.clientX - cRect.left) / currentZoomRef.current;
+                  const startY = (e.clientY - cRect.top) / currentZoomRef.current;
                   setTempConnection({
                     sourceId: nodeId,
                     sourcePort: port,
@@ -932,7 +1372,7 @@ export default function App() {
                 }}
                 onOpenDashboard={(id) => setActiveEditNodeId(id)}
                 onDeleteRequest={(id) => setDeleteWarningNodeId(id)}
-                onUnlinkContainer={(id) => handleUpdateNode(id, { containerId: null })}
+                onUnlinkContainer={handleUnlinkNode}
                 onUpdateTitle={(id, title) => handleUpdateNode(id, { title })}
                 onImagePaste={(id, file) => handleUploadNodeImage(id, file)}
               />
@@ -1012,6 +1452,14 @@ export default function App() {
         />
       )}
 
+      {/* Deployment to Firebase Hosting Guide Modal */}
+      {deploymentGuideOpen && (
+        <DeploymentGuideModal
+          projectId="massive-artwork-d07pf"
+          onClose={() => setDeploymentGuideOpen(false)}
+        />
+      )}
+
       {/* Node Dashboard Modal */}
       {activeNode && (
         <NodeDashboardModal
@@ -1061,6 +1509,8 @@ export default function App() {
       {mapViewerNode && (
         <MapViewerModal
           node={mapViewerNode}
+          currentUserName={currentUser.name}
+          isReadOnly={currentUser.role === 'Viewer'}
           onClose={() => {
             const id = mapViewerNode.id;
             setMapViewerNodeId(null);

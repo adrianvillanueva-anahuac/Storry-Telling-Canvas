@@ -1,4 +1,4 @@
-import React, { useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { CommentPin, DrawingElement, WorkflowNode } from '../../types/workflow';
 import {
   Circle,
@@ -31,6 +31,42 @@ const LAYER_COLORS = {
   enfoque: '#2563eb',
   accion: '#f97316',
   descripcion: '#10b981',
+};
+
+export const getFigureBBox = (fig: DrawingElement | undefined) => {
+  if (!fig || !fig.d) return { x: -60, y: -60, width: 120, height: 120, cx: 0, cy: 0, radius: 60 };
+  const matches = fig.d.match(/[-+]?(?:\d*\.\d+|\d+)/g);
+  if (!matches || matches.length < 2) {
+    return { x: -60, y: -60, width: 120, height: 120, cx: 0, cy: 0, radius: 60 };
+  }
+  let minX = Infinity;
+  let maxX = -Infinity;
+  let minY = Infinity;
+  let maxY = -Infinity;
+  for (let i = 0; i < matches.length - 1; i += 2) {
+    const x = parseFloat(matches[i]);
+    const y = parseFloat(matches[i + 1]);
+    if (!isNaN(x) && !isNaN(y)) {
+      if (x < minX) minX = x;
+      if (x > maxX) maxX = x;
+      if (y < minY) minY = y;
+      if (y > maxY) maxY = y;
+    }
+  }
+  if (minX === Infinity || maxX === -Infinity || minY === Infinity || maxY === -Infinity) {
+    return { x: -60, y: -60, width: 120, height: 120, cx: 0, cy: 0, radius: 60 };
+  }
+  const pad = 12;
+  const w = Math.max(30, maxX - minX);
+  const h = Math.max(30, maxY - minY);
+  const x = minX - pad;
+  const y = minY - pad;
+  const width = w + pad * 2;
+  const height = h + pad * 2;
+  const cx = minX + w / 2;
+  const cy = minY + h / 2;
+  const radius = Math.max(30, Math.sqrt((w / 2) * (w / 2) + (h / 2) * (h / 2)));
+  return { x, y, width, height, cx, cy, radius };
 };
 
 export const PinningModal: React.FC<PinningModalProps> = ({
@@ -66,12 +102,67 @@ export const PinningModal: React.FC<PinningModalProps> = ({
   // Pin dragging state
   const [draggingPinId, setDraggingPinId] = useState<string | null>(null);
 
+  // Local state for smooth, unthrottled real-time rendering
+  const [pins, setPins] = useState<CommentPin[]>(node.pins || []);
+  const [drawings, setDrawings] = useState<DrawingElement[]>(node.drawings || []);
+
+  // Image dimensions state to eliminate viewBox coordinate shifts
+  const [imageDims, setImageDims] = useState<{ width: number; height: number }>({
+    width: node.imageWidth || 0,
+    height: node.imageHeight || 0,
+  });
+
+  const initialTransformRef = useRef<{
+    x: number;
+    y: number;
+    rotate: number;
+    scale: number;
+    cx: number;
+    cy: number;
+  } | null>(null);
+  const initialDistRef = useRef<number>(1);
+  const initialAngleRef = useRef<number>(0);
+  const suppressPinClickRef = useRef<boolean>(false);
+
+  // Preload image dimensions immediately so viewBox is stable from frame 0
+  useEffect(() => {
+    if (node.image) {
+      const img = new Image();
+      img.src = node.image;
+      const onDims = () => {
+        if (img.naturalWidth && img.naturalHeight) {
+          setImageDims({ width: img.naturalWidth, height: img.naturalHeight });
+          if (node.imageWidth !== img.naturalWidth || node.imageHeight !== img.naturalHeight) {
+            onUpdateNode(node.id, {
+              imageWidth: img.naturalWidth,
+              imageHeight: img.naturalHeight,
+            });
+          }
+        }
+      };
+      if (img.complete && img.naturalWidth) {
+        onDims();
+      } else {
+        img.onload = onDims;
+      }
+    }
+  }, [node.image, node.id]);
+
+  useEffect(() => {
+    if (node.pins && !draggingPinId) {
+      setPins(node.pins);
+    }
+  }, [node.pins, draggingPinId]);
+
+  useEffect(() => {
+    if (node.drawings && !manipAction && !isDrawingPath) {
+      setDrawings(node.drawings);
+    }
+  }, [node.drawings, manipAction, isDrawingPath]);
+
   const imageWrapperRef = useRef<HTMLDivElement>(null);
   const svgOverlayRef = useRef<SVGSVGElement>(null);
   const fullSizeImageRef = useRef<HTMLImageElement>(null);
-
-  const pins = node.pins || [];
-  const drawings = node.drawings || [];
 
   const getSVGPoint = (clientX: number, clientY: number) => {
     if (!svgOverlayRef.current) return { x: 0, y: 0 };
@@ -83,11 +174,69 @@ export const PinningModal: React.FC<PinningModalProps> = ({
     return pt.matrixTransform(ctm.inverse());
   };
 
-  // Image wrapper click: create pin if tool is none
+  const handleImageLoad = (e: React.SyntheticEvent<HTMLImageElement>) => {
+    const { naturalWidth, naturalHeight } = e.currentTarget;
+    if (naturalWidth && naturalHeight) {
+      setImageDims({ width: naturalWidth, height: naturalHeight });
+      if (node.imageWidth !== naturalWidth || node.imageHeight !== naturalHeight) {
+        onUpdateNode(node.id, {
+          imageWidth: naturalWidth,
+          imageHeight: naturalHeight,
+        });
+      }
+    }
+  };
+
+  const vbWidth = imageDims.width || fullSizeImageRef.current?.naturalWidth || 800;
+  const vbHeight = imageDims.height || fullSizeImageRef.current?.naturalHeight || 600;
+
+  // Helper to detect and scale legacy drawings made when viewBox was 800x600
+  const getScalePrefix = (draw: DrawingElement) => {
+    let baseW = draw.baseWidth;
+    let baseH = draw.baseHeight;
+
+    if (!baseW || !baseH) {
+      const bbox = getFigureBBox(draw);
+      const maxX = Math.max(bbox.x + bbox.width, (draw.transform?.x || 0) + bbox.cx);
+      const maxY = Math.max(bbox.y + bbox.height, (draw.transform?.y || 0) + bbox.cy);
+
+      if (vbWidth > 950 && maxX <= 850 && maxY <= 650) {
+        baseW = 800;
+        baseH = 600;
+      } else {
+        baseW = vbWidth;
+        baseH = vbHeight;
+      }
+    }
+
+    const sx = baseW > 0 ? vbWidth / baseW : 1;
+    const sy = baseH > 0 ? vbHeight / baseH : 1;
+
+    if (Math.abs(sx - 1) > 0.001 || Math.abs(sy - 1) > 0.001) {
+      return `scale(${sx}, ${sy}) `;
+    }
+    return '';
+  };
+
+  // Image wrapper click: create pin if tool is none and not just dragging
   const handleImageClick = (e: React.MouseEvent) => {
     if (activeTool !== 'none' || isReadOnly) return;
-    if ((e.target as HTMLElement).closest('.comment-pin')) return;
-    if ((e.target as HTMLElement).closest('#manipulatorGroup')) return;
+
+    if (suppressPinClickRef.current || manipAction || draggingPinId) {
+      suppressPinClickRef.current = false;
+      return;
+    }
+
+    const target = e.target as HTMLElement;
+    if (target.closest('.comment-pin, #manipulatorGroup, [data-drawing], .manipulator-handle')) {
+      return;
+    }
+
+    // Deselect figure when clicking canvas
+    if (activeFigureId) {
+      setActiveFigureId(null);
+      return;
+    }
 
     if (!imageWrapperRef.current) return;
     const rect = imageWrapperRef.current.getBoundingClientRect();
@@ -116,8 +265,10 @@ export const PinningModal: React.FC<PinningModalProps> = ({
       edited: false,
     };
 
+    const nextPins = [...pins, newPin];
+    setPins(nextPins);
     onUpdateNode(node.id, {
-      pins: [...pins, newPin],
+      pins: nextPins,
       pinCounter: nextCounter,
     });
 
@@ -127,8 +278,8 @@ export const PinningModal: React.FC<PinningModalProps> = ({
 
   // Spawn Figure Stamp
   const spawnFigure = (shape: string) => {
-    const cx = (fullSizeImageRef.current?.naturalWidth || 800) / 2;
-    const cy = (fullSizeImageRef.current?.naturalHeight || 600) / 2;
+    const cx = vbWidth / 2;
+    const cy = vbHeight / 2;
     const color = LAYER_COLORS[activeLayer];
     const drawId = `fig-${Date.now()}`;
 
@@ -160,17 +311,58 @@ export const PinningModal: React.FC<PinningModalProps> = ({
       shape,
       d: pathD,
       stroke: color,
+      baseWidth: vbWidth,
+      baseHeight: vbHeight,
       transform: { x: cx, y: cy, scale: 1, rotate: 0, cx: 0, cy: 0 },
     };
 
-    onUpdateNode(node.id, { drawings: [...drawings, newFig] });
+    const next = [...drawings, newFig];
+    setDrawings(next);
+    onUpdateNode(node.id, { drawings: next });
     setActiveFigureId(drawId);
   };
 
   const deleteDrawing = (id: string) => {
     const next = drawings.filter((d) => d.id !== id);
+    setDrawings(next);
     onUpdateNode(node.id, { drawings: next });
     if (activeFigureId === id) setActiveFigureId(null);
+  };
+
+  // Start manipulation of active figure / path
+  const startAction = (
+    action: 'move' | 'rotate' | 'scale',
+    clientX: number,
+    clientY: number,
+    fig: DrawingElement
+  ) => {
+    suppressPinClickRef.current = true;
+    const pt = getSVGPoint(clientX, clientY);
+    const bbox = getFigureBBox(fig);
+    const originX = fig.type === 'figure' ? 0 : bbox.cx;
+    const originY = fig.type === 'figure' ? 0 : bbox.cy;
+    const currentTx = fig.transform?.x ?? 0;
+    const currentTy = fig.transform?.y ?? 0;
+    const currentRot = fig.transform?.rotate ?? 0;
+    const currentScale = fig.transform?.scale ?? 1;
+
+    const objCenterX = currentTx + originX;
+    const objCenterY = currentTy + originY;
+    const dx = pt.x - objCenterX;
+    const dy = pt.y - objCenterY;
+
+    setManipAction(action);
+    setStartManipCoords(pt);
+    initialTransformRef.current = {
+      x: currentTx,
+      y: currentTy,
+      rotate: currentRot,
+      scale: currentScale,
+      cx: originX,
+      cy: originY,
+    };
+    initialDistRef.current = Math.max(10, Math.sqrt(dx * dx + dy * dy));
+    initialAngleRef.current = Math.atan2(dy, dx) * (180 / Math.PI);
   };
 
   // Pencil path mouse events
@@ -190,58 +382,96 @@ export const PinningModal: React.FC<PinningModalProps> = ({
     if (isDrawingPath && activeTool === 'pencil') {
       const pt = getSVGPoint(e.clientX, e.clientY);
       setCurrentPathPoints((prev) => [...prev, pt]);
+      return;
     }
 
-    if (manipAction && activeFigureId && startManipCoords) {
+    if (manipAction && activeFigureId && startManipCoords && initialTransformRef.current) {
+      suppressPinClickRef.current = true;
       const activeFig = drawings.find((d) => d.id === activeFigureId);
       if (!activeFig) return;
 
       const pt = getSVGPoint(e.clientX, e.clientY);
-      const objCenterX = activeFig.transform.x + (activeFig.transform.cx || 0);
-      const objCenterY = activeFig.transform.y + (activeFig.transform.cy || 0);
+      const init = initialTransformRef.current;
+      const bbox = getFigureBBox(activeFig);
+      const originX = activeFig.type === 'figure' ? 0 : bbox.cx;
+      const originY = activeFig.type === 'figure' ? 0 : bbox.cy;
+      const objCenterX = init.x + originX;
+      const objCenterY = init.y + originY;
       const dx = pt.x - objCenterX;
       const dy = pt.y - objCenterY;
 
       if (manipAction === 'move') {
         const deltaX = pt.x - startManipCoords.x;
         const deltaY = pt.y - startManipCoords.y;
-        const updated = drawings.map((d) =>
-          d.id === activeFigureId
-            ? {
-                ...d,
-                transform: {
-                  ...d.transform,
-                  x: d.transform.x + deltaX,
-                  y: d.transform.y + deltaY,
-                },
-              }
-            : d
+        const nextX = init.x + deltaX;
+        const nextY = init.y + deltaY;
+        setDrawings((prev) =>
+          prev.map((d) =>
+            d.id === activeFigureId
+              ? {
+                  ...d,
+                  transform: {
+                    ...d.transform,
+                    x: nextX,
+                    y: nextY,
+                    cx: originX,
+                    cy: originY,
+                  },
+                }
+              : d
+          )
         );
-        onUpdateNode(node.id, { drawings: updated });
-        setStartManipCoords(pt);
       } else if (manipAction === 'rotate') {
-        const deg = Math.atan2(dy, dx) * (180 / Math.PI) + 90;
-        const updated = drawings.map((d) =>
-          d.id === activeFigureId ? { ...d, transform: { ...d.transform, rotate: deg } } : d
+        const currentAngle = Math.atan2(dy, dx) * (180 / Math.PI);
+        const angleDelta = currentAngle - initialAngleRef.current;
+        let nextRotate = (init.rotate + angleDelta) % 360;
+        if (isNaN(nextRotate)) nextRotate = 0;
+        setDrawings((prev) =>
+          prev.map((d) =>
+            d.id === activeFigureId
+              ? {
+                  ...d,
+                  transform: {
+                    ...d.transform,
+                    rotate: nextRotate,
+                    cx: originX,
+                    cy: originY,
+                  },
+                }
+              : d
+          )
         );
-        onUpdateNode(node.id, { drawings: updated });
       } else if (manipAction === 'scale') {
         const currentDist = Math.sqrt(dx * dx + dy * dy);
-        const scaleVal = Math.max(0.1, currentDist / 60);
-        const updated = drawings.map((d) =>
-          d.id === activeFigureId ? { ...d, transform: { ...d.transform, scale: scaleVal } } : d
+        const scaleRatio = currentDist / Math.max(10, initialDistRef.current);
+        let nextScale = Math.max(0.1, Math.min(10, init.scale * scaleRatio));
+        if (isNaN(nextScale)) nextScale = 1;
+        setDrawings((prev) =>
+          prev.map((d) =>
+            d.id === activeFigureId
+              ? {
+                  ...d,
+                  transform: {
+                    ...d.transform,
+                    scale: nextScale,
+                    cx: originX,
+                    cy: originY,
+                  },
+                }
+              : d
+          )
         );
-        onUpdateNode(node.id, { drawings: updated });
       }
+      return;
     }
 
     if (draggingPinId && imageWrapperRef.current) {
+      suppressPinClickRef.current = true;
       const rect = imageWrapperRef.current.getBoundingClientRect();
       const pctX = Math.max(0, Math.min(100, ((e.clientX - rect.left) / rect.width) * 100));
       const pctY = Math.max(0, Math.min(100, ((e.clientY - rect.top) / rect.height) * 100));
 
-      const updated = pins.map((p) => (p.id === draggingPinId ? { ...p, x: pctX, y: pctY } : p));
-      onUpdateNode(node.id, { pins: updated });
+      setPins((prev) => prev.map((p) => (p.id === draggingPinId ? { ...p, x: pctX, y: pctY } : p)));
     }
   };
 
@@ -272,15 +502,41 @@ export const PinningModal: React.FC<PinningModalProps> = ({
         d,
         stroke: LAYER_COLORS[activeLayer],
         width: String(pencilThickness),
+        baseWidth: vbWidth,
+        baseHeight: vbHeight,
         transform: { x: 0, y: 0, scale: 1, rotate: 0, cx: 0, cy: 0 },
       };
 
-      onUpdateNode(node.id, { drawings: [...drawings, newPath] });
+      const nextDrawings = [...drawings, newPath];
+      setDrawings(nextDrawings);
+      onUpdateNode(node.id, { drawings: nextDrawings });
       setCurrentPathPoints([]);
+      suppressPinClickRef.current = true;
+      setTimeout(() => {
+        suppressPinClickRef.current = false;
+      }, 300);
+      return;
     }
 
-    if (manipAction) setManipAction(null);
-    if (draggingPinId) setDraggingPinId(null);
+    if (manipAction) {
+      setManipAction(null);
+      setStartManipCoords(null);
+      initialTransformRef.current = null;
+      suppressPinClickRef.current = true;
+      onUpdateNode(node.id, { drawings });
+      setTimeout(() => {
+        suppressPinClickRef.current = false;
+      }, 300);
+    }
+
+    if (draggingPinId) {
+      setDraggingPinId(null);
+      suppressPinClickRef.current = true;
+      onUpdateNode(node.id, { pins });
+      setTimeout(() => {
+        suppressPinClickRef.current = false;
+      }, 300);
+    }
   };
 
   const activeFigure = drawings.find((d) => d.id === activeFigureId);
@@ -346,15 +602,14 @@ export const PinningModal: React.FC<PinningModalProps> = ({
           ref={fullSizeImageRef}
           src={node.image || ''}
           alt={node.title}
+          onLoad={handleImageLoad}
           className="block max-w-[88vw] max-h-[85vh] object-contain select-none pointer-events-none"
         />
 
         {/* SVG Drawing & Manipulation Layer */}
         <svg
           ref={svgOverlayRef}
-          viewBox={`0 0 ${fullSizeImageRef.current?.naturalWidth || 800} ${
-            fullSizeImageRef.current?.naturalHeight || 600
-          }`}
+          viewBox={`0 0 ${vbWidth} ${vbHeight}`}
           onMouseDown={handleMouseDownSVG}
           className="absolute inset-0 w-full h-full pointer-events-auto overflow-visible"
         >
@@ -371,34 +626,44 @@ export const PinningModal: React.FC<PinningModalProps> = ({
 
           {/* Render Vector Drawings & Paths */}
           {drawings.map((draw) => {
-            const isFigureActive = draw.id === activeFigureId;
             const isVisible = draw.layer === activeLayer;
             if (!isVisible) return null;
 
-            const tx = draw.transform.x || 0;
-            const ty = draw.transform.y || 0;
-            const rot = draw.transform.rotate || 0;
-            const scl = draw.transform.scale || 1;
-            const cx = draw.transform.cx || 0;
-            const cy = draw.transform.cy || 0;
+            const bbox = getFigureBBox(draw);
+            const originX = draw.type === 'figure' ? 0 : bbox.cx;
+            const originY = draw.type === 'figure' ? 0 : bbox.cy;
+            const tx = draw.transform?.x ?? 0;
+            const ty = draw.transform?.y ?? 0;
+            const rot = draw.transform?.rotate ?? 0;
+            const scl = draw.transform?.scale ?? 1;
 
-            const transformStr = `translate(${tx}, ${ty}) translate(${cx}, ${cy}) rotate(${rot}) scale(${scl}) translate(${-cx}, ${-cy})`;
+            const scalePrefix = getScalePrefix(draw);
+
+            const transformStr =
+              draw.type === 'figure'
+                ? `${scalePrefix}translate(${tx}, ${ty}) rotate(${rot}) scale(${scl})`
+                : `${scalePrefix}translate(${tx}, ${ty}) translate(${originX}, ${originY}) rotate(${rot}) scale(${scl}) translate(${-originX}, ${-originY})`;
 
             return (
               <g
                 key={draw.id}
                 id={draw.id}
+                data-drawing="true"
                 transform={transformStr}
                 className="cursor-pointer"
                 onMouseDown={(e) => {
                   e.stopPropagation();
+                  suppressPinClickRef.current = true;
                   if (activeTool === 'eraser') {
                     deleteDrawing(draw.id);
                   } else if (activeTool === 'none') {
                     setActiveFigureId(draw.id);
-                    setManipAction('move');
-                    setStartManipCoords(getSVGPoint(e.clientX, e.clientY));
+                    startAction('move', e.clientX, e.clientY, draw);
                   }
+                }}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  suppressPinClickRef.current = true;
                 }}
               >
                 {/* Thick hit path for eraser and click detection */}
@@ -435,52 +700,93 @@ export const PinningModal: React.FC<PinningModalProps> = ({
           )}
 
           {/* Manipulator Group for selected figure */}
-          {activeFigure && (
-            <g
-              id="manipulatorGroup"
-              transform={`translate(${activeFigure.transform.x}, ${activeFigure.transform.y}) rotate(${activeFigure.transform.rotate}) scale(${activeFigure.transform.scale})`}
-            >
-              {/* Box */}
-              <rect
-                x="-60"
-                y="-60"
-                width="120"
-                height="120"
-                className="figure-manipulator"
-                onMouseDown={(e) => {
+          {activeFigure && (() => {
+            const bbox = getFigureBBox(activeFigure);
+            const originX = activeFigure.type === 'figure' ? 0 : bbox.cx;
+            const originY = activeFigure.type === 'figure' ? 0 : bbox.cy;
+            const tx = activeFigure.transform?.x ?? 0;
+            const ty = activeFigure.transform?.y ?? 0;
+            const rot = activeFigure.transform?.rotate ?? 0;
+            const scl = activeFigure.transform?.scale ?? 1;
+
+            const scalePrefix = getScalePrefix(activeFigure);
+
+            const transformStr =
+              activeFigure.type === 'figure'
+                ? `${scalePrefix}translate(${tx}, ${ty}) rotate(${rot}) scale(${scl})`
+                : `${scalePrefix}translate(${tx}, ${ty}) translate(${originX}, ${originY}) rotate(${rot}) scale(${scl}) translate(${-originX}, ${-originY})`;
+
+            return (
+              <g
+                id="manipulatorGroup"
+                data-drawing="true"
+                transform={transformStr}
+                onClick={(e) => {
                   e.stopPropagation();
-                  setManipAction('move');
-                  setStartManipCoords(getSVGPoint(e.clientX, e.clientY));
+                  suppressPinClickRef.current = true;
                 }}
-              />
-              {/* Rotate arm and handle */}
-              <line x1="0" y1="-60" x2="0" y2="-90" className="figure-manipulator" />
-              <circle
-                cx="0"
-                cy="-90"
-                r="8"
-                className="manipulator-handle cursor-crosshair"
-                onMouseDown={(e) => {
-                  e.stopPropagation();
-                  setManipAction('rotate');
-                  setStartManipCoords(getSVGPoint(e.clientX, e.clientY));
-                }}
-              />
-              {/* Scale corner */}
-              <rect
-                x="50"
-                y="50"
-                width="16"
-                height="16"
-                className="manipulator-handle cursor-nwse-resize"
-                onMouseDown={(e) => {
-                  e.stopPropagation();
-                  setManipAction('scale');
-                  setStartManipCoords(getSVGPoint(e.clientX, e.clientY));
-                }}
-              />
-            </g>
-          )}
+              >
+                {/* Box */}
+                <rect
+                  x={bbox.x}
+                  y={bbox.y}
+                  width={bbox.width}
+                  height={bbox.height}
+                  className="figure-manipulator"
+                  style={{ stroke: '#9f2727', borderColor: '#9f2727' }}
+                  onMouseDown={(e) => {
+                    e.stopPropagation();
+                    startAction('move', e.clientX, e.clientY, activeFigure);
+                  }}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    suppressPinClickRef.current = true;
+                  }}
+                />
+                {/* Rotate arm and handle */}
+                <line
+                  x1={bbox.cx}
+                  y1={bbox.y}
+                  x2={bbox.cx}
+                  y2={bbox.y - 30}
+                  className="figure-manipulator"
+                  style={{ stroke: '#9f2727' }}
+                />
+                <circle
+                  cx={bbox.cx}
+                  cy={bbox.y - 30}
+                  r="8"
+                  className="manipulator-handle cursor-crosshair"
+                  style={{ stroke: '#9f2727', borderColor: '#9f2727' }}
+                  onMouseDown={(e) => {
+                    e.stopPropagation();
+                    startAction('rotate', e.clientX, e.clientY, activeFigure);
+                  }}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    suppressPinClickRef.current = true;
+                  }}
+                />
+                {/* Scale corner */}
+                <rect
+                  x={bbox.x + bbox.width - 7}
+                  y={bbox.y + bbox.height - 7}
+                  width="14"
+                  height="14"
+                  className="manipulator-handle cursor-nwse-resize"
+                  style={{ stroke: '#9f2727', borderColor: '#9f2727' }}
+                  onMouseDown={(e) => {
+                    e.stopPropagation();
+                    startAction('scale', e.clientX, e.clientY, activeFigure);
+                  }}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    suppressPinClickRef.current = true;
+                  }}
+                />
+              </g>
+            );
+          })()}
         </svg>
 
         {/* Render Comment Pins */}

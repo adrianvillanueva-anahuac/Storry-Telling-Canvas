@@ -1,4 +1,4 @@
-import React, { useRef, useState } from 'react';
+import React, { useRef, useState, useEffect } from 'react';
 import { CommentPin, GlobalVideo, WorkflowNode } from '../../types/workflow';
 import {
   CheckSquare,
@@ -53,6 +53,12 @@ export const NodeDashboardModal: React.FC<NodeDashboardModalProps> = ({
   const [enfoqueText, setEnfoqueText] = useState(node.enfoque || '');
   const [accionText, setAccionText] = useState(node.accion || '');
   const [descripcionText, setDescripcionText] = useState(node.descripcion || '');
+
+  useEffect(() => {
+    setEnfoqueText(node.enfoque || '');
+    setAccionText(node.accion || '');
+    setDescripcionText(node.descripcion || '');
+  }, [node.id, node.enfoque, node.accion, node.descripcion]);
 
   const mainFileInputRef = useRef<HTMLInputElement>(null);
   const mapFileInputRef = useRef<HTMLInputElement>(null);
@@ -163,7 +169,13 @@ export const NodeDashboardModal: React.FC<NodeDashboardModalProps> = ({
               </button>
 
               <span className="text-[11px] text-neutral-500">
-                {node.image ? 'Click preview for Pinning' : 'No image uploaded'}
+                {mapSidePanelOpen
+                  ? node.mapImage
+                    ? 'Click map for Viewer'
+                    : 'No map uploaded'
+                  : node.image
+                  ? 'Click preview for Pinning'
+                  : 'No image uploaded'}
               </span>
             </div>
 
@@ -245,63 +257,67 @@ export const NodeDashboardModal: React.FC<NodeDashboardModalProps> = ({
               </div>
             )}
 
-            {/* Main Scene Image Box */}
-            <div className="aspect-video rounded-xl overflow-hidden bg-neutral-950 border border-neutral-800 relative group shadow-inner">
-              {node.image ? (
-                <div
-                  onClick={() => onOpenPinning(node.id)}
-                  className="w-full h-full cursor-pointer relative"
-                  title="Click to open Fullscreen Pinning and Drawing Tools"
-                >
-                  <img src={node.image} alt={node.title} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" />
-                  <div className="absolute inset-0 bg-blue-600/0 group-hover:bg-blue-600/20 transition-colors flex items-center justify-center">
-                    <span className="px-3 py-1.5 rounded-lg bg-black/80 border border-white/20 text-white text-xs font-semibold shadow-lg opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1.5">
-                      <Edit className="w-3.5 h-3.5 text-blue-400" />
-                      <span>Fullscreen Pinning & Drawings</span>
-                    </span>
-                  </div>
-                </div>
-              ) : (
-                <div
-                  onClick={() => mainFileInputRef.current?.click()}
-                  className="w-full h-full border-2 border-dashed border-neutral-700 hover:border-blue-500 flex flex-col items-center justify-center p-4 text-center cursor-pointer transition-colors"
-                >
-                  <UploadCloud className="w-8 h-8 text-neutral-500 mb-2" />
-                  <p className="text-xs font-medium text-neutral-200">Paste or drop scene image</p>
-                  <p className="text-[10px] text-neutral-500 mt-0.5">Click to browse your device</p>
-                </div>
-              )}
+            {/* Main Scene Image Box (hidden while Map Space is active) */}
+            {!mapSidePanelOpen && (
+              <>
+                <div className="aspect-video rounded-xl overflow-hidden bg-neutral-950 border border-neutral-800 relative group shadow-inner">
+                  {node.image ? (
+                    <div
+                      onClick={() => onOpenPinning(node.id)}
+                      className="w-full h-full cursor-pointer relative"
+                      title="Click to open Fullscreen Pinning and Drawing Tools"
+                    >
+                      <img src={node.image} alt={node.title} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" />
+                      <div className="absolute inset-0 bg-blue-600/0 group-hover:bg-blue-600/20 transition-colors flex items-center justify-center">
+                        <span className="px-3 py-1.5 rounded-lg bg-black/80 border border-white/20 text-white text-xs font-semibold shadow-lg opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1.5">
+                          <Edit className="w-3.5 h-3.5 text-blue-400" />
+                          <span>Fullscreen Pinning & Drawings</span>
+                        </span>
+                      </div>
+                    </div>
+                  ) : (
+                    <div
+                      onClick={() => mainFileInputRef.current?.click()}
+                      className="w-full h-full border-2 border-dashed border-neutral-700 hover:border-blue-500 flex flex-col items-center justify-center p-4 text-center cursor-pointer transition-colors"
+                    >
+                      <UploadCloud className="w-8 h-8 text-neutral-500 mb-2" />
+                      <p className="text-xs font-medium text-neutral-200">Paste or drop scene image</p>
+                      <p className="text-[10px] text-neutral-500 mt-0.5">Click to browse your device</p>
+                    </div>
+                  )}
 
-              <input
-                ref={mainFileInputRef}
-                type="file"
-                accept="image/*"
-                className="hidden"
-                onChange={(e) => {
-                  if (e.target.files && e.target.files[0]) {
-                    onUploadMainImage(e.target.files[0]);
-                  }
-                }}
-              />
-            </div>
+                  <input
+                    ref={mainFileInputRef}
+                    type="file"
+                    accept="image/*"
+                    className="hidden"
+                    onChange={(e) => {
+                      if (e.target.files && e.target.files[0]) {
+                        onUploadMainImage(e.target.files[0]);
+                      }
+                    }}
+                  />
+                </div>
 
-            {/* Main Image Actions */}
-            <div className="flex gap-2">
-              <button
-                onClick={() => mainFileInputRef.current?.click()}
-                className="flex-1 py-1.5 text-xs text-neutral-300 bg-neutral-800 hover:bg-neutral-700 rounded-lg border border-neutral-700 flex items-center justify-center gap-1.5"
-              >
-                <FolderOpen className="w-3.5 h-3.5" />
-                <span>Browse PC</span>
-              </button>
-              <button
-                onClick={onOpenGalleryPicker}
-                className="flex-1 py-1.5 text-xs font-semibold text-white bg-blue-600 hover:bg-blue-500 rounded-lg shadow-sm flex items-center justify-center gap-1.5"
-              >
-                <ImageIcon className="w-3.5 h-3.5" />
-                <span>Gallery</span>
-              </button>
-            </div>
+                {/* Main Image Actions */}
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => mainFileInputRef.current?.click()}
+                    className="flex-1 py-1.5 text-xs text-neutral-300 bg-neutral-800 hover:bg-neutral-700 rounded-lg border border-neutral-700 flex items-center justify-center gap-1.5"
+                  >
+                    <FolderOpen className="w-3.5 h-3.5" />
+                    <span>Browse PC</span>
+                  </button>
+                  <button
+                    onClick={onOpenGalleryPicker}
+                    className="flex-1 py-1.5 text-xs font-semibold text-white bg-blue-600 hover:bg-blue-500 rounded-lg shadow-sm flex items-center justify-center gap-1.5"
+                  >
+                    <ImageIcon className="w-3.5 h-3.5" />
+                    <span>Gallery</span>
+                  </button>
+                </div>
+              </>
+            )}
           </div>
 
           {/* 3 Text Columns: Enfoque, Acción, Descripción */}

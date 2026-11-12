@@ -13,6 +13,7 @@ import {
   FolderKanban,
   LogIn,
   LogOut,
+  Rocket,
 } from 'lucide-react';
 import { Project, UserProfile } from '../types/workflow';
 
@@ -26,6 +27,7 @@ interface HeaderProps {
   onToggleDark: () => void;
   onSelectProject: (projectId: string) => void;
   onOpenAdminConsole: () => void;
+  onOpenDeploymentGuide: () => void;
   onOpenGallery: (mode: 'images-manage' | 'maps-manage') => void;
   onOpenVideoLib: () => void;
   onOpenArchive: () => void;
@@ -46,6 +48,7 @@ export const Header: React.FC<HeaderProps> = ({
   onToggleDark,
   onSelectProject,
   onOpenAdminConsole,
+  onOpenDeploymentGuide,
   onOpenGallery,
   onOpenVideoLib,
   onOpenArchive,
@@ -147,18 +150,6 @@ export const Header: React.FC<HeaderProps> = ({
 
       {/* Main Workspace Actions */}
       <div className="flex items-center gap-2">
-        {/* Admin Console Button (Only for Admins) */}
-        {isAdmin && (
-          <button
-            onClick={onOpenAdminConsole}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-amber-300 bg-amber-500/10 hover:bg-amber-500/20 rounded-md border border-amber-500/30 transition-colors shadow-sm"
-            title="Open Web Admin Console to manage projects and user roles"
-          >
-            <Shield className="w-3.5 h-3.5" />
-            <span>Admin Console</span>
-          </button>
-        )}
-
         <button
           onClick={() => onOpenGallery('images-manage')}
           className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-neutral-200 bg-neutral-800/80 hover:bg-neutral-700/80 rounded-md border border-neutral-700 transition-colors"
@@ -319,6 +310,34 @@ export const Header: React.FC<HeaderProps> = ({
                   <p className="text-[10px] text-neutral-500 font-mono truncate">{user.email}</p>
                   <p className="text-[10px] text-blue-400 font-medium mt-0.5">Role: {user.role}</p>
                 </div>
+
+                {isAdmin && (
+                  <div className="p-1 border-b border-neutral-800 space-y-0.5">
+                    <button
+                      onClick={() => {
+                        setUserMenuOpen(false);
+                        onOpenAdminConsole();
+                      }}
+                      className="w-full text-left px-3 py-1.5 text-amber-300 hover:bg-neutral-800 rounded-lg flex items-center gap-2 font-medium"
+                      title="Open Web Admin Console to manage projects and user roles"
+                    >
+                      <Shield className="w-3.5 h-3.5 text-amber-400" />
+                      <span>Admin Console</span>
+                    </button>
+
+                    <button
+                      onClick={() => {
+                        setUserMenuOpen(false);
+                        onOpenDeploymentGuide();
+                      }}
+                      className="w-full text-left px-3 py-1.5 text-emerald-300 hover:bg-neutral-800 rounded-lg flex items-center gap-2 font-medium"
+                      title="Open Firebase Hosting deployment instructions and checklist"
+                    >
+                      <Rocket className="w-3.5 h-3.5 text-emerald-400" />
+                      <span>Deploy</span>
+                    </button>
+                  </div>
+                )}
 
                 <div className="p-1">
                   <button

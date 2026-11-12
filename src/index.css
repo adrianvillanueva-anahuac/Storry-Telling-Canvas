@@ -70,7 +70,8 @@ h1, h2, h3, h4, h5, h6, .font-display {
 
 /* Figure Manipulator Styles */
 .figure-manipulator {
-  stroke: #10b981;
+  stroke: #9f2727;
+  border-color: #9f2727;
   stroke-width: 2px;
   stroke-dasharray: 4 4;
   fill: none;
@@ -79,14 +80,15 @@ h1, h2, h3, h4, h5, h6, .font-display {
 
 .manipulator-handle {
   fill: #ffffff;
-  stroke: #10b981;
+  stroke: #9f2727;
+  border-color: #9f2727;
   stroke-width: 2px;
   pointer-events: all;
   transition: transform 0.1s;
 }
 
 .manipulator-handle:hover {
-  fill: #10b981;
+  fill: #9f2727;
 }
 
 /* Drawing tool hit areas */

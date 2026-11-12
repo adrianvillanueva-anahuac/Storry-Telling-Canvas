@@ -6,6 +6,7 @@ interface CanvasTextCardProps {
   element: TextElement;
   label?: LabelItem;
   isReadOnly: boolean;
+  isDropTarget?: boolean;
   onOpenSettings: (elementId: string, e: React.MouseEvent) => void;
   onDelete: (elementId: string) => void;
   onUnlink: (elementId: string) => void;
@@ -16,6 +17,7 @@ export const CanvasTextCard: React.FC<CanvasTextCardProps> = ({
   element,
   label,
   isReadOnly,
+  isDropTarget = false,
   onOpenSettings,
   onDelete,
   onUnlink,
@@ -53,9 +55,15 @@ export const CanvasTextCard: React.FC<CanvasTextCardProps> = ({
           width: element.width || 340,
           height: element.height || 240,
           borderColor: themeColor,
-          backgroundColor: `${themeColor}12`,
+          backgroundColor: isDropTarget ? `${themeColor}2b` : `${themeColor}12`,
+          boxShadow: isDropTarget
+            ? `0 0 32px 6px ${themeColor}80, inset 0 0 24px ${themeColor}33`
+            : undefined,
+          transform: isDropTarget ? 'scale(1.01)' : undefined,
         }}
-        className="absolute border-2 border-dashed rounded-2xl group z-[2] cursor-grab active:cursor-grabbing select-none transition-colors"
+        className={`canvas-text-node absolute border-2 rounded-2xl group z-[2] cursor-grab active:cursor-grabbing select-none transition-[border-color,box-shadow,background-color] duration-150 ${
+          isDropTarget ? 'border-solid ring-2 ring-white/40' : 'border-dashed'
+        }`}
       >
         {/* Container Title Tag */}
         <div
@@ -88,6 +96,16 @@ export const CanvasTextCard: React.FC<CanvasTextCardProps> = ({
             className="absolute -top-3 right-4 px-2 py-0.5 rounded-full text-white text-[10px] font-semibold shadow-md"
           >
             {label.name}
+          </div>
+        )}
+
+        {/* Drop Indicator Badge when glowing */}
+        {isDropTarget && (
+          <div
+            style={{ backgroundColor: themeColor }}
+            className="absolute bottom-2.5 right-3 px-2.5 py-1 rounded-md text-white text-[10px] font-bold tracking-wide uppercase shadow-lg pointer-events-none"
+          >
+            Soltar para agrupar
           </div>
         )}
 
@@ -130,7 +148,7 @@ export const CanvasTextCard: React.FC<CanvasTextCardProps> = ({
           top: element.y,
           width: 220,
         }}
-        className="absolute bg-amber-50 dark:bg-amber-950/80 border border-amber-300 dark:border-amber-800/80 rounded-xl p-3 shadow-md group z-10 cursor-grab active:cursor-grabbing text-neutral-900 dark:text-amber-100 select-none"
+        className="canvas-text-node absolute bg-amber-50 dark:bg-amber-950/80 border border-amber-300 dark:border-amber-800/80 rounded-xl p-3 shadow-md group z-10 cursor-grab active:cursor-grabbing text-neutral-900 dark:text-amber-100 select-none"
       >
         {/* Controls */}
         {!isReadOnly && (
@@ -231,7 +249,7 @@ export const CanvasTextCard: React.FC<CanvasTextCardProps> = ({
         fontWeight: element.bold ? 'bold' : 'normal',
         fontStyle: element.italic ? 'italic' : 'normal',
       }}
-      className="absolute group z-10 cursor-grab active:cursor-grabbing p-1.5 rounded hover:ring-1 hover:ring-neutral-700 select-none"
+      className="canvas-text-node absolute group z-10 cursor-grab active:cursor-grabbing p-1.5 rounded hover:ring-1 hover:ring-neutral-700 select-none"
     >
       {!isReadOnly && (
         <div className="absolute -top-3 -right-2 opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1 bg-neutral-900 rounded-full p-0.5 border border-neutral-700 shadow-md">

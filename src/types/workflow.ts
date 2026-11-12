@@ -25,6 +25,8 @@ export interface DrawingElement {
   d: string;
   stroke: string;
   width?: string;
+  baseWidth?: number;
+  baseHeight?: number;
   transform: {
     x: number;
     y: number;
@@ -53,12 +55,17 @@ export interface WorkflowNode {
   y: string;
   title: string;
   image: string | null;
+  imageWidth?: number;
+  imageHeight?: number;
   mapImage: string | null;
+  mapImageWidth?: number;
+  mapImageHeight?: number;
   mapName: string;
   enfoque: string;
   accion: string;
   descripcion: string;
   pins: CommentPin[];
+  mapPins?: CommentPin[];
   drawings: DrawingElement[];
   mapDrawings: DrawingElement[];
   videos: {
@@ -67,6 +74,7 @@ export interface WorkflowNode {
     descripcion: VideoRef | null;
   };
   pinCounter: number;
+  mapPinCounter?: number;
   containerId: string | null;
   storedAt?: string;
   storedBy?: string;

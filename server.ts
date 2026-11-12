@@ -1,6 +1,7 @@
 import express from 'express';
 import path from 'path';
 import fs from 'fs';
+import { execSync } from 'child_process';
 import { fileURLToPath } from 'url';
 import { createServer as createViteServer } from 'vite';
 
@@ -240,6 +241,52 @@ app.post('/api/upload', (req, res) => {
   } catch (err: any) {
     console.error('Upload error:', err);
     res.status(500).json({ error: err.message || 'Upload failed' });
+  }
+});
+
+// Download full project source zip (without node_modules, fully compatible with Windows Explorer)
+app.get('/api/download-project', (_req, res) => {
+  try {
+    const zipPath = path.join(__dirname, 'public', 'visual-workflow-canvas.zip');
+    execSync(
+      `python3 -c "
+import shutil, os, tempfile
+exclude_names = {'node_modules', '.git', '.aistudio', 'public'}
+zip_output = os.path.join('${__dirname}', 'public', 'visual-workflow-canvas')
+
+with tempfile.TemporaryDirectory() as tmpdir:
+    dest = os.path.join(tmpdir, 'visual-workflow-canvas')
+    os.makedirs(dest)
+    for item in os.listdir('${__dirname}'):
+        if item in exclude_names:
+            continue
+        src_item = os.path.join('${__dirname}', item)
+        dst_item = os.path.join(dest, item)
+        if os.path.isdir(src_item):
+            shutil.copytree(src_item, dst_item)
+        else:
+            shutil.copy2(src_item, dst_item)
+    dest_public = os.path.join(dest, 'public')
+    os.makedirs(dest_public, exist_ok=True)
+    pub_dir = os.path.join('${__dirname}', 'public')
+    if os.path.exists(pub_dir):
+        for pitem in os.listdir(pub_dir):
+            if pitem.endswith('.zip') or pitem.endswith('.tar.gz'):
+                continue
+            psrc = os.path.join(pub_dir, pitem)
+            pdst = os.path.join(dest_public, pitem)
+            if os.path.isdir(psrc):
+                shutil.copytree(psrc, pdst)
+            else:
+                shutil.copy2(psrc, pdst)
+    shutil.make_archive(zip_output, 'zip', tmpdir, 'visual-workflow-canvas')
+"`,
+      { cwd: __dirname }
+    );
+    return res.download(zipPath, 'visual-workflow-canvas.zip');
+  } catch (err: any) {
+    console.error('Error generating project zip:', err);
+    return res.status(500).json({ error: err.message || 'Failed to generate zip' });
   }
 });
 
