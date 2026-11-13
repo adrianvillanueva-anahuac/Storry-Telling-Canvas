@@ -1,7 +1,9 @@
 import React, { useRef, useState, useEffect } from 'react';
 import { CommentPin, GlobalVideo, WorkflowNode } from '../../types/workflow';
 import {
+  Archive,
   CheckSquare,
+  Clock,
   Edit,
   FolderOpen,
   Image as ImageIcon,
@@ -13,14 +15,18 @@ import {
   Video,
   X,
 } from 'lucide-react';
+import { ShreddedImageIcon } from '../icons/ShreddedImageIcon';
 
 interface NodeDashboardModalProps {
   node: WorkflowNode;
   globalVideos: GlobalVideo[];
   isReadOnly: boolean;
+  isArchived?: boolean;
   currentUserName: string;
   onClose: () => void;
   onUpdateNode: (nodeId: string, updates: Partial<WorkflowNode>) => void;
+  onDeleteNode?: (nodeId: string) => void;
+  onArchiveNode?: (nodeId: string) => void;
   onOpenPinning: (nodeId: string) => void;
   onOpenMapViewer: (nodeId: string) => void;
   onOpenGalleryPicker: () => void;
@@ -36,9 +42,12 @@ export const NodeDashboardModal: React.FC<NodeDashboardModalProps> = ({
   node,
   globalVideos,
   isReadOnly,
+  isArchived = false,
   currentUserName,
   onClose,
   onUpdateNode,
+  onDeleteNode,
+  onArchiveNode,
   onOpenPinning,
   onOpenMapViewer,
   onOpenGalleryPicker,
@@ -53,12 +62,30 @@ export const NodeDashboardModal: React.FC<NodeDashboardModalProps> = ({
   const [enfoqueText, setEnfoqueText] = useState(node.enfoque || '');
   const [accionText, setAccionText] = useState(node.accion || '');
   const [descripcionText, setDescripcionText] = useState(node.descripcion || '');
+  const [showDeletedImagePrompt, setShowDeletedImagePrompt] = useState(
+    Boolean(node.imageDeletedFromAdmin && !node.image && !isReadOnly && !isArchived)
+  );
+  const [confirmPermanentDelete, setConfirmPermanentDelete] = useState(false);
 
   useEffect(() => {
     setEnfoqueText(node.enfoque || '');
     setAccionText(node.accion || '');
     setDescripcionText(node.descripcion || '');
   }, [node.id, node.enfoque, node.accion, node.descripcion]);
+
+  useEffect(() => {
+    setShowDeletedImagePrompt(
+      Boolean(node.imageDeletedFromAdmin && !node.image && !isReadOnly && !isArchived)
+    );
+    setConfirmPermanentDelete(false);
+  }, [node.id, node.imageDeletedFromAdmin, isReadOnly, isArchived]);
+
+  useEffect(() => {
+    if (node.image) {
+      setShowDeletedImagePrompt(false);
+      setConfirmPermanentDelete(false);
+    }
+  }, [node.image]);
 
   const mainFileInputRef = useRef<HTMLInputElement>(null);
   const mapFileInputRef = useRef<HTMLInputElement>(null);
@@ -131,6 +158,113 @@ export const NodeDashboardModal: React.FC<NodeDashboardModalProps> = ({
   return (
     <div className="fixed inset-0 z-50 bg-black/85 backdrop-blur-md flex items-center justify-center p-4">
       <div className="bg-neutral-900 border border-neutral-700/80 rounded-2xl w-full max-w-6xl max-h-[92vh] shadow-2xl flex flex-col overflow-hidden relative">
+        {/* Prompt Modal when node image was removed by Admin */}
+        {showDeletedImagePrompt && (
+          <div className="absolute inset-0 z-40 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+            <div className="w-full max-w-md rounded-2xl bg-neutral-900 border border-red-500/40 shadow-2xl p-6 space-y-4">
+              <div className="flex flex-col items-center text-center space-y-2">
+                <div className="w-16 h-16 rounded-2xl bg-red-950/40 border border-red-500/40 flex items-center justify-center">
+                  <ShreddedImageIcon className="w-11 h-11 text-red-500" />
+                </div>
+                <h3 className="text-base font-bold text-neutral-100">
+                  La imagen de este nodo fue eliminada
+                </h3>
+                <p className="text-xs text-neutral-400 leading-relaxed">
+                  Fue retirada desde la consola de administración. Tus notas, pines y columnas se mantienen intactas. ¿Qué deseas hacer con <span className="text-neutral-200 font-semibold">{node.title}</span>?
+                </p>
+              </div>
+
+              <div className="space-y-2 pt-1">
+                {/* 1. Upload image */}
+                <div className="rounded-xl border border-blue-500/40 bg-blue-600/10 p-2.5 space-y-1.5">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      mainFileInputRef.current?.click();
+                      setShowDeletedImagePrompt(false);
+                    }}
+                    className="w-full flex items-center gap-2.5 text-left text-xs font-semibold text-blue-200 hover:text-white transition-colors"
+                  >
+                    <UploadCloud className="w-4 h-4 text-blue-400 shrink-0" />
+                    <span>1. ¿Quieres subir imagen?</span>
+                  </button>
+                  <div className="pl-6 flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowDeletedImagePrompt(false);
+                        onOpenGalleryPicker();
+                      }}
+                      className="text-[11px] text-blue-300 hover:text-blue-200 underline"
+                    >
+                      O elegir de la galería del proyecto
+                    </button>
+                  </div>
+                </div>
+
+                {/* 2. Delete entire node */}
+                {confirmPermanentDelete ? (
+                  <div className="rounded-xl border border-red-500/60 bg-red-950/60 p-3 space-y-2">
+                    <p className="text-xs font-semibold text-red-200">
+                      ¿Eliminar permanentemente este nodo, sus notas y sus pines?
+                    </p>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          onDeleteNode?.(node.id);
+                          setShowDeletedImagePrompt(false);
+                        }}
+                        className="flex-1 py-1.5 px-3 rounded-lg bg-red-600 hover:bg-red-500 text-white text-xs font-semibold transition-colors"
+                      >
+                        Sí, eliminar todo
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setConfirmPermanentDelete(false)}
+                        className="py-1.5 px-3 rounded-lg bg-neutral-800 hover:bg-neutral-700 text-neutral-300 text-xs transition-colors"
+                      >
+                        Cancelar
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => setConfirmPermanentDelete(true)}
+                    className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl border border-red-500/40 bg-red-950/30 hover:bg-red-950/60 text-left text-xs font-semibold text-red-300 hover:text-red-200 transition-colors"
+                  >
+                    <Trash2 className="w-4 h-4 text-red-400 shrink-0" />
+                    <span>2. Eliminar todo el nodo y su información</span>
+                  </button>
+                )}
+
+                {/* 3. Archive node */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    onArchiveNode?.(node.id);
+                    setShowDeletedImagePrompt(false);
+                  }}
+                  className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl border border-amber-500/40 bg-amber-500/10 hover:bg-amber-500/20 text-left text-xs font-semibold text-amber-200 hover:text-amber-100 transition-colors"
+                >
+                  <Archive className="w-4 h-4 text-amber-400 shrink-0" />
+                  <span>3. Archivar el nodo</span>
+                </button>
+
+                {/* 4. Decide later */}
+                <button
+                  type="button"
+                  onClick={() => setShowDeletedImagePrompt(false)}
+                  className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl border border-neutral-700 bg-neutral-800/80 hover:bg-neutral-800 text-left text-xs font-semibold text-neutral-300 hover:text-white transition-colors"
+                >
+                  <Clock className="w-4 h-4 text-neutral-400 shrink-0" />
+                  <span>4. Decide más tarde</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
         {/* Header */}
         <div className="p-4 border-b border-neutral-800 flex items-center justify-between">
           <div className="flex items-center gap-3">
@@ -223,9 +357,20 @@ export const NodeDashboardModal: React.FC<NodeDashboardModalProps> = ({
                   <div className="space-y-2">
                     <div
                       onClick={() => mapFileInputRef.current?.click()}
-                      className="border border-dashed border-amber-500/40 rounded-lg p-3 text-center cursor-pointer hover:bg-amber-500/5 transition-colors"
+                      className={`border border-dashed rounded-lg p-3 text-center cursor-pointer transition-colors ${
+                        node.mapImageDeletedFromAdmin
+                          ? 'border-red-500/60 bg-red-950/25 hover:bg-red-950/40'
+                          : 'border-amber-500/40 hover:bg-amber-500/5'
+                      }`}
                     >
-                      <p className="text-xs text-amber-300 font-medium">Paste / Drop Map Here</p>
+                      {node.mapImageDeletedFromAdmin ? (
+                        <div className="flex flex-col items-center gap-1">
+                          <ShreddedImageIcon className="w-7 h-7 text-red-500" />
+                          <p className="text-xs text-red-300 font-medium">Mapa eliminado por administración</p>
+                        </div>
+                      ) : (
+                        <p className="text-xs text-amber-300 font-medium">Paste / Drop Map Here</p>
+                      )}
                       <input
                         ref={mapFileInputRef}
                         type="file"
@@ -274,6 +419,23 @@ export const NodeDashboardModal: React.FC<NodeDashboardModalProps> = ({
                           <span>Fullscreen Pinning & Drawings</span>
                         </span>
                       </div>
+                    </div>
+                  ) : node.imageDeletedFromAdmin ? (
+                    <div
+                      onClick={() => !isReadOnly && setShowDeletedImagePrompt(true)}
+                      className={`w-full h-full border-2 border-dashed border-red-500/70 bg-red-950/25 flex flex-col items-center justify-center p-4 text-center transition-colors ${
+                        !isReadOnly ? 'hover:border-red-400 hover:bg-red-950/40 cursor-pointer' : ''
+                      }`}
+                    >
+                      <ShreddedImageIcon className="w-12 h-12 text-red-500 mb-2" />
+                      <p className="text-xs font-semibold text-red-300">
+                        Imagen eliminada desde administración
+                      </p>
+                      {!isReadOnly && (
+                        <p className="text-[10px] text-red-300/70 mt-0.5">
+                          Haz clic para subir imagen, archivar o eliminar nodo
+                        </p>
+                      )}
                     </div>
                   ) : (
                     <div

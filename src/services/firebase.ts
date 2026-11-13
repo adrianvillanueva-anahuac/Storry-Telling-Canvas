@@ -12,10 +12,12 @@ import {
   doc,
   getDoc,
   setDoc,
+  deleteDoc,
   getDocFromServer,
   collection,
   onSnapshot,
 } from 'firebase/firestore';
+import { getStorage } from 'firebase/storage';
 import firebaseConfig from '../../firebase-applet-config.json';
 
 // Initialize Firebase App
@@ -23,6 +25,9 @@ export const app = initializeApp(firebaseConfig);
 
 // Initialize Firestore with configured database ID
 export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
+
+// Initialize Firebase Storage
+export const storage = getStorage(app);
 
 // Initialize Firebase Authentication
 export const auth = getAuth(app);
@@ -96,39 +101,60 @@ export async function signInWithGoogle() {
   try {
     const result = await signInWithPopup(auth, googleProvider);
     const user = result.user;
+    const normalizedEmail = (user.email || '').trim().toLowerCase();
 
     // Check if user is super admin
-    const isSuperAdmin = user.email === 'adrian.byakko@gmail.com';
+    const isSuperAdmin = normalizedEmail === 'adrian.byakko@gmail.com';
 
     // Sync or create user profile document
     const userDocRef = doc(db, 'users', user.uid);
     const existing = await getDoc(userDocRef);
 
-    let role = 'Viewer';
+    let role: 'Admin' | 'Editor' | 'Viewer' = 'Viewer';
     if (isSuperAdmin) {
       role = 'Admin';
       // Ensure admin document exists
       await setDoc(doc(db, 'admins', user.uid), {
-        email: user.email,
+        email: normalizedEmail,
         grantedAt: new Date().toISOString(),
       });
     } else if (existing.exists()) {
-      role = existing.data().role || 'Viewer';
+      const existingRole = existing.data().role;
+      role = existingRole === 'Admin' || existingRole === 'Editor' || existingRole === 'Viewer'
+        ? existingRole
+        : 'Viewer';
+    } else if (normalizedEmail) {
+      // Check if an Admin pre-invited this email
+      const inviteRef = doc(db, 'invites', normalizedEmail);
+      const inviteSnap = await getDoc(inviteRef).catch(() => null);
+      if (inviteSnap && inviteSnap.exists()) {
+        const invitedRole = inviteSnap.data().role;
+        if (invitedRole === 'Admin' || invitedRole === 'Editor' || invitedRole === 'Viewer') {
+          role = invitedRole;
+        }
+      }
     }
 
+    const displayName = user.displayName || 'Team Member';
     await setDoc(
       userDocRef,
       {
         uid: user.uid,
-        email: user.email || '',
-        displayName: user.displayName || 'Team Member',
+        email: normalizedEmail,
+        name: displayName,
+        displayName,
         photoURL: user.photoURL || '',
-        role: role,
+        role,
+        isRegistered: true,
         lastLoginAt: new Date().toISOString(),
         ...(!existing.exists() ? { createdAt: new Date().toISOString() } : {}),
       },
       { merge: true }
     );
+
+    if (!isSuperAdmin && normalizedEmail) {
+      await deleteDoc(doc(db, 'invites', normalizedEmail)).catch(() => {});
+    }
 
     return user;
   } catch (err) {
@@ -140,3 +166,6 @@ export async function signInWithGoogle() {
 export async function logOut() {
   await signOut(auth);
 }
+
+export { onAuthStateChanged };
+export type { FirebaseUser };

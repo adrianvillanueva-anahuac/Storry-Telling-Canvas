@@ -35,6 +35,10 @@
         "description": { "type": "string", "maxLength": 500 },
         "ownerId": { "type": "string" },
         "status": { "type": "string", "enum": ["active", "archived"] },
+        "participants": {
+          "type": "object",
+          "description": "Email-keyed map of project participant assignments and per-project roles"
+        },
         "createdAt": { "type": "string" },
         "updatedAt": { "type": "string" }
       },
@@ -42,17 +46,31 @@
     },
     "ImageResource": {
       "title": "ImageResource",
-      "description": "Web-based image registry holding remote URLs and metadata without raw base64 data",
+      "description": "Web-based image registry holding Firebase Storage URLs and metadata without raw base64 data",
       "type": "object",
       "properties": {
         "id": { "type": "string" },
-        "name": { "type": "string", "maxLength": 200 },
-        "url": { "type": "string" },
+        "projectId": { "type": "string" },
+        "name": { "type": "string", "maxLength": 256 },
+        "url": { "type": "string", "maxLength": 2048 },
+        "storagePath": { "type": "string", "maxLength": 512 },
         "folder": { "type": "string", "enum": ["images", "maps", "objects"] },
+        "sizeBytes": { "type": "number" },
         "uploadedBy": { "type": "string" },
         "uploadedAt": { "type": "string" }
       },
       "required": ["id", "name", "url", "folder"]
+    },
+    "Invite": {
+      "title": "Invite",
+      "description": "Pre-authorized collaborator email and role claim",
+      "type": "object",
+      "properties": {
+        "email": { "type": "string", "format": "email" },
+        "role": { "type": "string", "enum": ["Admin", "Editor", "Viewer"] },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["email", "role"]
     },
     "WorkflowNode": {
       "title": "WorkflowNode",
@@ -65,7 +83,9 @@
         "x": { "type": "string" },
         "y": { "type": "string" },
         "image": { "type": "string" },
+        "imageDeletedFromAdmin": { "type": "boolean" },
         "mapImage": { "type": "string" },
+        "mapImageDeletedFromAdmin": { "type": "boolean" },
         "mapName": { "type": "string" },
         "enfoque": { "type": "string" },
         "accion": { "type": "string" },
@@ -123,6 +143,7 @@
       "type": "object",
       "properties": {
         "id": { "type": "string" },
+        "projectId": { "type": "string" },
         "name": { "type": "string", "maxLength": 200 },
         "author": { "type": "string" },
         "date": { "type": "string" }
@@ -139,6 +160,10 @@
       "schema": { "$ref": "#/entities/Admin" },
       "description": "Workspace administrator records"
     },
+    "/invites/{inviteEmail}": {
+      "schema": { "$ref": "#/entities/Invite" },
+      "description": "Pending collaborator invitations and pre-assigned roles"
+    },
     "/images/{imageId}": {
       "schema": { "$ref": "#/entities/ImageResource" },
       "description": "Image registry without raw base64 data"
@@ -151,6 +176,10 @@
       "schema": { "$ref": "#/entities/WorkflowNode" },
       "description": "Scene nodes inside a project"
     },
+    "/projects/{projectId}/storedNodes/{nodeId}": {
+      "schema": { "$ref": "#/entities/WorkflowNode" },
+      "description": "Archived scene nodes inside a project"
+    },
     "/projects/{projectId}/connections/{connectionId}": {
       "schema": { "$ref": "#/entities/Connection" },
       "description": "Connections inside a project"
@@ -158,6 +187,10 @@
     "/projects/{projectId}/texts/{textId}": {
       "schema": { "$ref": "#/entities/TextElement" },
       "description": "Text elements inside a project"
+    },
+    "/projects/{projectId}/videos/{videoId}": {
+      "schema": { "$ref": "#/entities/GlobalVideo" },
+      "description": "YouTube video references scoped to a specific project"
     },
     "/globalVideos/{videoId}": {
       "schema": { "$ref": "#/entities/GlobalVideo" },

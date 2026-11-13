@@ -1,0 +1,1947 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Visual Workflow Canvas — Interactive Architecture & Maintenance Map</title>
+  <style>
+    :root {
+      --bg: #090b10;
+      --surface: #111520;
+      --surface-2: #171d2c;
+      --surface-3: #1e2639;
+      --border: #263149;
+      --border-hi: #3b4f78;
+      --text: #e6ecf7;
+      --muted: #93a2bf;
+      --dim: #667594;
+      --blue: #3b82f6;
+      --cyan: #06b6d4;
+      --emerald: #10b981;
+      --amber: #f59e0b;
+      --rose: #f43f5e;
+      --violet: #8b5cf6;
+      --shadow: 0 20px 50px rgba(0, 0, 0, 0.55);
+      --radius: 12px;
+      --font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Inter, Helvetica, Arial, sans-serif;
+      --mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+    }
+
+    * { box-sizing: border-box; }
+    html, body {
+      margin: 0;
+      padding: 0;
+      width: 100%;
+      height: 100%;
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--font);
+      overflow: hidden;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    .app-shell {
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+      width: 100vw;
+    }
+
+    /* Top Bar */
+    .topbar {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 10px 18px;
+      background: rgba(17, 21, 32, 0.96);
+      border-bottom: 1px solid var(--border);
+      z-index: 30;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .brand-badge {
+      width: 34px;
+      height: 34px;
+      border-radius: 9px;
+      background: linear-gradient(135deg, rgba(59,130,246,0.28), rgba(139,92,246,0.28));
+      border: 1px solid rgba(59,130,246,0.45);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 800;
+      font-size: 13px;
+      color: #93c5fd;
+      letter-spacing: 0.04em;
+    }
+
+    .brand h1 {
+      margin: 0;
+      font-size: 14px;
+      font-weight: 700;
+      letter-spacing: -0.01em;
+    }
+
+    .brand p {
+      margin: 1px 0 0;
+      font-size: 11px;
+      color: var(--muted);
+    }
+
+    .controls {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .search-wrap {
+      position: relative;
+      display: flex;
+      align-items: center;
+    }
+
+    .search-input {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      color: var(--text);
+      border-radius: 8px;
+      padding: 6px 10px 6px 28px;
+      font-size: 12px;
+      width: 210px;
+      outline: none;
+      transition: border-color 0.15s;
+    }
+
+    .search-input:focus { border-color: var(--blue); }
+    .search-icon {
+      position: absolute;
+      left: 9px;
+      font-size: 12px;
+      color: var(--dim);
+      pointer-events: none;
+    }
+
+    .btn {
+      appearance: none;
+      border: 1px solid var(--border);
+      background: var(--surface-2);
+      color: var(--text);
+      font-size: 12px;
+      font-weight: 600;
+      padding: 6px 11px;
+      border-radius: 8px;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      transition: all 0.15s ease;
+    }
+
+    .btn:hover {
+      background: var(--surface-3);
+      border-color: var(--border-hi);
+    }
+
+    .btn-primary {
+      background: #2563eb;
+      border-color: #3b82f6;
+      color: #fff;
+    }
+    .btn-primary:hover { background: #1d4ed8; }
+
+    .btn-active {
+      background: rgba(59, 130, 246, 0.22);
+      border-color: var(--blue);
+      color: #bfdbfe;
+    }
+
+    /* Flow Filter Bar */
+    .flowbar {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      padding: 8px 18px;
+      background: rgba(12, 15, 24, 0.92);
+      border-bottom: 1px solid var(--border);
+      z-index: 25;
+    }
+
+    .flow-pills {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .flow-label {
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--dim);
+      font-weight: 700;
+      margin-right: 4px;
+    }
+
+    .pill {
+      border: 1px solid var(--border);
+      background: var(--surface);
+      color: var(--muted);
+      padding: 4px 10px;
+      border-radius: 999px;
+      font-size: 11.5px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+
+    .pill:hover { color: var(--text); border-color: var(--border-hi); }
+    .pill.active {
+      background: rgba(59, 130, 246, 0.18);
+      border-color: var(--blue);
+      color: #93c5fd;
+    }
+    .pill[data-flow="auth"].active { background: rgba(16,185,129,0.18); border-color: var(--emerald); color: #6ee7b7; }
+    .pill[data-flow="canvas"].active { background: rgba(6,182,212,0.18); border-color: var(--cyan); color: #67e8f9; }
+    .pill[data-flow="media"].active { background: rgba(245,158,11,0.18); border-color: var(--amber); color: #fcd34d; }
+    .pill[data-flow="rbac"].active { background: rgba(139,92,246,0.20); border-color: var(--violet); color: #c4b5fd; }
+
+    .view-tabs {
+      display: flex;
+      gap: 4px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      padding: 3px;
+      border-radius: 9px;
+    }
+
+    .view-tab {
+      border: none;
+      background: transparent;
+      color: var(--muted);
+      font-size: 11.5px;
+      font-weight: 600;
+      padding: 4px 10px;
+      border-radius: 6px;
+      cursor: pointer;
+    }
+    .view-tab.active {
+      background: var(--surface-3);
+      color: #fff;
+    }
+
+    /* Main Workspace */
+    .workspace {
+      display: flex;
+      flex: 1;
+      min-height: 0;
+      position: relative;
+    }
+
+    /* Diagram Viewport */
+    .canvas-viewport {
+      flex: 1;
+      position: relative;
+      overflow: hidden;
+      background-color: var(--bg);
+      background-image:
+        radial-gradient(rgba(147, 162, 191, 0.12) 1px, transparent 1px);
+      background-size: 24px 24px;
+      cursor: grab;
+      user-select: none;
+    }
+
+    .canvas-viewport.panning { cursor: grabbing; }
+
+    .canvas-stage {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 1580px;
+      height: 1120px;
+      transform-origin: 0 0;
+      will-change: transform;
+    }
+
+    /* Layer Bands inside Stage */
+    .layer-band {
+      position: absolute;
+      left: 24px;
+      right: 24px;
+      border-radius: 16px;
+      border: 1px dashed rgba(147, 162, 191, 0.22);
+      background: rgba(17, 21, 32, 0.42);
+      pointer-events: none;
+    }
+
+    .layer-title {
+      position: absolute;
+      top: 10px;
+      left: 16px;
+      font-size: 11px;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .layer-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+    }
+
+    /* SVG Connectors */
+    svg.wires {
+      position: absolute;
+      inset: 0;
+      width: 1580px;
+      height: 1120px;
+      pointer-events: none;
+      z-index: 4;
+    }
+
+    .wire-hit {
+      fill: none;
+      stroke: transparent;
+      stroke-width: 16;
+      pointer-events: stroke;
+      cursor: help;
+    }
+
+    .wire-path {
+      fill: none;
+      stroke: #3b4b6b;
+      stroke-width: 2;
+      opacity: 0.55;
+      transition: opacity 0.2s, stroke 0.2s, stroke-width 0.2s;
+    }
+
+    .wire-path.highlighted {
+      opacity: 1;
+      stroke-width: 3;
+      stroke-dasharray: 8 5;
+      animation: flowDash 1.2s linear infinite;
+    }
+
+    .wire-path.dimmed { opacity: 0.1; }
+
+    @keyframes flowDash {
+      to { stroke-dashoffset: -26; }
+    }
+
+    /* Diagram Nodes */
+    .arch-node {
+      position: absolute;
+      width: 248px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 11px 13px;
+      z-index: 10;
+      cursor: pointer;
+      transition: transform 0.16s ease, border-color 0.16s ease, box-shadow 0.16s ease, opacity 0.2s ease;
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+    }
+
+    .arch-node:hover {
+      transform: translateY(-2px);
+      border-color: var(--blue);
+      box-shadow: 0 12px 30px rgba(37, 99, 235, 0.22);
+      z-index: 16;
+    }
+
+    .arch-node.selected {
+      border-color: #60a5fa;
+      box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.35), 0 14px 34px rgba(37, 99, 235, 0.28);
+      z-index: 18;
+    }
+
+    .arch-node.dimmed { opacity: 0.22; }
+    .arch-node.search-match {
+      border-color: var(--amber);
+      box-shadow: 0 0 0 2px rgba(245, 158, 11, 0.45);
+    }
+
+    .node-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 6px;
+      margin-bottom: 5px;
+    }
+
+    .node-tag {
+      font-size: 9.5px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      padding: 2px 6px;
+      border-radius: 5px;
+      border: 1px solid transparent;
+    }
+
+    .tag-ui { background: rgba(59,130,246,0.16); color: #93c5fd; border-color: rgba(59,130,246,0.35); }
+    .tag-modal { background: rgba(6,182,212,0.15); color: #67e8f9; border-color: rgba(6,182,212,0.35); }
+    .tag-service { background: rgba(16,185,129,0.15); color: #6ee7b7; border-color: rgba(16,185,129,0.35); }
+    .tag-api { background: rgba(245,158,11,0.15); color: #fcd34d; border-color: rgba(245,158,11,0.35); }
+    .tag-cloud { background: rgba(139,92,246,0.18); color: #ddd6fe; border-color: rgba(139,92,246,0.4); }
+
+    .node-title {
+      font-size: 13px;
+      font-weight: 700;
+      color: var(--text);
+      margin: 0 0 3px;
+    }
+
+    .node-path {
+      font-family: var(--mono);
+      font-size: 10px;
+      color: var(--cyan);
+      margin-bottom: 6px;
+      word-break: break-all;
+    }
+
+    .node-short {
+      font-size: 11px;
+      line-height: 1.4;
+      color: var(--muted);
+      margin: 0;
+    }
+
+    /* Zoom HUD inside viewport */
+    .zoom-hud {
+      position: absolute;
+      left: 16px;
+      bottom: 16px;
+      z-index: 20;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      background: rgba(17, 21, 32, 0.92);
+      border: 1px solid var(--border);
+      padding: 6px 8px;
+      border-radius: 10px;
+      backdrop-filter: blur(8px);
+      font-size: 11.5px;
+      color: var(--muted);
+    }
+
+    .zoom-hud button {
+      background: var(--surface-2);
+      border: 1px solid var(--border);
+      color: var(--text);
+      width: 26px;
+      height: 26px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-weight: 700;
+    }
+    .zoom-hud button:hover { background: var(--surface-3); }
+
+    .hint-badge {
+      position: absolute;
+      right: 16px;
+      bottom: 16px;
+      z-index: 20;
+      background: rgba(17, 21, 32, 0.9);
+      border: 1px solid var(--border);
+      padding: 7px 12px;
+      border-radius: 10px;
+      font-size: 11px;
+      color: var(--muted);
+      pointer-events: none;
+    }
+
+    /* Side Inspector Drawer */
+    .inspector {
+      width: 390px;
+      max-width: 44vw;
+      background: var(--surface);
+      border-left: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      z-index: 22;
+      overflow: hidden;
+    }
+
+    .inspector-header {
+      padding: 14px 16px;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 10px;
+      background: var(--surface-2);
+    }
+
+    .inspector-body {
+      flex: 1;
+      overflow-y: auto;
+      padding: 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+
+    .insp-section {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 11px 12px;
+    }
+
+    .insp-section h4 {
+      margin: 0 0 7px;
+      font-size: 10.5px;
+      text-transform: uppercase;
+      letter-spacing: 0.07em;
+      color: var(--dim);
+    }
+
+    .insp-section p, .insp-section li {
+      font-size: 12px;
+      line-height: 1.5;
+      color: #cbd5e1;
+      margin: 0;
+    }
+
+    .insp-section ul {
+      margin: 0;
+      padding-left: 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 5px;
+    }
+
+    .code-chip {
+      display: inline-block;
+      font-family: var(--mono);
+      font-size: 10.5px;
+      background: var(--surface-2);
+      border: 1px solid var(--border);
+      color: #93c5fd;
+      padding: 2px 6px;
+      border-radius: 5px;
+      margin: 2px 3px 2px 0;
+    }
+
+    .note-box {
+      background: rgba(245, 158, 11, 0.08);
+      border: 1px solid rgba(245, 158, 11, 0.35);
+      border-radius: 10px;
+      padding: 11px 12px;
+    }
+
+    .note-box h4 {
+      margin: 0 0 6px;
+      font-size: 10.5px;
+      text-transform: uppercase;
+      letter-spacing: 0.07em;
+      color: #fcd34d;
+    }
+
+    .note-box p {
+      margin: 0;
+      font-size: 12px;
+      line-height: 1.5;
+      color: #fef3c7;
+    }
+
+    .conn-link {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      padding: 6px 8px;
+      margin-top: 5px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 7px;
+      font-size: 11.5px;
+      color: var(--text);
+      cursor: pointer;
+      width: 100%;
+      text-align: left;
+    }
+    .conn-link:hover { border-color: var(--blue); background: var(--surface-2); }
+
+    /* Floating Rollover Tooltip */
+    .rollover-tooltip {
+      position: fixed;
+      z-index: 100;
+      width: 340px;
+      max-width: calc(100vw - 24px);
+      background: rgba(13, 17, 27, 0.98);
+      border: 1px solid var(--border-hi);
+      border-radius: 12px;
+      padding: 12px 14px;
+      box-shadow: var(--shadow);
+      pointer-events: none;
+      opacity: 0;
+      transform: translateY(4px);
+      transition: opacity 0.12s ease, transform 0.12s ease;
+      backdrop-filter: blur(10px);
+    }
+
+    .rollover-tooltip.visible {
+      opacity: 1;
+      transform: translateY(0);
+    }
+
+    .tt-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      margin-bottom: 4px;
+    }
+
+    .tt-title {
+      font-size: 13px;
+      font-weight: 700;
+      color: #fff;
+    }
+
+    .tt-file {
+      font-family: var(--mono);
+      font-size: 10px;
+      color: var(--cyan);
+      margin-bottom: 7px;
+    }
+
+    .tt-def {
+      font-size: 11.5px;
+      line-height: 1.48;
+      color: #cbd5e1;
+      margin-bottom: 8px;
+    }
+
+    .tt-note {
+      font-size: 11px;
+      line-height: 1.45;
+      color: #fde68a;
+      background: rgba(245, 158, 11, 0.1);
+      border-left: 2px solid var(--amber);
+      padding: 6px 8px;
+      border-radius: 0 6px 6px 0;
+    }
+
+    .tt-foot {
+      margin-top: 7px;
+      font-size: 10px;
+      color: var(--dim);
+      display: flex;
+      justify-content: space-between;
+    }
+
+    /* Reference & Cookbook Panels (Tabs 2 & 3) */
+    .doc-panel {
+      flex: 1;
+      overflow-y: auto;
+      padding: 24px;
+      display: none;
+      background: var(--bg);
+    }
+    .doc-panel.active { display: block; }
+
+    .doc-grid {
+      max-width: 1200px;
+      margin: 0 auto;
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
+      gap: 16px;
+    }
+
+    .doc-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 16px;
+    }
+
+    .doc-card h3 {
+      margin: 0 0 8px;
+      font-size: 14px;
+      color: #fff;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .doc-card p, .doc-card li {
+      font-size: 12.5px;
+      line-height: 1.55;
+      color: var(--muted);
+    }
+
+    .doc-card pre {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 10px;
+      font-family: var(--mono);
+      font-size: 11px;
+      color: #93c5fd;
+      overflow-x: auto;
+      margin: 8px 0 0;
+      line-height: 1.45;
+    }
+
+    @media (max-width: 900px) {
+      .inspector { width: 300px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="app-shell">
+    <!-- Top Header -->
+    <header class="topbar">
+      <div class="brand">
+        <div class="brand-badge">VW</div>
+        <div>
+          <h1>Visual Workflow Canvas — Architecture &amp; Developer Guide</h1>
+          <p>Interactive system map • Hover any box or wire for definitions &amp; change notes • Click to inspect</p>
+        </div>
+      </div>
+
+      <div class="controls">
+        <div class="search-wrap">
+          <span class="search-icon">⌕</span>
+          <input id="searchInput" class="search-input" type="text" placeholder="Search file, collection, rule... (/)" />
+        </div>
+        <button id="downloadBtn" class="btn btn-primary" title="Save this interactive HTML file to your computer">
+          ⬇ Download HTML
+        </button>
+      </div>
+    </header>
+
+    <!-- Flow Filters & View Switcher -->
+    <div class="flowbar">
+      <div class="flow-pills">
+        <span class="flow-label">Trace Flow:</span>
+        <button class="pill active" data-flow="all">All Architecture</button>
+        <button class="pill" data-flow="auth">1. Google Auth &amp; User Sync</button>
+        <button class="pill" data-flow="canvas">2. Canvas Real-Time &amp; Zoom</button>
+        <button class="pill" data-flow="media">3. Image Upload &amp; Vercel Blob</button>
+        <button class="pill" data-flow="rbac">4. Projects, Team &amp; RBAC Rules</button>
+      </div>
+
+      <div class="view-tabs">
+        <button class="view-tab active" data-view="diagram">Interactive Diagram</button>
+        <button class="view-tab" data-view="schema">Firestore Schema &amp; RBAC</button>
+        <button class="view-tab" data-view="cookbook">Future Changes Cookbook</button>
+      </div>
+    </div>
+
+    <!-- Main Workspace -->
+    <div class="workspace" id="diagramWorkspace">
+      <div class="canvas-viewport" id="viewport">
+        <div class="canvas-stage" id="stage">
+          <!-- Layer Bands -->
+          <div class="layer-band" style="top: 18px; height: 200px;">
+            <div class="layer-title" style="color: #93c5fd;">
+              <span class="layer-dot" style="background: #3b82f6;"></span>
+              Layer 1 — React Shell, Infinite Canvas &amp; Direct Canvas Components
+            </div>
+          </div>
+
+          <div class="layer-band" style="top: 238px; height: 200px;">
+            <div class="layer-title" style="color: #67e8f9;">
+              <span class="layer-dot" style="background: #06b6d4;"></span>
+              Layer 2 — Modals, Editors &amp; Administration Console
+            </div>
+          </div>
+
+          <div class="layer-band" style="top: 458px; height: 195px;">
+            <div class="layer-title" style="color: #6ee7b7;">
+              <span class="layer-dot" style="background: #10b981;"></span>
+              Layer 3 — Client Services, Firebase SDK Bridge &amp; TypeScript Schemas
+            </div>
+          </div>
+
+          <div class="layer-band" style="top: 673px; height: 185px;">
+            <div class="layer-title" style="color: #fcd34d;">
+              <span class="layer-dot" style="background: #f59e0b;"></span>
+              Layer 4 — Vercel Serverless API, Local Dev Server &amp; Build Routing
+            </div>
+          </div>
+
+          <div class="layer-band" style="top: 878px; height: 215px;">
+            <div class="layer-title" style="color: #ddd6fe;">
+              <span class="layer-dot" style="background: #8b5cf6;"></span>
+              Layer 5 — Cloud Backend (Firebase Auth, Cloud Firestore, Rules &amp; Vercel Blob CDN)
+            </div>
+          </div>
+
+          <!-- Dynamic SVG Wires -->
+          <svg class="wires" id="wiresSvg">
+            <defs>
+              <marker id="arrowDefault" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">
+                <path d="M0,1 L7,4 L0,7 Z" fill="#64748b" />
+              </marker>
+              <marker id="arrowActive" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">
+                <path d="M0,1 L7,4 L0,7 Z" fill="#60a5fa" />
+              </marker>
+            </defs>
+          </svg>
+
+          <!-- Nodes mounted by JS -->
+        </div>
+
+        <div class="zoom-hud">
+          <button id="zoomOutBtn" title="Zoom Out">−</button>
+          <span id="zoomLabel" style="min-width: 42px; text-align: center; font-family: var(--mono);">85%</span>
+          <button id="zoomInBtn" title="Zoom In">+</button>
+          <button id="fitBtn" style="width: auto; padding: 0 8px;" title="Fit Diagram to Screen">Fit</button>
+        </div>
+
+        <div class="hint-badge">
+          Drag background to pan • Scroll wheel to zoom • Hover any box or wire for notes
+        </div>
+      </div>
+
+      <!-- Right Inspector Drawer -->
+      <aside class="inspector" id="inspector">
+        <div class="inspector-header">
+          <div>
+            <div id="inspTag" class="node-tag tag-ui" style="display:inline-block; margin-bottom:5px;">Overview</div>
+            <h2 id="inspTitle" style="margin:0; font-size:15px; color:#fff;">Select any module</h2>
+            <div id="inspPath" style="font-family:var(--mono); font-size:11px; color:var(--cyan); margin-top:3px;">src/App.tsx</div>
+          </div>
+          <button id="resetSelBtn" class="btn" style="padding:4px 8px; font-size:11px;">Overview</button>
+        </div>
+        <div class="inspector-body" id="inspectorBody"></div>
+      </aside>
+    </div>
+
+    <!-- Tab 2: Firestore Schema & RBAC -->
+    <section class="doc-panel" id="schemaPanel">
+      <div class="doc-grid">
+        <div class="doc-card">
+          <h3><span>Database Topology (Firestore)</span><span class="node-tag tag-cloud">NoSQL</span></h3>
+          <p>Cloud Firestore database (<span class="code-chip">firebaseConfig.firestoreDatabaseId</span>) holds workspace-wide registries at the root and isolates storyboard scene data under each project document.</p>
+          <pre>/users/{uid}                  ← User profile, global role, lastLoginAt
+/admins/{uid}                 ← Admin privilege marker checked by rules
+/invites/{email}              ← Pre-authorized email + pending role
+/images/{imageId}             ← Metadata + Vercel Blob URLs (no base64)
+/globalVideos/{videoId}       ← Shared YouTube video references
+/projects/{projectId}         ← title, description, ownerId, status, participants{}
+  ├─ /nodes/{nodeId}          ← Active scene cards, pins[], drawings[]
+  ├─ /storedNodes/{nodeId}    ← Archived scene cards + storeNote
+  ├─ /connections/{connId}    ← Port-to-port SVG lines & labels
+  └─ /texts/{textId}          ← Floating text, sticky notes, group containers</pre>
+        </div>
+
+        <div class="doc-card">
+          <h3><span>Per-Project Participants Map</span><span class="node-tag tag-cloud">RBAC</span></h3>
+          <p>Every project document stores an email-keyed <span class="code-chip">participants</span> map (lowercase email keys) so assignments work both before and after a user's first Google Sign-In.</p>
+          <pre>project.participants = {
+  "artist@studio.com": {
+    email: "artist@studio.com",
+    role: "Editor",           // "Admin" | "Editor" | "Viewer"
+    uid: "firebase-uid",
+    name: "Artist",
+    assignedAt: "ISO-8601"
+  }
+}</pre>
+          <p style="margin-top:8px;"><strong>Rule Note:</strong> Only global Admins can modify the <span class="code-chip">participants</span> map on <span class="code-chip">/projects/{projectId}</span>. Editors can update project canvas subcollections cleanly.</p>
+        </div>
+
+        <div class="doc-card">
+          <h3><span>Permission Resolution Order</span><span class="node-tag tag-service">Runtime + Rules</span></h3>
+          <p>Both <span class="code-chip">src/App.tsx</span> and <span class="code-chip">firestore.rules</span> follow the exact same hierarchy:</p>
+          <ul>
+            <li><strong>1. Super User</strong> (<span class="code-chip">adrian.byakko@gmail.com</span>): Always global <span class="code-chip">Admin</span>, sees all projects, cannot be deleted or demoted, and can permanently delete workspace user records.</li>
+            <li><strong>2. Global Admin</strong> (<span class="code-chip">/admins/{uid}</span> or <span class="code-chip">users.role == 'Admin'</span>): Full access to Admin Console, all projects, invites, and project participants.</li>
+            <li><strong>3. Project Participant Role</strong>: For non-admins, <span class="code-chip">effectiveRole</span> comes from <span class="code-chip">project.participants[email].role</span> — so a global <span class="code-chip">Viewer</span> assigned as <span class="code-chip">Editor</span> on Project A can edit Project A while staying read-only elsewhere.</li>
+            <li><strong>4. Legacy Fallback</strong>: Projects with no <span class="code-chip">participants</span> map remain readable, using the user's global role.</li>
+          </ul>
+        </div>
+
+        <div class="doc-card">
+          <h3><span>Why Vercel + Firebase Split Exists</span><span class="node-tag tag-api">Infra</span></h3>
+          <p>This app uses a deliberate hybrid cloud split that keeps costs low and avoids permission issues:</p>
+          <ul>
+            <li><strong>Firebase</strong> handles Google Sign-In (<span class="code-chip">Auth</span>) and real-time collaborative state (<span class="code-chip">Firestore</span> + <span class="code-chip">firestore.rules</span>).</li>
+            <li><strong>Vercel</strong> serves the compiled React SPA (<span class="code-chip">dist/</span>), hosts Serverless API endpoints (<span class="code-chip">api/blob-token.ts</span>, <span class="code-chip">api/blob-delete.ts</span>), and stores binary images in <strong>Vercel Blob</strong> (<span class="code-chip">visual-workflow-media</span>).</li>
+            <li><strong>Legacy Disk Images</strong> live in <span class="code-chip">public/uploads/</span> so historical <span class="code-chip">/uploads/...</span> links keep loading cleanly without touching Firestore URLs.</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <!-- Tab 3: Future Changes Cookbook -->
+    <section class="doc-panel" id="cookbookPanel">
+      <div class="doc-grid">
+        <div class="doc-card">
+          <h3><span>Recipe 1: Add a New Field to Scene Nodes</span><span class="node-tag tag-ui">Data Model</span></h3>
+          <ul>
+            <li>1. Add the property to <span class="code-chip">WorkflowNode</span> in <span class="code-chip">src/types/workflow.ts</span>.</li>
+            <li>2. Add default value in <span class="code-chip">handleAddNode()</span> inside <span class="code-chip">src/App.tsx</span> and in <span class="code-chip">createProject()</span> inside <span class="code-chip">src/services/firestoreService.ts</span>.</li>
+            <li>3. Render/edit it in <span class="code-chip">WorkflowNodeCard.tsx</span> or <span class="code-chip">NodeDashboardModal.tsx</span> using <span class="code-chip">onUpdateNode(id, { ... })</span>.</li>
+            <li>4. If it needs server-side validation, update <span class="code-chip">isValidNode()</span> in <span class="code-chip">firestore.rules</span> and redeploy rules.</li>
+          </ul>
+        </div>
+
+        <div class="doc-card">
+          <h3><span>Recipe 2: Add a New Modal or Canvas Tool</span><span class="node-tag tag-modal">UI</span></h3>
+          <ul>
+            <li>1. Create component in <span class="code-chip">src/components/modals/MyModal.tsx</span> (always honor <span class="code-chip">isReadOnly</span> for Viewers).</li>
+            <li>2. Add open/close state in <span class="code-chip">src/App.tsx</span> near lines 125–155.</li>
+            <li>3. Add trigger button in <span class="code-chip">src/components/Header.tsx</span> (or inside <span class="code-chip">NodeDashboardModal.tsx</span>).</li>
+            <li>4. Use <span class="code-chip">setDoc(..., { merge: true })</span> via <span class="code-chip">firestoreService.ts</span>—never put raw base64 images inside Firestore docs.</li>
+          </ul>
+        </div>
+
+        <div class="doc-card">
+          <h3><span>Recipe 3: Change Security Rules or Roles</span><span class="node-tag tag-cloud">Security</span></h3>
+          <ul>
+            <li>1. Edit <span class="code-chip">firestore.rules</span> and keep <span class="code-chip">firebase-blueprint.json</span> documented in sync.</li>
+            <li>2. Keep UI checks in <span class="code-chip">src/App.tsx</span> (<span class="code-chip">effectiveRole</span>, <span class="code-chip">visibleProjects</span>) matching rule helpers (<span class="code-chip">canEditProject</span>, <span class="code-chip">canReadProject</span>).</li>
+            <li>3. Deploy updated rules to Firebase before pushing frontend changes that depend on them.</li>
+            <li>4. Remember: client SDK cannot delete Firebase Auth accounts—<span class="code-chip">deleteUserCompletely</span> wipes Firestore workspace/project access immediately.</li>
+          </ul>
+        </div>
+
+        <div class="doc-card">
+          <h3><span>Recipe 4: Deploy Changes to Production</span><span class="node-tag tag-api">Deploy</span></h3>
+          <ul>
+            <li>1. Verify TypeScript &amp; Vite bundle cleanly: <span class="code-chip">npm run lint</span> and <span class="code-chip">npm run build</span>.</li>
+            <li>2. Deploy Vercel production build: <span class="code-chip">npx vercel --prod --yes</span> (uses <span class="code-chip">vercel.json</span> + <span class="code-chip">BLOB_READ_WRITE_TOKEN</span> env var).</li>
+            <li>3. Never store secrets in <span class="code-chip">src/</span> or <span class="code-chip">VITE_*</span> vars; serverless token minting lives strictly in <span class="code-chip">api/blob-token.ts</span>.</li>
+            <li>4. Keep <span class="code-chip">vercel.json</span> rewrites excluding <span class="code-chip">api/</span> and <span class="code-chip">uploads/</span> so API JSON &amp; static assets aren't caught by <span class="code-chip">index.html</span>.</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <!-- Floating Rollover Tooltip -->
+  <div class="rollover-tooltip" id="tooltip">
+    <div class="tt-head">
+      <div class="tt-title" id="ttTitle"></div>
+      <span class="node-tag" id="ttTag"></span>
+    </div>
+    <div class="tt-file" id="ttFile"></div>
+    <div class="tt-def" id="ttDef"></div>
+    <div class="tt-note" id="ttNote"></div>
+    <div class="tt-foot">
+      <span>Click to pin &amp; inspect connections</span>
+      <span id="ttFlowHint"></span>
+    </div>
+  </div>
+
+  <script>
+    (function () {
+      const NODES = [
+        // LAYER 1 — UI SHELL & CANVAS (y: 44)
+        {
+          id: 'app-root',
+          layer: 1,
+          x: 52, y: 54,
+          tag: 'Core Orchestrator',
+          tagClass: 'tag-ui',
+          title: 'App State & Auth Gate',
+          file: 'src/App.tsx + src/main.tsx',
+          short: 'Central React coordinator: Auth Gate, smooth wheel zoom, drag/drop containers, visibleProjects & effectiveRole.',
+          definition: 'The root React component that boots the Firebase auth listener, gates the workspace behind Google Sign-In, subscribes to Firestore live snapshots, runs the 60fps spring-damped wheel zoom & canvas panning physics, and computes per-project permissions (effectiveRole, visibleProjects).',
+          details: [
+            'Auth Gate waits for authReady && firebaseUser before mounting the canvas.',
+            'Wheel zoom listener depends on [stepZoomAnimation, authReady, firebaseUser] so viewportRef is always attached after login.',
+            'Computes effectiveRole per activeProject: Admin > participant role > global UserProfile.role.',
+            'Container auto-bounds update lazily during drag and flush via saveTextToFirestore on mouseup.'
+          ],
+          note: 'Change here when adding new global modal state, keyboard/mouse canvas interactions, or changing how project roles affect editability.',
+          flows: ['auth', 'canvas', 'rbac'],
+          symbols: ['App()', 'stepZoomAnimation', 'effectiveRole', 'visibleProjects', 'updateContainerBounds']
+        },
+        {
+          id: 'header-ui',
+          layer: 1,
+          x: 342, y: 54,
+          tag: 'UI Toolbar',
+          tagClass: 'tag-ui',
+          title: 'Header & Project Switcher',
+          file: 'src/components/Header.tsx',
+          short: 'Project dropdown, effective role pill, galleries, video/archive triggers, +Node/+Text & Admin Console menu.',
+          definition: 'Top 56px navigation bar rendering the filtered project selector (visibleProjects), active project role badge, workspace library buttons, +Add Node / +Add Text controls (hidden when isReadOnly), zoom presets, theme switch, and Admin/Deploy actions.',
+          details: [
+            'Accepts effectiveRole prop so a global Viewer granted Editor on one project sees editing buttons there.',
+            'Keeps Admin Console menu item gated strictly on global user.role === "Admin".'
+          ],
+          note: 'Change here to add top-bar tools, extra canvas element types, or adjust project switcher dropdown items.',
+          flows: ['canvas', 'rbac'],
+          symbols: ['Header', 'effectiveRole', 'onOpenAdminConsole', 'onSelectProject']
+        },
+        {
+          id: 'node-card',
+          layer: 1,
+          x: 632, y: 54,
+          tag: 'Canvas Item',
+          tagClass: 'tag-ui',
+          title: 'Workflow Scene Card',
+          file: 'src/components/WorkflowNodeCard.tsx',
+          short: 'Draggable scene card with inline title edit, preview image, 4 wire ports, paste upload, and container unlink.',
+          definition: 'Represents a single storyboard scene on the 5000×5000 infinite canvas. Shows thumbnail preview, inline editable title, pin/drawing counters, 4 magnetic connection ports (top/right/bottom/left), clipboard image paste support, and unlink-from-container action.',
+          details: [
+            'Respects isReadOnly by disabling drag, title editing, ports, and delete triggers.',
+            'Double-click or Inspect button opens NodeDashboardModal.'
+          ],
+          note: 'Change here to redesign how scene cards look on the board or add quick badges/indicators onto each card.',
+          flows: ['canvas', 'media'],
+          symbols: ['WorkflowNodeCard', 'onStartPortDrag', 'onImagePaste', 'onUnlinkContainer']
+        },
+        {
+          id: 'text-card',
+          layer: 1,
+          x: 922, y: 54,
+          tag: 'Canvas Item',
+          tagClass: 'tag-ui',
+          title: 'Containers, Notes & Labels',
+          file: 'src/components/CanvasTextCard.tsx',
+          short: 'Floating headings, sticky annotations, and auto-expanding grouping Container boxes with category labels.',
+          definition: 'Renders all three TextElement modes on the canvas: floating typography, sticky annotation cards, and magnetic group containers that wrap child WorkflowNodes and expand automatically when children move.',
+          details: [
+            'Supports inline text/body editing and color/label settings via TextPropertiesMenu.',
+            'Drag-over highlights container borders when a node overlaps them.'
+          ],
+          note: 'Change here to modify sticky note styling, container framing, or how child elements attach to containers.',
+          flows: ['canvas'],
+          symbols: ['CanvasTextCard', 'mode: container | floating | annotation', 'isDropTarget']
+        },
+        {
+          id: 'wires-popovers',
+          layer: 1,
+          x: 1212, y: 54,
+          tag: 'SVG & Menus',
+          tagClass: 'tag-ui',
+          title: 'Connections & Popovers',
+          file: 'src/components/ConnectionLines.tsx + popovers/*',
+          short: 'Bezier/straight SVG arrows between node ports plus floating LinePropertiesMenu and TextPropertiesMenu.',
+          definition: 'Renders directional SVG connector paths between scene node ports (solid/dotted, curve/straight, arrow direction, labels) plus live drag-wire preview and contextual floating popovers to restyle lines or labels.',
+          details: [
+            'LinePropertiesMenu edits type, style, color, label, arrows, or deletes connection.',
+            'TextPropertiesMenu changes font size, bold/italic, color, and opens LabelManagerModal.'
+          ],
+          note: 'Change here to customize connector path geometry, arrow markers, or add new quick-style options in popovers.',
+          flows: ['canvas'],
+          symbols: ['ConnectionLines', 'LinePropertiesMenu', 'TextPropertiesMenu']
+        },
+
+        // LAYER 2 — MODALS & ADMIN (y: 274)
+        {
+          id: 'admin-modal',
+          layer: 2,
+          x: 52, y: 274,
+          tag: 'RBAC & Admin',
+          tagClass: 'tag-modal',
+          title: 'Admin Console Modal',
+          file: 'src/components/modals/AdminConsoleModal.tsx',
+          short: '3-tab console: Projects, Team & Roles (per-project participants, multi-project assign, Super User delete), Web Image DB.',
+          definition: 'Workspace administration dashboard visible to Admins. Lets you create/archive/delete projects, filter Team & Roles by project scope, add/remove participants with per-project roles, view "Projects Involved" badges, batch-assign a user across multiple projects, invite collaborators, and (for Super User) delete users.',
+          details: [
+            'Tab 1 (Projects): Create project, open project, Archive/Activate, jump straight to project participants.',
+            'Tab 2 (Team & Roles): Project Scope selector, Invite drawer with immediate project checkboxes, inline Assign Projects drawer, 2-step Confirm User Delete for adrian.byakko@gmail.com.',
+            'Tab 3 (Web Image DB): View all registered Vercel Blob / legacy URLs and delete records.'
+          ],
+          note: 'Change here whenever modifying admin workflows, user onboarding, role matrices, or project participant UI.',
+          flows: ['rbac', 'auth'],
+          symbols: ['AdminConsoleModal', 'selectedTeamProjectId', 'onSaveUserProjects', 'onDeleteUser']
+        },
+        {
+          id: 'node-dashboard',
+          layer: 2,
+          x: 342, y: 274,
+          tag: 'Scene Editor',
+          tagClass: 'tag-modal',
+          title: 'Node Dashboard Modal',
+          file: 'src/components/modals/NodeDashboardModal.tsx',
+          short: 'Full 3-column scene breakdown (Enfoque, Acción, Descripción), image/map pickers & video attachments.',
+          definition: 'Detailed inspector modal for a selected WorkflowNode. Edits the three storyboard columns (Enfoque, Acción, Descripción), triggers image/map upload or gallery picking, links YouTube references per column, and launches fullscreen PinningModal or MapViewerModal.',
+          details: [
+            'Auto-locks inputs when isReadOnly is true (project Viewer).',
+            'Never stores raw image files in Firestore — triggers handleUploadNodeImage to upload to Blob first.'
+          ],
+          note: 'Change here to add new storyboard script columns, metadata fields, or scene-level attachments.',
+          flows: ['canvas', 'media'],
+          symbols: ['NodeDashboardModal', 'onOpenPinning', 'onOpenMapViewer', 'onUploadMainImage']
+        },
+        {
+          id: 'pin-map-modals',
+          layer: 2,
+          x: 632, y: 274,
+          tag: 'Canvas Editors',
+          tagClass: 'tag-modal',
+          title: 'Pinning & Map Viewers',
+          file: 'PinningModal.tsx + MapViewerModal.tsx',
+          short: 'Fullscreen interactive image & top-down map annotation with numbered comment pins, replies & vector drawings.',
+          definition: 'Two specialized fullscreen visual annotation workspaces: PinningModal overlays percentage-positioned review pins (with threaded replies, review/done flags) and SVG freehand/shape drawings onto the scene image; MapViewerModal does the same for topographical blocking maps.',
+          details: [
+            'Pins store percentage coordinates (0–100) so annotations stay aligned at any zoom/screen size.',
+            'Drawings are serialized SVG path/figure objects with transform matrices inside the node doc.'
+          ],
+          note: 'Change here to add new drawing shapes, pin categories, or review workflow statuses.',
+          flows: ['canvas'],
+          symbols: ['PinningModal', 'MapViewerModal', 'CommentPin', 'DrawingElement']
+        },
+        {
+          id: 'gallery-video-modals',
+          layer: 2,
+          x: 922, y: 274,
+          tag: 'Media Libraries',
+          tagClass: 'tag-modal',
+          title: 'Galleries & Video Modals',
+          file: 'GalleryModal.tsx + GlobalVideoModal + VideoPlayerModal',
+          short: 'Reusable Images/Maps gallery picker + multi-file upload, plus shared YouTube library with timestamp snapshots.',
+          definition: 'Shared media management modals across projects: GalleryModal filters ImageResources by folder (images vs maps), uploads files in batch, and deletes both Firestore metadata & Vercel Blobs; Video modals manage YouTube links and timestamped frame notes.',
+          details: [
+            'GalleryModal supports both "manage" mode and "picker" mode triggered from NodeDashboardModal.',
+            'VideoPlayerModal captures timestamp notes stored inside node.videos[column].snapshots.'
+          ],
+          note: 'Change here to add new asset folders (e.g. props/objects), filtering/sorting, or video timestamp features.',
+          flows: ['media', 'canvas'],
+          symbols: ['GalleryModal', 'GlobalVideoModal', 'VideoSelectionModal', 'VideoPlayerModal']
+        },
+        {
+          id: 'utility-modals',
+          layer: 2,
+          x: 1212, y: 274,
+          tag: 'Workspace Tools',
+          tagClass: 'tag-modal',
+          title: 'Archive & Utility Dialogs',
+          file: 'ArchiveModal + AddTextModal + LabelManager + Warnings',
+          short: 'Archived scenes vault, add-text/container dialog, label manager, delete/replace safety confirmations.',
+          definition: 'Supporting workspace dialogs: ArchiveModal restores or permanently deletes archived scenes (storedNodes) with notes; AddTextModal creates floating/container/sticky items; LabelManagerModal manages category tags; DeleteWarningModal & ReplaceImageWarningModal guard destructive actions.',
+          details: [
+            'Archiving moves a node from /nodes/{id} to /storedNodes/{id} in a single Firestore batch.',
+            'DeploymentGuideModal explains hosting & production checklist to Admins.'
+          ],
+          note: 'Change here to tweak confirmation warnings, archive metadata, or default category labels.',
+          flows: ['canvas'],
+          symbols: ['ArchiveModal', 'AddTextModal', 'LabelManagerModal', 'DeleteWarningModal']
+        },
+
+        // LAYER 3 — CLIENT SERVICES & TYPES (y: 492)
+        {
+          id: 'firebase-client',
+          layer: 3,
+          x: 110, y: 492,
+          tag: 'Auth & Init',
+          tagClass: 'tag-service',
+          title: 'Firebase SDK & Google Login',
+          file: 'src/services/firebase.ts',
+          short: 'Initializes Firebase App, Auth, Firestore (configured DB ID). Claims /invites & syncs /users/{uid} on login.',
+          definition: 'Single initialization point for Firebase Web SDK using firebase-applet-config.json. Handles Google OAuth popup sign-in, creates/merges /users/{uid}, provisions /admins/{uid} for adrian.byakko@gmail.com, claims pending /invites/{email} roles automatically, and formats structured Firestore errors.',
+          details: [
+            'Connects to specific Firestore database ID configured in firebase-applet-config.json.',
+            'Deletes claimed invite doc on non-super-admin login after applying invited role.',
+            'testFirestoreConnection() performs initial server connectivity probe on boot.'
+          ],
+          note: 'Change here if adding extra OAuth providers, altering first-login profile fields, or changing the Super User bootstrap logic.',
+          flows: ['auth', 'rbac'],
+          symbols: ['signInWithGoogle', 'logOut', 'db', 'auth', 'handleFirestoreError']
+        },
+        {
+          id: 'firestore-service',
+          layer: 3,
+          x: 490, y: 492,
+          tag: 'Data Access',
+          tagClass: 'tag-service',
+          title: 'Firestore Service Layer',
+          file: 'src/services/firestoreService.ts',
+          short: 'Real-time onSnapshot subscriptions + atomic writeBatch operations for projects, canvas items, participants & delete.',
+          definition: 'Encapsulates all Cloud Firestore reads and writes so UI components stay clean. Manages real-time listeners for projects, active project canvas (nodes, connections, texts, storedNodes), users, images, and global videos, plus atomic batch updates for participant assignments and complete user deletion.',
+          details: [
+            'createProject() seeds initial participant entry for creator + Scene 01 starter node.',
+            'setUserProjectAssignments() diffs per-project roles and commits a single writeBatch.',
+            'deleteUserCompletely() atomically deletes /users/{uid}, /admins/{uid}, /invites/{email} and strips user from every project.participants map.',
+            'deleteImageFromDb() deletes Firestore metadata AND invokes deleteImageFromStorage() for Blob cleanup.'
+          ],
+          note: 'Change here whenever adding new Firestore collections, optimizing batch writes, or modifying queries.',
+          flows: ['canvas', 'rbac', 'media', 'auth'],
+          symbols: ['subscribeProjects', 'subscribeProjectCanvas', 'setProjectParticipantRole', 'setUserProjectAssignments', 'deleteUserCompletely']
+        },
+        {
+          id: 'storage-service',
+          layer: 3,
+          x: 870, y: 492,
+          tag: 'Media Client',
+          tagClass: 'tag-service',
+          title: 'Vercel Blob Client Service',
+          file: 'src/services/storageService.ts',
+          short: 'Uploads files straight from browser to Vercel Blob using short-lived tokens & deletes blobs via API.',
+          definition: 'Handles binary media uploads without routing large payloads through app servers or storing base64 in Firestore. Fetches Firebase ID token from auth.currentUser, passes it as Bearer header to /api/blob-token via @vercel/blob/client upload(), and returns a public CDN URL.',
+          details: [
+            'deleteImageFromStorage() checks for ".blob.vercel-storage.com" URLs and calls POST /api/blob-delete with Firebase Auth Bearer token.',
+            'Supports images/, maps/, and objects/ folders.'
+          ],
+          note: 'Change here if switching storage providers, changing allowed folders, or adding client-side image compression before upload.',
+          flows: ['media'],
+          symbols: ['uploadImageToStorage', 'deleteImageFromStorage', '@vercel/blob/client']
+        },
+        {
+          id: 'workflow-types',
+          layer: 3,
+          x: 1212, y: 492,
+          tag: 'TypeScript',
+          tagClass: 'tag-service',
+          title: 'Domain Types & Contracts',
+          file: 'src/types/workflow.ts',
+          short: 'Strict interfaces: Project, ProjectParticipant, WorkflowNode, Connection, TextElement, ImageResource, UserProfile.',
+          definition: 'Single source of truth for TypeScript data shapes shared across React components, Firestore serialization, and modal props.',
+          details: [
+            'Defines Project.participants?: Record<string, ProjectParticipant> keyed by lowercase email.',
+            'Defines pin, drawing, snapshot, video reference, and archived node metadata.'
+          ],
+          note: 'Always start here when adding a new property to projects, nodes, users, or media assets—TypeScript (tsc --noEmit) will guide every consumer.',
+          flows: ['canvas', 'rbac', 'media'],
+          symbols: ['Project', 'ProjectParticipant', 'WorkflowNode', 'Connection', 'TextElement', 'UserProfile', 'ImageResource']
+        },
+
+        // LAYER 4 — SERVERLESS API, DEV SERVER & ROUTING (y: 705)
+        {
+          id: 'api-blob-token',
+          layer: 4,
+          x: 160, y: 705,
+          tag: 'Vercel Function',
+          tagClass: 'tag-api',
+          title: 'POST /api/blob-token',
+          file: 'api/blob-token.ts',
+          short: 'Verifies Firebase ID token via Google Identity Toolkit, then issues signed Vercel Blob client upload tokens.',
+          definition: 'Vercel Serverless Function that acts as the security gatekeeper for media uploads. Reads Firebase API key from bundled firebase-applet-config.json, verifies the user Bearer ID token against Google accounts:lookup, validates folder prefix & MIME types (max 25MB), and returns a scoped upload token.',
+          details: [
+            'Rejects unauthenticated requests with HTTP 401 JSON.',
+            'Uses BLOB_READ_WRITE_TOKEN from Vercel environment variables (never exposed to browser).'
+          ],
+          note: 'Change here to adjust max upload size (currently 25MB), allowed image MIME types, or custom upload claims.',
+          flows: ['media'],
+          symbols: ['POST /api/blob-token', 'verifyFirebaseToken', 'handleUpload']
+        },
+        {
+          id: 'api-blob-delete',
+          layer: 4,
+          x: 520, y: 705,
+          tag: 'Vercel Function',
+          tagClass: 'tag-api',
+          title: 'POST /api/blob-delete',
+          file: 'api/blob-delete.ts',
+          short: 'Authenticates caller via Firebase ID token and deletes the target object from Vercel Blob Storage.',
+          definition: 'Vercel Serverless Function called when removing an asset from GalleryModal or Admin Console. Validates the Bearer Firebase ID token and calls @vercel/blob del(url) only on valid *.blob.vercel-storage.com URLs.',
+          details: [
+            'Returns 401 if unauthenticated, 400 if URL is not a Vercel Blob URL, 503 if token missing.'
+          ],
+          note: 'Change here if you restrict asset deletion to Admins/Editors via Firestore role lookup.',
+          flows: ['media'],
+          symbols: ['POST /api/blob-delete', 'verifyFirebaseToken', 'del(url)']
+        },
+        {
+          id: 'express-dev-server',
+          layer: 4,
+          x: 880, y: 705,
+          tag: 'Local Server',
+          tagClass: 'tag-api',
+          title: 'Local Express + Vite Server',
+          file: 'server.ts',
+          short: 'Port 3000 dev server mounting Vite middlewares, mirroring /api/blob-* endpoints, and serving local /uploads.',
+          definition: 'Runs the local development environment (`npm run dev` via tsx). Mounts Vite in middleware mode (HMR disabled in AI Studio iframe), mirrors /api/blob-token and /api/blob-delete using .env.local, and serves legacy data/uploads files.',
+          details: [
+            'Loads .env.local before default dotenv so local Vercel Blob credentials work identically to production.',
+            'In production Vite builds static dist/ served directly by Vercel Edge.'
+          ],
+          note: 'When adding a new /api/* endpoint for Vercel, remember to mirror its route in server.ts so local dev testing stays identical!',
+          flows: ['media', 'canvas'],
+          symbols: ['startServer()', 'vite.middlewares', 'PORT = 3000']
+        },
+        {
+          id: 'vercel-routing',
+          layer: 4,
+          x: 1212, y: 705,
+          tag: 'Build & Routing',
+          tagClass: 'tag-api',
+          title: 'Vercel Config & Static Assets',
+          file: 'vercel.json + vite.config.ts + public/',
+          short: 'SPA fallback rewrite excluding /api/ & /uploads/, bundles firebase-applet-config.json into functions.',
+          definition: 'Deployment configuration ensuring Serverless Functions receive firebase-applet-config.json, static files under public/uploads/* and docs serve with real MIME types, and client-side routes fall back cleanly to index.html.',
+          details: [
+            'Rewrite rule: /((?!api/|uploads/|architecture-diagram\\.html).*) -> /index.html.',
+            'Prevents catch-all HTML responses from intercepting API JSON or legacy uploaded images.'
+          ],
+          note: 'CRITICAL: If you add new top-level static folders or API prefixes, update the negative lookahead regex in vercel.json!',
+          flows: ['media'],
+          symbols: ['includeFiles', 'rewrites', 'public/uploads/*']
+        },
+
+        // LAYER 5 — CLOUD BACKEND & RULES (y: 912)
+        {
+          id: 'firebase-auth',
+          layer: 5,
+          x: 80, y: 912,
+          tag: 'Google Identity',
+          tagClass: 'tag-cloud',
+          title: 'Firebase Authentication',
+          file: 'Google OAuth + Identity Toolkit',
+          short: 'Handles Google Sign-In popup, email verification flags, and signed JWT ID tokens used across Firestore & API.',
+          definition: 'External identity provider managing user sessions, Google OAuth popups, and cryptographically signed ID tokens verified both automatically by Firestore rules and explicitly by /api/blob-* endpoints.',
+          details: [
+            'Custom domains (like visual-workflow-canvas.vercel.app) must remain listed under Firebase Auth Authorized Domains.'
+          ],
+          note: 'If deploying to a brand-new custom domain, add that domain in Firebase Console → Authentication → Settings → Authorized Domains.',
+          flows: ['auth', 'media', 'rbac'],
+          symbols: ['request.auth.token.email', 'email_verified', 'idToken']
+        },
+        {
+          id: 'firestore-db',
+          layer: 5,
+          x: 420, y: 912,
+          tag: 'Real-time DB',
+          tagClass: 'tag-cloud',
+          title: 'Cloud Firestore Database',
+          file: 'projects/* + users/* + admins/* + invites/* + images/*',
+          short: 'Document store with root registries and per-project subcollections (nodes, storedNodes, connections, texts).',
+          definition: 'Primary real-time database pushing live updates across all connected team browsers via onSnapshot. Separates global collections (users, admins, invites, images, globalVideos) from project-scoped subcollections.',
+          details: [
+            'Projects store an email-keyed participants map for instant O(1) lookup in rules & UI.',
+            'All media URLs point to CDN paths—never raw base64 blobs inside documents.'
+          ],
+          note: 'When adding new subcollections under /projects/{projectId}, add both a client listener in firestoreService.ts and a matching rule block in firestore.rules.',
+          flows: ['canvas', 'rbac', 'auth', 'media'],
+          symbols: ['/projects/{projectId}/nodes', '/users/{uid}', '/invites/{email}', '/images/{id}']
+        },
+        {
+          id: 'firestore-rules',
+          layer: 5,
+          x: 780, y: 912,
+          tag: 'Security Layer',
+          tagClass: 'tag-cloud',
+          title: 'Firestore Rules & Blueprint',
+          file: 'firestore.rules + firebase-blueprint.json',
+          short: 'Server-enforced RBAC: Super Admin, Admin, per-project participants roles, Admin-only participant edits.',
+          definition: 'Zero-trust server-side security rules evaluated on every Firestore read/write. Enforces email verification, Super User privileges (adrian.byakko@gmail.com), per-project canReadProject / canEditProject checks, invite claim validation, and Admin-only modification of project.participants.',
+          details: [
+            'Deploy rules after editing via Firebase DeployRules flow.',
+            '/projects allows read for verified users so list queries succeed cleanly while subcollections enforce canReadProject(projectId).'
+          ],
+          note: 'ALWAYS keep client checks in App.tsx aligned with firestore.rules helpers, and never drop isAdmin() protection on participants updates.',
+          flows: ['rbac', 'auth'],
+          symbols: ['isSuperAdmin()', 'isAdmin()', 'canReadProject()', 'canEditProject()', 'isValidProject()']
+        },
+        {
+          id: 'vercel-blob-cdn',
+          layer: 5,
+          x: 1140, y: 912,
+          tag: 'Media Storage',
+          tagClass: 'tag-cloud',
+          title: 'Vercel Blob Store + Legacy Assets',
+          file: 'visual-workflow-media + public/uploads/*',
+          short: 'Public edge CDN holding uploaded scene images & maps, plus the 4 preserved legacy assets under public/uploads/.',
+          definition: 'High-speed object storage provisioned on Vercel (visual-workflow-media) storing newly uploaded scene images and maps with public CDN URLs, paired with static legacy images preserved in public/uploads/ so older Firestore node references never break.',
+          details: [
+            'Uploaded filenames get safe characters + random suffix to prevent collisions.',
+            'Managed via BLOB_READ_WRITE_TOKEN across Production, Preview, and Development.'
+          ],
+          note: 'Do not delete public/uploads/* unless all legacy /uploads/... URLs in Firestore have been migrated or deleted.',
+          flows: ['media'],
+          symbols: ['*.blob.vercel-storage.com', 'public/uploads/images/*', 'public/uploads/maps/*']
+        }
+      ];
+
+      const WIRES = [
+        // UI <-> Modals & App
+        {
+          id: 'w-app-header', from: 'app-root', to: 'header-ui', flows: ['canvas', 'rbac'],
+          title: 'Header Props & Effective Role',
+          file: 'App.tsx → Header.tsx',
+          def: 'Passes visibleProjects, activeProject, effectiveRole, and workspace triggers to the top bar.',
+          note: 'Keeps toolbar actions synchronized with the active project role.'
+        },
+        {
+          id: 'w-app-node', from: 'app-root', to: 'node-card', flows: ['canvas'],
+          title: 'Canvas Nodes & Drag State',
+          file: 'App.tsx → WorkflowNodeCard.tsx',
+          def: 'Renders appState.nodes onto the zoomed 5000px stage and handles drag, paste-upload, and wire starts.',
+          note: 'Drag coordinates are divided by currentZoomRef.current for exact cursor tracking.'
+        },
+        {
+          id: 'w-app-text', from: 'app-root', to: 'text-card', flows: ['canvas'],
+          title: 'Containers & Auto-Bounds',
+          file: 'App.tsx → CanvasTextCard.tsx',
+          def: 'Renders floating text, sticky notes, and containers; moving children auto-resizes container bounds.',
+          note: 'Container dimensions persist to Firestore on drag end.'
+        },
+        {
+          id: 'w-node-wire', from: 'node-card', to: 'wires-popovers', flows: ['canvas'],
+          title: 'Port-to-Port Wiring',
+          file: 'WorkflowNodeCard → ConnectionLines',
+          def: 'Dragging from a node port creates a Connection linking sourcePort to targetPort.',
+          note: 'Line clicks open LinePropertiesMenu popover.'
+        },
+        {
+          id: 'w-app-admin', from: 'app-root', to: 'admin-modal', flows: ['rbac', 'auth'],
+          title: 'Admin Console Handlers',
+          file: 'App.tsx → AdminConsoleModal.tsx',
+          def: 'Passes full projects, usersList, imagesDbList, plus project-participant, multi-assign, and Super User delete callbacks.',
+          note: 'Admins always see all projects in AdminConsoleModal even when filtered elsewhere.'
+        },
+        {
+          id: 'w-app-dash', from: 'app-root', to: 'node-dashboard', flows: ['canvas', 'media'],
+          title: 'Inspect Active Scene',
+          file: 'App.tsx → NodeDashboardModal.tsx',
+          def: 'Opens the 3-column scene breakdown with isReadOnly enforced from effectiveRole.',
+          note: 'Bridges to PinningModal, MapViewerModal, and GalleryModal.'
+        },
+        {
+          id: 'w-dash-pin', from: 'node-dashboard', to: 'pin-map-modals', flows: ['canvas'],
+          title: 'Fullscreen Annotation Launch',
+          file: 'NodeDashboardModal → Pinning/MapViewer',
+          def: 'Transfers the active WorkflowNode into fullscreen pin & SVG drawing editors.',
+          note: 'Closing returns straight back to the same node dashboard.'
+        },
+        {
+          id: 'w-dash-gal', from: 'node-dashboard', to: 'gallery-video-modals', flows: ['media', 'canvas'],
+          title: 'Asset & Video Pickers',
+          file: 'NodeDashboardModal → Gallery/Video Modals',
+          def: 'Lets editors pick existing images/maps from GalleryModal or attach YouTube references.',
+          note: 'Gallery lists come live from Firestore /images.'
+        },
+        {
+          id: 'w-app-util', from: 'app-root', to: 'utility-modals', flows: ['canvas'],
+          title: 'Archive, Text & Warnings',
+          file: 'App.tsx → Archive / AddText / Warnings',
+          def: 'Coordinates archived scene restoration, label creation, and image-replace safety prompts.',
+          note: 'DeleteWarningModal prevents accidental permanent deletion.'
+        },
+
+        // Layer 1/2 -> Services (Layer 3)
+        {
+          id: 'w-app-fb', from: 'app-root', to: 'firebase-client', flows: ['auth', 'rbac'],
+          title: 'Auth Session Listener',
+          file: 'App.tsx ↔ firebase.ts',
+          def: 'Subscribes via onAuthStateChanged(auth) to gate the app until Google Sign-In completes.',
+          note: 'Sets adrian.byakko@gmail.com as Super Admin immediately on auth.'
+        },
+        {
+          id: 'w-app-fs', from: 'app-root', to: 'firestore-service', flows: ['canvas', 'rbac'],
+          title: 'Real-Time Canvas & Role Sync',
+          file: 'App.tsx ↔ firestoreService.ts',
+          def: 'Subscribes to projects, active project subcollections, user profile, and images; dispatches all CRUD mutations.',
+          note: 'Zero polling—everything updates in real time via Firestore snapshots.'
+        },
+        {
+          id: 'w-admin-fs', from: 'admin-modal', to: 'firestore-service', flows: ['rbac'],
+          title: 'RBAC & Participant Batch Writes',
+          file: 'AdminConsoleModal → firestoreService.ts',
+          def: 'Invokes setProjectParticipantRole, setUserProjectAssignments (writeBatch), inviteUserByEmail, and deleteUserCompletely.',
+          note: 'Uses lowercase email keys in project.participants for pre-login invite compatibility.'
+        },
+        {
+          id: 'w-gal-fs', from: 'gallery-video-modals', to: 'firestore-service', flows: ['media'],
+          title: 'Media Registry & Video Sync',
+          file: 'Gallery/Video Modals → firestoreService.ts',
+          def: 'Registers uploaded image metadata in /images and deletes both Firestore record & underlying Blob.',
+          note: 'Firestore never stores base64—only CDN URLs and storagePath.'
+        },
+        {
+          id: 'w-app-stor', from: 'app-root', to: 'storage-service', flows: ['media'],
+          title: 'Browser Image Upload Trigger',
+          file: 'App.tsx → storageService.ts',
+          def: 'handleUploadNodeImage & handleUploadGalleryFiles push File objects to Vercel Blob before registering URLs in Firestore.',
+          note: 'Surfaces upload errors via floating toast banner without crashing the canvas.'
+        },
+
+        // Services -> API & Cloud
+        {
+          id: 'w-stor-token', from: 'storage-service', to: 'api-blob-token', flows: ['media'],
+          title: 'Client Token Request (Bearer JWT)',
+          file: 'storageService.ts → /api/blob-token',
+          def: 'Sends Authorization: Bearer <Firebase ID Token> to obtain a signed upload URL for direct browser-to-Blob streaming.',
+          note: 'Bypasses serverless 4.5MB body limits by uploading directly from browser to Vercel Blob.'
+        },
+        {
+          id: 'w-stor-del', from: 'storage-service', to: 'api-blob-delete', flows: ['media'],
+          title: 'Authenticated Blob Delete',
+          file: 'storageService.ts → /api/blob-delete',
+          def: 'Sends POST with Firebase ID Token and Blob URL to permanently delete unused media files.',
+          note: 'Skipped automatically for legacy /uploads/* files.'
+        },
+        {
+          id: 'w-fb-auth', from: 'firebase-client', to: 'firebase-auth', flows: ['auth'],
+          title: 'Google OAuth Popup & Token Exchange',
+          file: 'firebase.ts ↔ Firebase Auth',
+          def: 'Triggers signInWithPopup(auth, googleProvider) and supplies verified user UID/email + JWT tokens.',
+          note: 'After sign-in, firebase.ts syncs /users/{uid} and claims any /invites/{email}.'
+        },
+        {
+          id: 'w-fs-db', from: 'firestore-service', to: 'firestore-db', flows: ['canvas', 'rbac', 'auth', 'media'],
+          title: 'Firestore WebSocket Streams',
+          file: 'firestoreService.ts ↔ Cloud Firestore',
+          def: 'Maintains live onSnapshot streams and commits atomic writeBatches across projects, nodes, users, and images.',
+          note: 'Every request is evaluated by firestore.rules before reaching data.'
+        },
+        {
+          id: 'w-db-rules', from: 'firestore-db', to: 'firestore-rules', flows: ['rbac', 'auth'],
+          title: 'Server-Side Rule Enforcement',
+          file: 'Cloud Firestore ↔ firestore.rules',
+          def: 'Validates every read/write using isAdmin(), canReadProject(), canEditProject(), and schema validators.',
+          note: 'Protects participants map from tampering by non-admins.'
+        },
+        {
+          id: 'w-token-auth', from: 'api-blob-token', to: 'firebase-auth', flows: ['media'],
+          title: 'ID Token Verification (REST)',
+          file: 'api/blob-token.ts → Identity Toolkit',
+          def: 'Verifies Firebase Bearer JWT via accounts:lookup before minting any Vercel Blob upload token.',
+          note: 'Requires firebase-applet-config.json bundled via vercel.json includeFiles.'
+        },
+        {
+          id: 'w-token-blob', from: 'api-blob-token', to: 'vercel-blob-cdn', flows: ['media'],
+          title: 'Direct Edge Upload & Storage',
+          file: 'api/blob-token.ts → Vercel Blob Store',
+          def: 'Authorizes direct browser PUT to visual-workflow-media store and returns public CDN URL.',
+          note: 'URL is then saved inside Firestore /images/{id} and node.image / node.mapImage.'
+        },
+        {
+          id: 'w-del-blob', from: 'api-blob-delete', to: 'vercel-blob-cdn', flows: ['media'],
+          title: 'Blob Removal',
+          file: 'api/blob-delete.ts → Vercel Blob Store',
+          def: 'Calls @vercel/blob del(url) using server-side BLOB_READ_WRITE_TOKEN.',
+          note: 'Keeps Blob storage clean when images are removed from Gallery.'
+        },
+        {
+          id: 'w-dev-route', from: 'express-dev-server', to: 'vercel-routing', flows: ['media', 'canvas'],
+          title: 'Dev / Prod Parity',
+          file: 'server.ts ↔ vercel.json',
+          def: 'Local Express mirrors /api/blob-* & /uploads while Vercel serves Vite dist/ + Serverless Functions.',
+          note: 'Keep routes in sync across both files whenever adding backend endpoints.'
+        }
+      ];
+
+      const stage = document.getElementById('stage');
+      const wiresSvg = document.getElementById('wiresSvg');
+      const viewport = document.getElementById('viewport');
+      const tooltip = document.getElementById('tooltip');
+      const inspectorBody = document.getElementById('inspectorBody');
+
+      let activeFlow = 'all';
+      let selectedId = 'app-root';
+      let zoom = 0.86;
+      let panX = 28;
+      let panY = 18;
+      let isPanning = false;
+      let panStartX = 0;
+      let panStartY = 0;
+      let searchTerm = '';
+
+      const nodeMap = {};
+      NODES.forEach((n) => { nodeMap[n.id] = n; });
+
+      function applyTransform() {
+        stage.style.transform = `translate(${panX}px, ${panY}px) scale(${zoom})`;
+        document.getElementById('zoomLabel').textContent = `${Math.round(zoom * 100)}%`;
+      }
+
+      function fitToScreen() {
+        const vw = viewport.clientWidth || 1100;
+        const vh = viewport.clientHeight || 720;
+        const sx = (vw - 40) / 1540;
+        const sy = (vh - 40) / 1100;
+        zoom = Math.max(0.45, Math.min(Math.min(sx, sy), 1.1));
+        panX = Math.max(16, (vw - 1540 * zoom) / 2);
+        panY = Math.max(12, (vh - 1100 * zoom) / 2);
+        applyTransform();
+      }
+
+      function renderNodes() {
+        // Remove previous nodes
+        stage.querySelectorAll('.arch-node').forEach((el) => el.remove());
+
+        NODES.forEach((node) => {
+          const el = document.createElement('div');
+          el.className = 'arch-node';
+          el.dataset.id = node.id;
+          el.style.left = `${node.x}px`;
+          el.style.top = `${node.y}px`;
+
+          const matchesFlow = activeFlow === 'all' || node.flows.includes(activeFlow);
+          const matchesSearch = !searchTerm || (
+            node.title.toLowerCase().includes(searchTerm) ||
+            node.file.toLowerCase().includes(searchTerm) ||
+            node.definition.toLowerCase().includes(searchTerm) ||
+            node.note.toLowerCase().includes(searchTerm) ||
+            node.symbols.some((s) => s.toLowerCase().includes(searchTerm))
+          );
+
+          if (!matchesFlow) el.classList.add('dimmed');
+          if (searchTerm && matchesSearch) el.classList.add('search-match');
+          if (searchTerm && !matchesSearch) el.classList.add('dimmed');
+          if (selectedId === node.id) el.classList.add('selected');
+
+          el.innerHTML = `
+            <div class="node-head">
+              <span class="node-tag ${node.tagClass}">${node.tag}</span>
+              <span style="font-size:10px; color:var(--dim);">L${node.layer}</span>
+            </div>
+            <div class="node-title">${node.title}</div>
+            <div class="node-path">${node.file}</div>
+            <p class="node-short">${node.short}</p>
+          `;
+
+          el.addEventListener('mouseenter', (e) => showTooltipForNode(node, e));
+          el.addEventListener('mousemove', positionTooltip);
+          el.addEventListener('mouseleave', hideTooltip);
+          el.addEventListener('click', (e) => {
+            e.stopPropagation();
+            selectNode(node.id);
+          });
+
+          stage.appendChild(el);
+        });
+      }
+
+      function getNodeCenter(id) {
+        const n = nodeMap[id];
+        return {
+          x: n.x + 124,
+          y: n.y + 56,
+          top: n.y,
+          bottom: n.y + 114,
+          left: n.x,
+          right: n.x + 248
+        };
+      }
+
+      function renderWires() {
+        wiresSvg.querySelectorAll('.wire-group').forEach((g) => g.remove());
+
+        WIRES.forEach((w) => {
+          const a = getNodeCenter(w.from);
+          const b = getNodeCenter(w.to);
+
+          let x1 = a.x, y1 = a.bottom, x2 = b.x, y2 = b.top;
+          let d = '';
+
+          if (Math.abs(a.y - b.y) < 35) {
+            // Same horizontal row
+            const leftToRight = a.x < b.x;
+            x1 = leftToRight ? a.right : a.left;
+            y1 = a.y;
+            x2 = leftToRight ? b.left : b.right;
+            y2 = b.y;
+            const mx = (x1 + x2) / 2;
+            d = `M ${x1} ${y1} C ${mx} ${y1}, ${mx} ${y2}, ${x2} ${y2}`;
+          } else {
+            // Cross layer
+            const goingDown = a.y < b.y;
+            y1 = goingDown ? a.bottom : a.top;
+            y2 = goingDown ? b.top : b.bottom;
+            const dy = Math.max(45, Math.abs(y2 - y1) * 0.48);
+            const c1y = goingDown ? y1 + dy : y1 - dy;
+            const c2y = goingDown ? y2 - dy : y2 + dy;
+            d = `M ${x1} ${y1} C ${x1} ${c1y}, ${x2} ${c2y}, ${x2} ${y2}`;
+          }
+
+          const g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+          g.classList.add('wire-group');
+
+          const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+          path.setAttribute('d', d);
+          path.classList.add('wire-path');
+
+          const isConnectedToSelected = selectedId && (w.from === selectedId || w.to === selectedId);
+          const matchesFlow = activeFlow === 'all' || w.flows.includes(activeFlow);
+
+          if (activeFlow !== 'all') {
+            if (matchesFlow) {
+              path.classList.add('highlighted');
+              path.setAttribute('stroke', flowColor(activeFlow));
+              path.setAttribute('marker-end', 'url(#arrowActive)');
+            } else {
+              path.classList.add('dimmed');
+            }
+          } else if (isConnectedToSelected) {
+            path.classList.add('highlighted');
+            path.setAttribute('stroke', '#60a5fa');
+            path.setAttribute('marker-end', 'url(#arrowActive)');
+          } else {
+            path.setAttribute('marker-end', 'url(#arrowDefault)');
+          }
+
+          const hit = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+          hit.setAttribute('d', d);
+          hit.classList.add('wire-hit');
+          hit.addEventListener('mouseenter', (e) => showTooltipForWire(w, e));
+          hit.addEventListener('mousemove', positionTooltip);
+          hit.addEventListener('mouseleave', hideTooltip);
+
+          g.appendChild(path);
+          g.appendChild(hit);
+          wiresSvg.appendChild(g);
+        });
+      }
+
+      function flowColor(flow) {
+        if (flow === 'auth') return '#10b981';
+        if (flow === 'canvas') return '#06b6d4';
+        if (flow === 'media') return '#f59e0b';
+        if (flow === 'rbac') return '#a78bfa';
+        return '#60a5fa';
+      }
+
+      function showTooltipForNode(node, e) {
+        document.getElementById('ttTitle').textContent = node.title;
+        const tag = document.getElementById('ttTag');
+        tag.textContent = node.tag;
+        tag.className = `node-tag ${node.tagClass}`;
+        document.getElementById('ttFile').textContent = node.file;
+        document.getElementById('ttDef').textContent = node.definition;
+        document.getElementById('ttNote').innerHTML = `<strong>Remember / Future Changes:</strong> ${node.note}`;
+        document.getElementById('ttFlowHint').textContent = `Flows: ${node.flows.join(', ')}`;
+        positionTooltip(e);
+        tooltip.classList.add('visible');
+      }
+
+      function showTooltipForWire(wire, e) {
+        document.getElementById('ttTitle').textContent = wire.title;
+        const tag = document.getElementById('ttTag');
+        tag.textContent = 'Data Flow';
+        tag.className = 'node-tag tag-ui';
+        document.getElementById('ttFile').textContent = wire.file;
+        document.getElementById('ttDef').textContent = wire.def;
+        document.getElementById('ttNote').innerHTML = `<strong>Note:</strong> ${wire.note}`;
+        document.getElementById('ttFlowHint').textContent = `Flows: ${wire.flows.join(', ')}`;
+        positionTooltip(e);
+        tooltip.classList.add('visible');
+      }
+
+      function positionTooltip(e) {
+        const pad = 16;
+        const w = 340;
+        const h = tooltip.offsetHeight || 220;
+        let left = e.clientX + 18;
+        let top = e.clientY + 18;
+        if (left + w + pad > window.innerWidth) left = e.clientX - w - 18;
+        if (top + h + pad > window.innerHeight) top = window.innerHeight - h - pad;
+        if (left < pad) left = pad;
+        if (top < pad) top = pad;
+        tooltip.style.left = `${left}px`;
+        tooltip.style.top = `${top}px`;
+      }
+
+      function hideTooltip() {
+        tooltip.classList.remove('visible');
+      }
+
+      function selectNode(id) {
+        selectedId = id;
+        renderNodes();
+        renderWires();
+        renderInspector();
+      }
+
+      function renderInspector() {
+        const node = nodeMap[selectedId];
+        if (!node) {
+          document.getElementById('inspTag').className = 'node-tag tag-ui';
+          document.getElementById('inspTag').textContent = 'System Overview';
+          document.getElementById('inspTitle').textContent = 'Visual Workflow Canvas';
+          document.getElementById('inspPath').textContent = 'Click any node or choose a Trace Flow above';
+          inspectorBody.innerHTML = `
+            <div class="insp-section">
+              <h4>How This App Is Organized</h4>
+              <p>A real-time collaborative storyboard canvas built with <strong>React 19 + TypeScript + Tailwind</strong>, backed by <strong>Firebase Auth + Cloud Firestore</strong> for instant multi-user sync, and <strong>Vercel Serverless + Vercel Blob</strong> for scalable image/map uploads.</p>
+            </div>
+            <div class="note-box">
+              <h4>Quick Memory Anchor</h4>
+              <p>Think in 3 halves: <strong>App.tsx</strong> orchestrates canvas &amp; effective roles, <strong>firestoreService.ts + firestore.rules</strong> guard &amp; sync data, and <strong>/api/blob-* + storageService.ts</strong> move heavy image files cleanly without bloating Firestore.</p>
+            </div>
+          `;
+          return;
+        }
+
+        const tag = document.getElementById('inspTag');
+        tag.className = `node-tag ${node.tagClass}`;
+        tag.textContent = `${node.tag} • Layer ${node.layer}`;
+        document.getElementById('inspTitle').textContent = node.title;
+        document.getElementById('inspPath').textContent = node.file;
+
+        const outbound = WIRES.filter((w) => w.from === node.id);
+        const inbound = WIRES.filter((w) => w.to === node.id);
+
+        inspectorBody.innerHTML = `
+          <div class="insp-section">
+            <h4>Definition &amp; Responsibility</h4>
+            <p>${node.definition}</p>
+          </div>
+
+          <div class="insp-section">
+            <h4>How It Works</h4>
+            <ul>${node.details.map((d) => `<li>${d}</li>`).join('')}</ul>
+          </div>
+
+          <div class="note-box">
+            <h4>Notes for Future Changes</h4>
+            <p>${node.note}</p>
+          </div>
+
+          <div class="insp-section">
+            <h4>Key Symbols &amp; Identifiers</h4>
+            <div>${node.symbols.map((s) => `<span class="code-chip">${s}</span>`).join('')}</div>
+          </div>
+
+          <div class="insp-section">
+            <h4>Connections (${inbound.length} incoming • ${outbound.length} outgoing)</h4>
+            ${inbound.map((w) => `
+              <button class="conn-link" data-jump="${w.from}">
+                <span>← From <strong>${nodeMap[w.from].title}</strong></span>
+                <span style="color:var(--dim); font-size:10px;">${w.title}</span>
+              </button>
+            `).join('')}
+            ${outbound.map((w) => `
+              <button class="conn-link" data-jump="${w.to}">
+                <span>→ To <strong>${nodeMap[w.to].title}</strong></span>
+                <span style="color:var(--dim); font-size:10px;">${w.title}</span>
+              </button>
+            `).join('')}
+          </div>
+        `;
+
+        inspectorBody.querySelectorAll('[data-jump]').forEach((btn) => {
+          btn.addEventListener('click', () => selectNode(btn.getAttribute('data-jump')));
+        });
+      }
+
+      // Panning & Wheel Zoom
+      viewport.addEventListener('mousedown', (e) => {
+        if (e.target.closest('.arch-node')) return;
+        isPanning = true;
+        viewport.classList.add('panning');
+        panStartX = e.clientX - panX;
+        panStartY = e.clientY - panY;
+      });
+
+      window.addEventListener('mousemove', (e) => {
+        if (!isPanning) return;
+        panX = e.clientX - panStartX;
+        panY = e.clientY - panStartY;
+        applyTransform();
+      });
+
+      window.addEventListener('mouseup', () => {
+        isPanning = false;
+        viewport.classList.remove('panning');
+      });
+
+      viewport.addEventListener('wheel', (e) => {
+        e.preventDefault();
+        const rect = viewport.getBoundingClientRect();
+        const mx = e.clientX - rect.left;
+        const my = e.clientY - rect.top;
+        const factor = Math.exp(-e.deltaY * 0.0012);
+        const nextZoom = Math.max(0.38, Math.min(1.8, zoom * factor));
+        const ratio = nextZoom / zoom;
+        panX = mx - (mx - panX) * ratio;
+        panY = my - (my - panY) * ratio;
+        zoom = nextZoom;
+        applyTransform();
+      }, { passive: false });
+
+      document.getElementById('zoomInBtn').addEventListener('click', () => {
+        zoom = Math.min(1.8, zoom * 1.15);
+        applyTransform();
+      });
+      document.getElementById('zoomOutBtn').addEventListener('click', () => {
+        zoom = Math.max(0.38, zoom / 1.15);
+        applyTransform();
+      });
+      document.getElementById('fitBtn').addEventListener('click', fitToScreen);
+      document.getElementById('resetSelBtn').addEventListener('click', () => {
+        selectedId = null;
+        renderNodes();
+        renderWires();
+        renderInspector();
+      });
+
+      // Flow Pills
+      document.querySelectorAll('.pill[data-flow]').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          document.querySelectorAll('.pill[data-flow]').forEach((b) => b.classList.remove('active'));
+          btn.classList.add('active');
+          activeFlow = btn.getAttribute('data-flow');
+          renderNodes();
+          renderWires();
+        });
+      });
+
+      // Top View Tabs
+      document.querySelectorAll('.view-tab').forEach((tab) => {
+        tab.addEventListener('click', () => {
+          document.querySelectorAll('.view-tab').forEach((t) => t.classList.remove('active'));
+          tab.classList.add('active');
+          const view = tab.getAttribute('data-view');
+          document.getElementById('diagramWorkspace').style.display = view === 'diagram' ? 'flex' : 'none';
+          document.getElementById('schemaPanel').classList.toggle('active', view === 'schema');
+          document.getElementById('cookbookPanel').classList.toggle('active', view === 'cookbook');
+          if (view === 'diagram') setTimeout(fitToScreen, 30);
+        });
+      });
+
+      // Search
+      const searchInput = document.getElementById('searchInput');
+      searchInput.addEventListener('input', (e) => {
+        searchTerm = e.target.value.trim().toLowerCase();
+        renderNodes();
+        if (searchTerm) {
+          const hit = NODES.find((n) =>
+            n.title.toLowerCase().includes(searchTerm) ||
+            n.file.toLowerCase().includes(searchTerm) ||
+            n.symbols.some((s) => s.toLowerCase().includes(searchTerm))
+          );
+          if (hit) {
+            selectedId = hit.id;
+            renderWires();
+            renderInspector();
+          }
+        }
+      });
+
+      window.addEventListener('keydown', (e) => {
+        if (e.key === '/' && document.activeElement !== searchInput) {
+          e.preventDefault();
+          searchInput.focus();
+        }
+      });
+
+      // Self-contained Download HTML button
+      document.getElementById('downloadBtn').addEventListener('click', () => {
+        hideTooltip();
+        const html = '<!DOCTYPE html>\n' + document.documentElement.outerHTML;
+        const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'visual-workflow-canvas-architecture.html';
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
+      });
+
+      // Boot
+      renderNodes();
+      renderWires();
+      renderInspector();
+      fitToScreen();
+      window.addEventListener('resize', fitToScreen);
+    })();
+  </script>
+</body>
+</html>

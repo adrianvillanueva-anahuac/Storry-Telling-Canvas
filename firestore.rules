@@ -2,70 +2,323 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // Helper functions
+    // Global default-deny safety net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Core Identity & Validation Helpers
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
     function isSignedIn() {
       return request.auth != null;
     }
 
+    function isVerified() {
+      return isSignedIn() && request.auth.token.email_verified == true;
+    }
+
+    function authEmailLower() {
+      return request.auth.token.email.lower();
+    }
+
+    function isSuperAdmin() {
+      return isVerified() && authEmailLower() == 'adrian.byakko@gmail.com';
+    }
+
     function isAdmin() {
-      return isSignedIn() && (
-        exists(/databases/$(database)/documents/admins/$(request.auth.uid)) ||
-        request.auth.token.email == 'adrian.byakko@gmail.com'
+      return isSuperAdmin() || (
+        isVerified() &&
+        exists(/databases/$(database)/documents/admins/$(request.auth.uid))
       );
     }
 
-    // Test Collection
+    function userRole() {
+      return exists(/databases/$(database)/documents/users/$(request.auth.uid))
+        ? get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role
+        : 'Viewer';
+    }
+
+    function isEditorOrAdmin() {
+      return isAdmin() || (isVerified() && userRole() in ['Admin', 'Editor']);
+    }
+
+    function projectData(projectId) {
+      return get(/databases/$(database)/documents/projects/$(projectId)).data;
+    }
+
+    function projectParticipantRole(projectId) {
+      return (
+        'participants' in projectData(projectId) &&
+        projectData(projectId).participants is map &&
+        authEmailLower() in projectData(projectId).participants
+      )
+        ? projectData(projectId).participants[authEmailLower()].role
+        : null;
+    }
+
+    function canReadProjectData(projData) {
+      return isAdmin() || (
+        isVerified() && (
+          projData.ownerId == request.auth.uid ||
+          !('participants' in projData) ||
+          projData.participants.size() == 0 ||
+          (projData.participants is map && authEmailLower() in projData.participants)
+        )
+      );
+    }
+
+    function canReadProject(projectId) {
+      return isAdmin() || (
+        isVerified() &&
+        exists(/databases/$(database)/documents/projects/$(projectId)) &&
+        canReadProjectData(projectData(projectId))
+      );
+    }
+
+    function canEditProject(projectId) {
+      return isAdmin() || (
+        isVerified() &&
+        exists(/databases/$(database)/documents/projects/$(projectId)) && (
+          projectParticipantRole(projectId) in ['Admin', 'Editor'] ||
+          (projectParticipantRole(projectId) == null && userRole() in ['Admin', 'Editor'])
+        )
+      );
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() > 0 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function hasValidInviteRole(targetRole) {
+      return exists(/databases/$(database)/documents/invites/$(authEmailLower())) &&
+        get(/databases/$(database)/documents/invites/$(authEmailLower())).data.role == targetRole;
+    }
+
+    function isValidUser(data) {
+      return data.email is string &&
+        data.email.size() > 0 &&
+        data.email.size() <= 200 &&
+        data.role in ['Admin', 'Editor', 'Viewer'];
+    }
+
+    function isValidImage(data) {
+      return data.id is string &&
+        data.id.size() > 0 &&
+        data.id.size() <= 128 &&
+        data.name is string &&
+        data.name.size() > 0 &&
+        data.name.size() <= 256 &&
+        data.url is string &&
+        data.url.size() > 0 &&
+        data.url.size() <= 2048 &&
+        data.folder in ['images', 'maps', 'objects'] &&
+        (!('projectId' in data) || isValidId(data.projectId)) &&
+        (!('sizeBytes' in data) || (data.sizeBytes is number && data.sizeBytes >= 0));
+    }
+
+    function isValidVideo(data) {
+      return data.id is string &&
+        data.id.size() > 0 &&
+        data.id.size() <= 128 &&
+        data.name is string &&
+        data.name.size() > 0 &&
+        data.name.size() <= 256 &&
+        (!('projectId' in data) || isValidId(data.projectId));
+    }
+
+    function isValidProject(data, projectId) {
+      return data.id == projectId &&
+        data.title is string &&
+        data.title.size() > 0 &&
+        data.title.size() <= 150 &&
+        data.ownerId is string &&
+        data.ownerId.size() > 0 &&
+        data.ownerId.size() <= 128 &&
+        data.status in ['active', 'archived'] &&
+        (!('participants' in data) || data.participants is map);
+    }
+
+    function isValidNode(data, nodeId) {
+      return data.id == nodeId &&
+        data.title is string &&
+        data.title.size() <= 200 &&
+        data.x is string &&
+        data.x.size() <= 40 &&
+        data.y is string &&
+        data.y.size() <= 40;
+    }
+
+    function isValidConnection(data, connectionId) {
+      return data.id == connectionId &&
+        data.source is string &&
+        data.source.size() > 0 &&
+        data.source.size() <= 128 &&
+        data.target is string &&
+        data.target.size() > 0 &&
+        data.target.size() <= 128;
+    }
+
+    function isValidText(data, textId) {
+      return data.id == textId &&
+        data.mode in ['floating', 'annotation', 'container'] &&
+        data.text is string &&
+        data.text.size() <= 5000 &&
+        data.x is string &&
+        data.x.size() <= 40 &&
+        data.y is string &&
+        data.y.size() <= 40;
+    }
+
+    // Boot Connectivity Check Collection
     match /test/{docId} {
       allow read: if true;
     }
 
     // Admins Collection
     match /admins/{userId} {
-      allow read: if true;
-      allow write: if isAdmin();
+      allow get: if isVerified() && isValidId(userId) && (request.auth.uid == userId || isAdmin());
+      allow list: if isAdmin();
+      allow create, update: if isValidId(userId) && (isAdmin() || (isSuperAdmin() && request.auth.uid == userId));
+      allow delete: if isAdmin() && isValidId(userId);
     }
 
-    // Users Collection
+    // Collaborator Invites Collection (prevents user PII scraping)
+    match /invites/{inviteEmail} {
+      allow get: if isVerified() && (isAdmin() || inviteEmail == authEmailLower());
+      allow list: if isAdmin();
+      allow create, update: if isAdmin() &&
+        inviteEmail is string &&
+        inviteEmail.size() > 3 &&
+        inviteEmail.size() <= 200 &&
+        incoming().email == inviteEmail &&
+        incoming().role in ['Admin', 'Editor', 'Viewer'];
+      allow delete: if isAdmin() || (isVerified() && inviteEmail == authEmailLower());
+    }
+
+    // Users Collection (PII isolated to owner + Admin)
     match /users/{userId} {
-      allow read: if true;
-      allow write: if true;
+      allow get: if isVerified() && isValidId(userId) && (request.auth.uid == userId || isAdmin());
+      allow list: if isAdmin();
+      allow create: if isValidId(userId) && isValidUser(incoming()) && (
+        isAdmin() ||
+        (
+          isVerified() &&
+          request.auth.uid == userId &&
+          incoming().email == authEmailLower() &&
+          (
+            (isSuperAdmin() && incoming().role == 'Admin') ||
+            incoming().role == 'Viewer' ||
+            hasValidInviteRole(incoming().role)
+          )
+        )
+      );
+      allow update: if isValidId(userId) && isValidUser(incoming()) && (
+        isAdmin() ||
+        (
+          isVerified() &&
+          request.auth.uid == userId &&
+          incoming().email == existing().email &&
+          (
+            (isSuperAdmin() && incoming().role == 'Admin') ||
+            incoming().role == existing().role ||
+            hasValidInviteRole(incoming().role)
+          )
+        )
+      );
+      allow delete: if isAdmin() && isValidId(userId);
     }
 
-    // Image Web Registry (URLs, metadata, no raw base64)
+    // Image Web Registry (Vercel Blob / web URLs & metadata, no raw base64)
     match /images/{imageId} {
-      allow read: if true;
-      allow write: if true;
+      allow read: if isVerified();
+      allow create, update: if isValidId(imageId) && isValidImage(incoming()) && (
+        isEditorOrAdmin() ||
+        ('projectId' in incoming() && canEditProject(incoming().projectId))
+      );
+      allow delete: if isValidId(imageId) && (
+        isEditorOrAdmin() ||
+        ('projectId' in existing() && canEditProject(existing().projectId))
+      );
     }
 
     // Global Video Library
     match /globalVideos/{videoId} {
-      allow read: if true;
-      allow write: if true;
+      allow read: if isVerified();
+      allow create, update: if isEditorOrAdmin() && isValidId(videoId) && isValidVideo(incoming());
+      allow delete: if isEditorOrAdmin() && isValidId(videoId);
     }
 
     // Projects Collection & Nested Canvas Subcollections
     match /projects/{projectId} {
-      allow read: if true;
-      allow write: if true;
+      allow read: if isVerified();
+      allow create: if isEditorOrAdmin() &&
+        isValidId(projectId) &&
+        isValidProject(incoming(), projectId) &&
+        incoming().ownerId == request.auth.uid;
+      allow update: if isValidId(projectId) &&
+        isValidProject(incoming(), projectId) &&
+        incoming().ownerId == existing().ownerId && (
+          isAdmin() ||
+          (
+            canEditProject(projectId) &&
+            (
+              (!('participants' in incoming()) && !('participants' in existing())) ||
+              ('participants' in incoming() && 'participants' in existing() && incoming().participants == existing().participants)
+            )
+          )
+        );
+      allow delete: if isAdmin() && isValidId(projectId);
 
       match /nodes/{nodeId} {
-        allow read: if true;
-        allow write: if true;
-      }
-
-      match /connections/{connectionId} {
-        allow read: if true;
-        allow write: if true;
-      }
-
-      match /texts/{textId} {
-        allow read: if true;
-        allow write: if true;
+        allow read: if canReadProject(projectId);
+        allow create, update: if canEditProject(projectId) &&
+          isValidId(projectId) &&
+          isValidId(nodeId) &&
+          isValidNode(incoming(), nodeId);
+        allow delete: if canEditProject(projectId) && isValidId(projectId) && isValidId(nodeId);
       }
 
       match /storedNodes/{nodeId} {
-        allow read: if true;
-        allow write: if true;
+        allow read: if canReadProject(projectId);
+        allow create, update: if canEditProject(projectId) &&
+          isValidId(projectId) &&
+          isValidId(nodeId) &&
+          isValidNode(incoming(), nodeId);
+        allow delete: if canEditProject(projectId) && isValidId(projectId) && isValidId(nodeId);
+      }
+
+      match /connections/{connectionId} {
+        allow read: if canReadProject(projectId);
+        allow create, update: if canEditProject(projectId) &&
+          isValidId(projectId) &&
+          isValidId(connectionId) &&
+          isValidConnection(incoming(), connectionId);
+        allow delete: if canEditProject(projectId) && isValidId(projectId) && isValidId(connectionId);
+      }
+
+      match /texts/{textId} {
+        allow read: if canReadProject(projectId);
+        allow create, update: if canEditProject(projectId) &&
+          isValidId(projectId) &&
+          isValidId(textId) &&
+          isValidText(incoming(), textId);
+        allow delete: if canEditProject(projectId) && isValidId(projectId) && isValidId(textId);
+      }
+
+      match /videos/{videoId} {
+        allow read: if canReadProject(projectId);
+        allow create, update: if canEditProject(projectId) &&
+          isValidId(projectId) &&
+          isValidId(videoId) &&
+          isValidVideo(incoming());
+        allow delete: if canEditProject(projectId) && isValidId(projectId) && isValidId(videoId);
       }
     }
   }

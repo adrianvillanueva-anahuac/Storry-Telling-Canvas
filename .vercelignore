@@ -1,0 +1,7 @@
+node_modules
+dist
+data
+.aistudio
+.env.local
+public/visual-workflow-canvas.zip
+public/assets

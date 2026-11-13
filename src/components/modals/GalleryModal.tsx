@@ -4,6 +4,8 @@ import { Check, Image as ImageIcon, Map as MapIcon, Trash2, UploadCloud, X } fro
 
 interface GalleryModalProps {
   mode: 'images-manage' | 'maps-manage' | 'images-picker' | 'maps-picker';
+  projectTitle?: string;
+  isReadOnly?: boolean;
   images: GalleryImage[];
   isLoading: boolean;
   onClose: () => void;
@@ -14,6 +16,8 @@ interface GalleryModalProps {
 
 export const GalleryModal: React.FC<GalleryModalProps> = ({
   mode,
+  projectTitle,
+  isReadOnly = false,
   images,
   isLoading,
   onClose,
@@ -47,13 +51,18 @@ export const GalleryModal: React.FC<GalleryModalProps> = ({
       <div className="bg-neutral-900 border border-neutral-700/80 rounded-2xl w-full max-w-4xl max-h-[85vh] shadow-2xl flex flex-col overflow-hidden">
         {/* Header */}
         <div className="flex items-center justify-between p-4 border-b border-neutral-800">
-          <div className="flex items-center gap-2">
-            {isMap ? <MapIcon className="w-4 h-4 text-amber-400" /> : <ImageIcon className="w-4 h-4 text-blue-400" />}
-            <h3 className="font-semibold text-neutral-100 text-sm">{title}</h3>
+          <div className="flex items-center gap-2 min-w-0">
+            {isMap ? <MapIcon className="w-4 h-4 text-amber-400 shrink-0" /> : <ImageIcon className="w-4 h-4 text-blue-400 shrink-0" />}
+            <h3 className="font-semibold text-neutral-100 text-sm truncate">{title}</h3>
+            {projectTitle && (
+              <span className="text-[10px] font-medium px-2 py-0.5 rounded bg-blue-600/15 text-blue-300 border border-blue-500/30 truncate max-w-[220px]">
+                {projectTitle}
+              </span>
+            )}
           </div>
 
           <div className="flex items-center gap-2">
-            {!isPicker && selectedIds.size > 0 && (
+            {!isPicker && !isReadOnly && selectedIds.size > 0 && (
               <button
                 onClick={() => {
                   onDeleteSelected(Array.from(selectedIds));
@@ -76,32 +85,34 @@ export const GalleryModal: React.FC<GalleryModalProps> = ({
         </div>
 
         {/* Upload drop zone */}
-        <div className="p-4 border-b border-neutral-800">
-          <div
-            onClick={() => fileInputRef.current?.click()}
-            onDragOver={(e) => e.preventDefault()}
-            onDrop={handleDrop}
-            className="border-2 border-dashed border-neutral-700 hover:border-blue-500 rounded-xl p-4 flex flex-col items-center justify-center text-center cursor-pointer bg-neutral-950/40 hover:bg-neutral-800/20 transition-colors"
-          >
-            <UploadCloud className="w-6 h-6 text-neutral-400 mb-1" />
-            <p className="text-xs text-neutral-300 font-medium">
-              Click to browse or drop {isMap ? 'map files' : 'images'} here
-            </p>
-            <p className="text-[10px] text-neutral-500">Supports PNG, JPG, WebP (auto-saved to server)</p>
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept="image/*"
-              multiple
-              className="hidden"
-              onChange={(e) => {
-                if (e.target.files && e.target.files.length > 0) {
-                  onUploadFiles(e.target.files);
-                }
-              }}
-            />
+        {!isReadOnly && (
+          <div className="p-4 border-b border-neutral-800">
+            <div
+              onClick={() => fileInputRef.current?.click()}
+              onDragOver={(e) => e.preventDefault()}
+              onDrop={handleDrop}
+              className="border-2 border-dashed border-neutral-700 hover:border-blue-500 rounded-xl p-4 flex flex-col items-center justify-center text-center cursor-pointer bg-neutral-950/40 hover:bg-neutral-800/20 transition-colors"
+            >
+              <UploadCloud className="w-6 h-6 text-neutral-400 mb-1" />
+              <p className="text-xs text-neutral-300 font-medium">
+                Click to browse or drop {isMap ? 'map files' : 'images'} here
+              </p>
+              <p className="text-[10px] text-neutral-500">Supports PNG, JPG, WebP (saved only to this project)</p>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/*"
+                multiple
+                className="hidden"
+                onChange={(e) => {
+                  if (e.target.files && e.target.files.length > 0) {
+                    onUploadFiles(e.target.files);
+                  }
+                }}
+              />
+            </div>
           </div>
-        </div>
+        )}
 
         {/* Gallery Grid */}
         <div className="flex-1 overflow-y-auto p-4">
@@ -121,7 +132,7 @@ export const GalleryModal: React.FC<GalleryModalProps> = ({
                     onClick={() => {
                       if (isPicker) {
                         onSelectImage(img.url);
-                      } else {
+                      } else if (!isReadOnly) {
                         toggleSelect(img.id);
                       }
                     }}

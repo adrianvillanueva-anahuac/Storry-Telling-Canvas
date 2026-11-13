@@ -57,9 +57,11 @@ export interface WorkflowNode {
   image: string | null;
   imageWidth?: number;
   imageHeight?: number;
+  imageDeletedFromAdmin?: boolean;
   mapImage: string | null;
   mapImageWidth?: number;
   mapImageHeight?: number;
+  mapImageDeletedFromAdmin?: boolean;
   mapName: string;
   enfoque: string;
   accion: string;
@@ -120,6 +122,7 @@ export interface LabelItem {
 
 export interface GlobalVideo {
   id: string;
+  projectId?: string;
   name: string;
   date: string;
   author: string;
@@ -136,6 +139,14 @@ export interface UserProfile {
   isRegistered?: boolean;
 }
 
+export interface ProjectParticipant {
+  email: string;
+  role: 'Admin' | 'Editor' | 'Viewer';
+  uid?: string;
+  name?: string;
+  assignedAt?: string;
+}
+
 export interface Project {
   id: string;
   title: string;
@@ -145,13 +156,17 @@ export interface Project {
   createdAt: string;
   updatedAt: string;
   nodeCount?: number;
+  participants?: Record<string, ProjectParticipant>;
 }
 
 export interface ImageResource {
   id: string;
+  projectId?: string;
   name: string;
   url: string;
+  storagePath?: string;
   folder: 'images' | 'maps' | 'objects';
+  sizeBytes?: number;
   uploadedBy?: string;
   uploadedAt: string;
 }
@@ -170,5 +185,7 @@ export interface GalleryImage {
   name: string;
   url: string;
   folder?: string;
+  sizeBytes?: number;
+  projectId?: string;
 }
 

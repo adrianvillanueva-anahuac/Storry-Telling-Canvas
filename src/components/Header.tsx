@@ -14,11 +14,13 @@ import {
   LogIn,
   LogOut,
   Rocket,
+  FileCode2,
 } from 'lucide-react';
 import { Project, UserProfile } from '../types/workflow';
 
 interface HeaderProps {
   user: UserProfile;
+  effectiveRole?: 'Admin' | 'Editor' | 'Viewer';
   projects: Project[];
   activeProject: Project | null;
   storedCount: number;
@@ -28,6 +30,7 @@ interface HeaderProps {
   onSelectProject: (projectId: string) => void;
   onOpenAdminConsole: () => void;
   onOpenDeploymentGuide: () => void;
+  onOpenArchitecture: () => void;
   onOpenGallery: (mode: 'images-manage' | 'maps-manage') => void;
   onOpenVideoLib: () => void;
   onOpenArchive: () => void;
@@ -40,6 +43,7 @@ interface HeaderProps {
 
 export const Header: React.FC<HeaderProps> = ({
   user,
+  effectiveRole,
   projects,
   activeProject,
   storedCount,
@@ -49,6 +53,7 @@ export const Header: React.FC<HeaderProps> = ({
   onSelectProject,
   onOpenAdminConsole,
   onOpenDeploymentGuide,
+  onOpenArchitecture,
   onOpenGallery,
   onOpenVideoLib,
   onOpenArchive,
@@ -62,8 +67,9 @@ export const Header: React.FC<HeaderProps> = ({
   const [projectMenuOpen, setProjectMenuOpen] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
 
+  const activeRole = effectiveRole || user.role;
   const isAdmin = user.role === 'Admin';
-  const isReadOnly = user.role === 'Viewer';
+  const isReadOnly = activeRole === 'Viewer';
 
   return (
     <header className="h-14 bg-neutral-900 border-b border-neutral-800 px-4 flex items-center justify-between z-30 select-none relative">
@@ -137,14 +143,14 @@ export const Header: React.FC<HeaderProps> = ({
         {/* User Role Tag */}
         <span
           className={`text-[10px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wider border ${
-            user.role === 'Admin'
+            activeRole === 'Admin'
               ? 'bg-blue-600/20 text-blue-300 border-blue-500/40'
-              : user.role === 'Editor'
+              : activeRole === 'Editor'
               ? 'bg-emerald-600/20 text-emerald-300 border-emerald-500/40'
               : 'bg-neutral-800 text-neutral-400 border-neutral-700'
           }`}
         >
-          {user.role}
+          {activeRole}
         </span>
       </div>
 
@@ -308,7 +314,9 @@ export const Header: React.FC<HeaderProps> = ({
                 <div className="px-3 py-2 border-b border-neutral-800">
                   <p className="font-semibold text-neutral-200 truncate">{user.name}</p>
                   <p className="text-[10px] text-neutral-500 font-mono truncate">{user.email}</p>
-                  <p className="text-[10px] text-blue-400 font-medium mt-0.5">Role: {user.role}</p>
+                  <p className="text-[10px] text-blue-400 font-medium mt-0.5">
+                    Role: {activeRole}{activeRole !== user.role ? ` (Global: ${user.role})` : ''}
+                  </p>
                 </div>
 
                 {isAdmin && (
@@ -335,6 +343,18 @@ export const Header: React.FC<HeaderProps> = ({
                     >
                       <Rocket className="w-3.5 h-3.5 text-emerald-400" />
                       <span>Deploy</span>
+                    </button>
+
+                    <button
+                      onClick={() => {
+                        setUserMenuOpen(false);
+                        onOpenArchitecture();
+                      }}
+                      className="w-full text-left px-3 py-1.5 text-blue-300 hover:bg-neutral-800 rounded-lg flex items-center gap-2 font-medium"
+                      title="Open interactive application architecture diagram"
+                    >
+                      <FileCode2 className="w-3.5 h-3.5 text-blue-400" />
+                      <span>Architecture Diagram</span>
                     </button>
                   </div>
                 )}

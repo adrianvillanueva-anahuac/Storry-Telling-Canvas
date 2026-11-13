@@ -13,11 +13,13 @@ import {
   writeBatch,
 } from 'firebase/firestore';
 import { db, handleFirestoreError, OperationType } from './firebase';
+import { deleteImageFromStorage } from './storageService';
 import {
   Connection,
   GlobalVideo,
   ImageResource,
   Project,
+  ProjectParticipant,
   TextElement,
   UserProfile,
   WorkflowNode,
@@ -53,11 +55,25 @@ export function subscribeProjects(callback: (projects: Project[]) => void) {
 export async function createProject(
   title: string,
   description: string,
-  ownerId: string
+  ownerId: string,
+  ownerEmail?: string,
+  ownerName?: string
 ): Promise<string> {
   const path = 'projects';
   try {
     const projectId = `proj-${Date.now()}`;
+    const cleanEmail = (ownerEmail || '').trim().toLowerCase();
+    const initialParticipants: Record<string, ProjectParticipant> = {};
+    if (cleanEmail) {
+      initialParticipants[cleanEmail] = {
+        email: cleanEmail,
+        role: 'Admin',
+        uid: ownerId,
+        name: ownerName || cleanEmail.split('@')[0],
+        assignedAt: new Date().toISOString(),
+      };
+    }
+
     const newProject: Project = {
       id: projectId,
       title: title.trim() || 'New Storyboard Project',
@@ -66,6 +82,7 @@ export async function createProject(
       status: 'active',
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
+      participants: initialParticipants,
     };
 
     await setDoc(doc(db, path, projectId), newProject);
@@ -358,13 +375,62 @@ export function subscribeUsers(callback: (users: UserProfile[]) => void) {
   }
 }
 
+export function subscribeUserProfile(
+  uid: string,
+  callback: (profile: Partial<UserProfile> | null) => void
+) {
+  const path = `users/${uid}`;
+  try {
+    return onSnapshot(
+      doc(db, 'users', uid),
+      (snap) => {
+        if (!snap.exists()) {
+          callback(null);
+          return;
+        }
+        const data = snap.data();
+        callback({
+          uid: snap.id,
+          name: data.name || data.displayName || 'Team Member',
+          email: data.email || '',
+          photoURL: data.photoURL || '',
+          role: data.role || 'Viewer',
+          isRegistered: data.isRegistered !== false,
+        });
+      },
+      (err) => handleFirestoreError(err, OperationType.GET, path)
+    );
+  } catch (error) {
+    handleFirestoreError(error, OperationType.GET, path);
+    return () => {};
+  }
+}
+
 export async function updateUserRole(
   uid: string,
   newRole: 'Admin' | 'Editor' | 'Viewer'
 ): Promise<void> {
   const path = `users/${uid}`;
   try {
-    await updateDoc(doc(db, 'users', uid), { role: newRole });
+    const userRef = doc(db, 'users', uid);
+    const userSnap = await getDoc(userRef);
+    await updateDoc(userRef, { role: newRole });
+
+    if (userSnap.exists()) {
+      const data = userSnap.data();
+      if (data.isRegistered === false && typeof data.email === 'string' && data.email) {
+        await setDoc(
+          doc(db, 'invites', data.email.trim().toLowerCase()),
+          {
+            email: data.email.trim().toLowerCase(),
+            role: newRole,
+            updatedAt: new Date().toISOString(),
+          },
+          { merge: true }
+        );
+      }
+    }
+
     if (newRole === 'Admin') {
       await setDoc(doc(db, 'admins', uid), {
         grantedAt: new Date().toISOString(),
@@ -381,22 +447,177 @@ export async function inviteUserByEmail(
   email: string,
   role: 'Admin' | 'Editor' | 'Viewer'
 ): Promise<void> {
-  const path = 'users';
+  const cleanEmail = email.trim().toLowerCase();
+  const path = `invites/${cleanEmail}`;
   try {
-    const safeId = email.toLowerCase().replace(/[^a-zA-Z0-9]/g, '_');
+    const safeId = cleanEmail.replace(/[^a-zA-Z0-9]/g, '_');
+    const now = new Date().toISOString();
+
+    await setDoc(
+      doc(db, 'invites', cleanEmail),
+      {
+        email: cleanEmail,
+        role,
+        createdAt: now,
+      },
+      { merge: true }
+    );
+
     await setDoc(
       doc(db, 'users', safeId),
       {
-        email: email.trim().toLowerCase(),
-        name: email.split('@')[0],
-        role: role,
-        createdAt: new Date().toISOString(),
+        email: cleanEmail,
+        name: cleanEmail.split('@')[0],
+        role,
+        createdAt: now,
         isRegistered: false,
       },
       { merge: true }
     );
   } catch (error) {
     handleFirestoreError(error, OperationType.CREATE, path);
+  }
+}
+
+export async function setProjectParticipantRole(
+  project: Project,
+  email: string,
+  role: 'Admin' | 'Editor' | 'Viewer',
+  meta?: { uid?: string; name?: string }
+): Promise<void> {
+  const cleanEmail = email.trim().toLowerCase();
+  if (!cleanEmail) return;
+  const path = `projects/${project.id}`;
+  try {
+    const current = { ...(project.participants || {}) };
+    const prev = current[cleanEmail];
+    current[cleanEmail] = {
+      email: cleanEmail,
+      role,
+      uid: meta?.uid ?? prev?.uid ?? '',
+      name: meta?.name ?? prev?.name ?? cleanEmail.split('@')[0],
+      assignedAt: prev?.assignedAt || new Date().toISOString(),
+    };
+    await updateDoc(doc(db, 'projects', project.id), {
+      participants: current,
+      updatedAt: new Date().toISOString(),
+    });
+  } catch (error) {
+    handleFirestoreError(error, OperationType.UPDATE, path);
+  }
+}
+
+export async function removeProjectParticipant(
+  project: Project,
+  email: string
+): Promise<void> {
+  const cleanEmail = email.trim().toLowerCase();
+  if (!cleanEmail) return;
+  const path = `projects/${project.id}`;
+  try {
+    const current = { ...(project.participants || {}) };
+    delete current[cleanEmail];
+    await updateDoc(doc(db, 'projects', project.id), {
+      participants: current,
+      updatedAt: new Date().toISOString(),
+    });
+  } catch (error) {
+    handleFirestoreError(error, OperationType.UPDATE, path);
+  }
+}
+
+export async function setUserProjectAssignments(
+  user: UserProfile,
+  assignments: Record<string, 'Admin' | 'Editor' | 'Viewer' | null>,
+  projects: Project[]
+): Promise<void> {
+  const cleanEmail = (user.email || '').trim().toLowerCase();
+  if (!cleanEmail) return;
+  try {
+    const batch = writeBatch(db);
+    const now = new Date().toISOString();
+    let hasChanges = false;
+
+    for (const proj of projects) {
+      if (!(proj.id in assignments)) continue;
+      const desiredRole = assignments[proj.id];
+      const currentMap = { ...(proj.participants || {}) };
+      const existingEntry = currentMap[cleanEmail];
+
+      if (desiredRole === null) {
+        if (existingEntry) {
+          delete currentMap[cleanEmail];
+          batch.update(doc(db, 'projects', proj.id), {
+            participants: currentMap,
+            updatedAt: now,
+          });
+          hasChanges = true;
+        }
+      } else {
+        if (!existingEntry || existingEntry.role !== desiredRole) {
+          currentMap[cleanEmail] = {
+            email: cleanEmail,
+            role: desiredRole,
+            uid: user.uid || existingEntry?.uid || '',
+            name: user.name || existingEntry?.name || cleanEmail.split('@')[0],
+            assignedAt: existingEntry?.assignedAt || now,
+          };
+          batch.update(doc(db, 'projects', proj.id), {
+            participants: currentMap,
+            updatedAt: now,
+          });
+          hasChanges = true;
+        }
+      }
+    }
+
+    if (hasChanges) {
+      await batch.commit();
+    }
+  } catch (error) {
+    handleFirestoreError(error, OperationType.UPDATE, 'projects');
+  }
+}
+
+export async function deleteUserCompletely(
+  user: UserProfile,
+  projects: Project[]
+): Promise<void> {
+  const cleanEmail = (user.email || '').trim().toLowerCase();
+  if (cleanEmail === 'adrian.byakko@gmail.com') return;
+
+  const targetUid = user.uid || cleanEmail.replace(/[^a-zA-Z0-9]/g, '_');
+  const path = `users/${targetUid}`;
+  try {
+    const batch = writeBatch(db);
+    const now = new Date().toISOString();
+
+    if (targetUid) {
+      batch.delete(doc(db, 'users', targetUid));
+      batch.delete(doc(db, 'admins', targetUid));
+    }
+    if (cleanEmail) {
+      const safeId = cleanEmail.replace(/[^a-zA-Z0-9]/g, '_');
+      if (safeId !== targetUid) {
+        batch.delete(doc(db, 'users', safeId));
+      }
+      batch.delete(doc(db, 'invites', cleanEmail));
+
+      for (const proj of projects) {
+        if (proj.participants && cleanEmail in proj.participants) {
+          const nextMap = { ...proj.participants };
+          delete nextMap[cleanEmail];
+          batch.update(doc(db, 'projects', proj.id), {
+            participants: nextMap,
+            updatedAt: now,
+          });
+        }
+      }
+    }
+
+    await batch.commit();
+  } catch (error) {
+    handleFirestoreError(error, OperationType.DELETE, path);
   }
 }
 
@@ -428,6 +649,26 @@ export function subscribeImages(
   }
 }
 
+export function subscribeAllImages(callback: (images: ImageResource[]) => void) {
+  const path = 'images';
+  try {
+    return onSnapshot(
+      collection(db, path),
+      (snap) => {
+        const list = snap.docs.map((d) => ({
+          ...d.data(),
+          id: d.id,
+        })) as ImageResource[];
+        callback(list);
+      },
+      (err) => handleFirestoreError(err, OperationType.LIST, path)
+    );
+  } catch (error) {
+    handleFirestoreError(error, OperationType.LIST, path);
+    return () => {};
+  }
+}
+
 export async function registerImageInDb(image: ImageResource): Promise<void> {
   const path = `images/${image.id}`;
   try {
@@ -437,12 +678,67 @@ export async function registerImageInDb(image: ImageResource): Promise<void> {
   }
 }
 
-export async function deleteImageFromDb(imageId: string): Promise<void> {
+export async function deleteImageFromDb(imageId: string, storageUrlOrPath?: string): Promise<void> {
   const path = `images/${imageId}`;
   try {
+    let resolvedTarget = storageUrlOrPath;
+    if (!resolvedTarget || !resolvedTarget.includes('.blob.vercel-storage.com')) {
+      const snap = await getDoc(doc(db, 'images', imageId)).catch(() => null);
+      if (snap?.exists()) {
+        resolvedTarget = snap.data().url || snap.data().storagePath || resolvedTarget;
+      }
+    }
     await deleteDoc(doc(db, 'images', imageId));
+    if (resolvedTarget) {
+      await deleteImageFromStorage(resolvedTarget);
+    }
   } catch (error) {
     handleFirestoreError(error, OperationType.DELETE, path);
+  }
+}
+
+export async function clearDeletedImagesFromProjectNodes(
+  deletedUrls: string[],
+  projectIds: string[]
+): Promise<void> {
+  const urlSet = new Set(deletedUrls.filter(Boolean));
+  const uniqueProjectIds = Array.from(new Set(projectIds.filter(Boolean)));
+  if (urlSet.size === 0 || uniqueProjectIds.length === 0) return;
+
+  try {
+    let batch = writeBatch(db);
+    let opCount = 0;
+
+    const commitIfNeeded = async (force = false) => {
+      if (opCount >= 400 || (force && opCount > 0)) {
+        await batch.commit();
+        batch = writeBatch(db);
+        opCount = 0;
+      }
+    };
+
+    for (const pid of uniqueProjectIds) {
+      for (const subcol of ['nodes', 'storedNodes'] as const) {
+        const snap = await getDocs(collection(db, 'projects', pid, subcol));
+        for (const d of snap.docs) {
+          const data = d.data() as WorkflowNode;
+          const hitMain = Boolean(data.image && urlSet.has(data.image));
+          const hitMap = Boolean(data.mapImage && urlSet.has(data.mapImage));
+          if (hitMain || hitMap) {
+            batch.update(doc(db, 'projects', pid, subcol, d.id), {
+              ...(hitMain ? { image: null, imageDeletedFromAdmin: true } : {}),
+              ...(hitMap ? { mapImage: null, mapName: '', mapImageDeletedFromAdmin: true } : {}),
+            });
+            opCount += 1;
+            await commitIfNeeded(false);
+          }
+        }
+      }
+    }
+
+    await commitIfNeeded(true);
+  } catch (error) {
+    handleFirestoreError(error, OperationType.UPDATE, 'projects/nodes');
   }
 }
 
@@ -467,6 +763,57 @@ export function subscribeGlobalVideos(callback: (videos: GlobalVideo[]) => void)
   } catch (error) {
     handleFirestoreError(error, OperationType.LIST, path);
     return () => {};
+  }
+}
+
+export function subscribeProjectVideos(
+  projectId: string,
+  callback: (videos: GlobalVideo[]) => void
+) {
+  const path = `projects/${projectId}/videos`;
+  try {
+    return onSnapshot(
+      collection(db, 'projects', projectId, 'videos'),
+      (snap) => {
+        const list = snap.docs.map((d) => ({
+          ...d.data(),
+          id: d.id,
+          projectId,
+        })) as GlobalVideo[];
+        callback(list);
+      },
+      (err) => handleFirestoreError(err, OperationType.LIST, path)
+    );
+  } catch (error) {
+    handleFirestoreError(error, OperationType.LIST, path);
+    return () => {};
+  }
+}
+
+export async function addProjectVideoDoc(
+  projectId: string,
+  video: GlobalVideo
+): Promise<void> {
+  const path = `projects/${projectId}/videos/${video.id}`;
+  try {
+    await setDoc(doc(db, 'projects', projectId, 'videos', video.id), {
+      ...video,
+      projectId,
+    });
+  } catch (error) {
+    handleFirestoreError(error, OperationType.CREATE, path);
+  }
+}
+
+export async function deleteProjectVideoDoc(
+  projectId: string,
+  videoId: string
+): Promise<void> {
+  const path = `projects/${projectId}/videos/${videoId}`;
+  try {
+    await deleteDoc(doc(db, 'projects', projectId, 'videos', videoId));
+  } catch (error) {
+    handleFirestoreError(error, OperationType.DELETE, path);
   }
 }
 

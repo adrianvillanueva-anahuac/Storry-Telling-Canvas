@@ -1,16 +1,37 @@
+import dotenv from 'dotenv';
 import express from 'express';
 import path from 'path';
 import fs from 'fs';
 import { execSync } from 'child_process';
 import { fileURLToPath } from 'url';
 import { createServer as createViteServer } from 'vite';
+import { del } from '@vercel/blob';
+import { handleUpload, type HandleUploadBody } from '@vercel/blob/client';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+dotenv.config({ path: path.join(__dirname, '.env.local') });
+dotenv.config();
+
+function getCliArg(flag: string): string | undefined {
+  const idx = process.argv.indexOf(flag);
+  if (idx !== -1 && process.argv[idx + 1] && !process.argv[idx + 1].startsWith('--')) {
+    return process.argv[idx + 1];
+  }
+  const eqArg = process.argv.find((arg) => arg.startsWith(`${flag}=`));
+  return eqArg ? eqArg.slice(flag.length + 1) : undefined;
+}
 
 const app = express();
-const PORT = process.env.PORT || 3000;
 const isProduction = process.env.NODE_ENV === 'production';
+const cliPort = getCliArg('--port');
+const cliHost = getCliArg('--host');
+const envPort =
+  !isProduction && process.env.NGINX_PORT && process.env.PORT === process.env.NGINX_PORT
+    ? undefined
+    : process.env.PORT;
+const PORT = Number(cliPort || envPort || (!isProduction ? process.env.DEFAULT_APP_PORT : undefined) || 3000);
+const HOST = cliHost || process.env.HOST || '0.0.0.0';
 
 // Ensure data and uploads directories exist
 const DATA_DIR = path.join(__dirname, 'data');
@@ -213,6 +234,61 @@ app.post('/api/state', (req, res) => {
   res.json({ success });
 });
 
+// Vercel Blob client upload token endpoint (mirrors /api/blob-token.ts in local Express dev)
+app.post('/api/blob-token', async (req, res) => {
+  if (!process.env.BLOB_READ_WRITE_TOKEN) {
+    return res.status(503).json({ error: 'BLOB_READ_WRITE_TOKEN is not configured' });
+  }
+  try {
+    const body = req.body as HandleUploadBody;
+    const jsonResponse = await handleUpload({
+      body,
+      request: req,
+      onBeforeGenerateToken: async (pathname) => {
+        const isAllowedFolder =
+          pathname.startsWith('images/') ||
+          pathname.startsWith('maps/') ||
+          pathname.startsWith('objects/');
+        if (!isAllowedFolder) {
+          throw new Error('Invalid upload folder path.');
+        }
+        return {
+          allowedContentTypes: [
+            'image/jpeg',
+            'image/png',
+            'image/webp',
+            'image/gif',
+            'image/avif',
+            'image/svg+xml',
+          ],
+          maximumSizeInBytes: 25 * 1024 * 1024,
+          addRandomSuffix: true,
+        };
+      },
+    });
+    return res.json(jsonResponse);
+  } catch (err: any) {
+    return res.status(400).json({ error: err?.message || 'Failed to authorize upload' });
+  }
+});
+
+// Vercel Blob delete endpoint (mirrors /api/blob-delete.ts in local Express dev)
+app.post('/api/blob-delete', async (req, res) => {
+  if (!process.env.BLOB_READ_WRITE_TOKEN) {
+    return res.status(503).json({ error: 'BLOB_READ_WRITE_TOKEN is not configured' });
+  }
+  try {
+    const { url } = req.body as { url?: string };
+    if (!url || !url.includes('.blob.vercel-storage.com')) {
+      return res.status(400).json({ error: 'Invalid Vercel Blob URL' });
+    }
+    await del(url);
+    return res.json({ success: true });
+  } catch (err: any) {
+    return res.status(500).json({ error: err?.message || 'Failed to delete blob' });
+  }
+});
+
 // Upload image (base64 or data url)
 app.post('/api/upload', (req, res) => {
   try {
@@ -341,8 +417,14 @@ app.post('/api/gallery/delete', (req, res) => {
 // Development vs Production static/Vite mounting
 async function startServer() {
   if (!isProduction) {
+    const disableHmr = process.env.DISABLE_HMR === 'true';
     const vite = await createViteServer({
-      server: { middlewareMode: true, hmr: process.env.DISABLE_HMR !== 'true' },
+      server: {
+        middlewareMode: true,
+        allowedHosts: true,
+        hmr: disableHmr ? false : true,
+        watch: disableHmr ? null : {},
+      },
       appType: 'spa',
     });
     app.use(vite.middlewares);
@@ -353,8 +435,12 @@ async function startServer() {
     });
   }
 
-  app.listen(PORT, () => {
-    console.log(`Server listening on port ${PORT}`);
+  const httpServer = app.listen(PORT, HOST, () => {
+    console.log(`Server listening on http://${HOST}:${PORT}`);
+  });
+  httpServer.on('error', (err) => {
+    console.error('Server listen error:', err);
+    process.exit(1);
   });
 }
 

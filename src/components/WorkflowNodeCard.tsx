@@ -1,6 +1,7 @@
 import React, { useRef, useState } from 'react';
 import { WorkflowNode } from '../types/workflow';
 import { Unlink, Edit3, Trash2, MessageSquare, Image as ImageIcon } from 'lucide-react';
+import { ShreddedImageIcon } from './icons/ShreddedImageIcon';
 
 interface WorkflowNodeCardProps {
   node: WorkflowNode;
@@ -176,6 +177,20 @@ export const WorkflowNodeCard: React.FC<WorkflowNodeCardProps> = ({
               className="w-full h-full object-cover group-hover/thumb:scale-105 transition-transform duration-300"
             />
             <div className="absolute inset-0 bg-black/20 group-hover/thumb:bg-black/0 transition-colors" />
+          </div>
+        ) : node.imageDeletedFromAdmin ? (
+          <div
+            onClick={(e) => {
+              e.stopPropagation();
+              onOpenDashboard(node.id);
+            }}
+            className="aspect-video rounded-lg border-2 border-dashed border-red-500/70 hover:border-red-400 flex flex-col items-center justify-center text-red-400 gap-1 p-2 text-center transition-colors cursor-pointer bg-red-950/25 hover:bg-red-950/40"
+            title="Imagen eliminada desde administración. Haz clic para decidir qué hacer."
+          >
+            <ShreddedImageIcon className="w-10 h-10 text-red-500" />
+            <span className="text-[11px] font-semibold leading-tight text-red-400">
+              Imagen eliminada
+            </span>
           </div>
         ) : (
           <div

@@ -373,12 +373,12 @@ export const DeploymentGuideModal: React.FC<DeploymentGuideModalProps> = ({
                   Ensure{' '}
                   <code className="text-amber-300 font-mono">
                     {projectId}.web.app
-                  </code>{' '}
-                  and{' '}
+                  </code>
+                  ,{' '}
                   <code className="text-amber-300 font-mono">
                     {projectId}.firebaseapp.com
-                  </code>{' '}
-                  are listed in your Firebase Console under{' '}
+                  </code>
+                  , or your <code className="text-amber-300 font-mono">*.vercel.app</code> / custom domain are listed in Firebase Console under{' '}
                   <a
                     href={authDomainsUrl}
                     target="_blank"
@@ -388,22 +388,28 @@ export const DeploymentGuideModal: React.FC<DeploymentGuideModalProps> = ({
                     Authentication &gt; Settings &gt; Authorized domains
                     <ExternalLink className="w-3 h-3 inline" />
                   </a>
-                  . (Firebase adds them by default).
+                  .
                 </div>
               </div>
               <div className="flex items-start gap-2">
                 <Check className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
                 <div>
-                  <span className="text-neutral-200 font-medium">Custom Domain (Optional):</span>{' '}
-                  You can connect your own custom domain (e.g.,{' '}
-                  <code className="text-neutral-300 font-mono">canvas.mycompany.com</code>) in the Firebase Console Hosting tab for free, including automated SSL provisioning.
+                  <span className="text-neutral-200 font-medium">Firebase Storage Enabled:</span>{' '}
+                  Image and map uploads go directly to Firebase Storage (<code className="text-neutral-300 font-mono">{projectId}.firebasestorage.app</code>) so static hosting on Firebase Hosting or Vercel works completely serverless. Ensure Storage is activated in Firebase Console with authenticated read/write rules.
+                </div>
+              </div>
+              <div className="flex items-start gap-2">
+                <Check className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
+                <div>
+                  <span className="text-neutral-200 font-medium">Vercel Deployment (Alternative):</span>{' '}
+                  <code className="text-neutral-300 font-mono">vercel.json</code> is already configured with SPA rewrites. Run <code className="text-neutral-300 font-mono">vercel --prod</code> (build: <code className="text-neutral-300 font-mono">npm run build</code>, output: <code className="text-neutral-300 font-mono">dist</code>).
                 </div>
               </div>
               <div className="flex items-start gap-2">
                 <Check className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
                 <div>
                   <span className="text-neutral-200 font-medium">Firestore Security Rules:</span>{' '}
-                  Your database rules are already active in the cloud database protecting project nodes, connections, and user roles.
+                  Verified Google Auth and RBAC rules (<code className="text-neutral-300 font-mono">Admin</code>, <code className="text-neutral-300 font-mono">Editor</code>, <code className="text-neutral-300 font-mono">Viewer</code>) protect projects, nodes, connections, and user profiles.
                 </div>
               </div>
             </div>

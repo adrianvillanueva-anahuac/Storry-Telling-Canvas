@@ -14,8 +14,9 @@ import {
   signInWithGoogle,
   logOut,
   testFirestoreConnection,
+  onAuthStateChanged,
+  FirebaseUser,
 } from './services/firebase';
-import { onAuthStateChanged } from 'firebase/auth';
 import {
   subscribeProjects,
   createProject,
@@ -33,16 +34,22 @@ import {
   saveTextToFirestore,
   deleteTextFromFirestore,
   subscribeUsers,
+  subscribeUserProfile,
   updateUserRole,
   inviteUserByEmail,
-  subscribeImages,
+  deleteUserCompletely,
+  setProjectParticipantRole,
+  removeProjectParticipant,
+  setUserProjectAssignments,
+  subscribeAllImages,
   registerImageInDb,
   deleteImageFromDb,
-  subscribeGlobalVideos,
-  addGlobalVideoDoc,
-  deleteGlobalVideoDoc,
+  clearDeletedImagesFromProjectNodes,
+  subscribeProjectVideos,
+  addProjectVideoDoc,
+  deleteProjectVideoDoc,
 } from './services/firestoreService';
-import { uploadImageApi } from './services/api';
+import { uploadImageToStorage } from './services/storageService';
 import { Header } from './components/Header';
 import { WorkflowNodeCard } from './components/WorkflowNodeCard';
 import { CanvasTextCard } from './components/CanvasTextCard';
@@ -66,12 +73,17 @@ import { DeploymentGuideModal } from './components/modals/DeploymentGuideModal';
 
 export default function App() {
   // Authentication & Role
+  const [authReady, setAuthReady] = useState(false);
+  const [firebaseUser, setFirebaseUser] = useState<FirebaseUser | null>(null);
+  const [authError, setAuthError] = useState<string | null>(null);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+  const [isUploadingMedia, setIsUploadingMedia] = useState(false);
   const [currentUser, setCurrentUser] = useState<UserProfile>({
-    uid: 'admin-default',
-    name: 'Adrian (Lead Admin)',
-    role: 'Admin',
-    email: 'adrian.byakko@gmail.com',
-    isRegistered: true,
+    uid: '',
+    name: 'Team Member',
+    role: 'Viewer',
+    email: '',
+    isRegistered: false,
   });
 
   // Theme state
@@ -119,6 +131,7 @@ export default function App() {
   // Modals & Panels
   const [adminConsoleOpen, setAdminConsoleOpen] = useState(false);
   const [deploymentGuideOpen, setDeploymentGuideOpen] = useState(false);
+  const [architectureModalOpen, setArchitectureModalOpen] = useState(false);
   const [activeEditNodeId, setActiveEditNodeId] = useState<string | null>(null);
   const [pinningNodeId, setPinningNodeId] = useState<string | null>(null);
   const [mapViewerNodeId, setMapViewerNodeId] = useState<string | null>(null);
@@ -199,50 +212,128 @@ export default function App() {
     testFirestoreConnection();
   }, []);
 
-  // Firebase Auth Listener
+  // Firebase Auth Listener & Live Role Sync
   useEffect(() => {
-    const unsub = onAuthStateChanged(auth, (fbUser) => {
+    let unsubProfile: (() => void) | null = null;
+
+    const unsubAuth = onAuthStateChanged(auth, (fbUser) => {
+      if (unsubProfile) {
+        unsubProfile();
+        unsubProfile = null;
+      }
+
+      setFirebaseUser(fbUser);
+      setAuthReady(true);
+
       if (fbUser) {
-        const isSuperAdmin = fbUser.email === 'adrian.byakko@gmail.com';
+        const normalizedEmail = (fbUser.email || '').toLowerCase();
+        const isSuperAdmin = normalizedEmail === 'adrian.byakko@gmail.com';
         setCurrentUser({
           uid: fbUser.uid,
           name: fbUser.displayName || 'Team Member',
-          email: fbUser.email || '',
+          email: normalizedEmail,
           photoURL: fbUser.photoURL || '',
-          role: isSuperAdmin ? 'Admin' : 'Editor',
+          role: isSuperAdmin ? 'Admin' : 'Viewer',
           isRegistered: true,
         });
+
+        unsubProfile = subscribeUserProfile(fbUser.uid, (profile) => {
+          if (!profile) return;
+          setCurrentUser((prev) => ({
+            ...prev,
+            name: profile.name || prev.name,
+            email: profile.email || prev.email,
+            photoURL: profile.photoURL || prev.photoURL,
+            role: isSuperAdmin ? 'Admin' : (profile.role || prev.role),
+            isRegistered: profile.isRegistered ?? true,
+          }));
+        });
+      } else {
+        setCurrentUser({
+          uid: '',
+          name: 'Team Member',
+          role: 'Viewer',
+          email: '',
+          isRegistered: false,
+        });
+        setProjects([]);
+        setActiveProjectId('');
+        setUsersList([]);
+        setImagesDbList([]);
       }
     });
-    return () => unsub();
+
+    return () => {
+      if (unsubProfile) unsubProfile();
+      unsubAuth();
+    };
   }, []);
 
-  // Subscribe to Projects Collection in Firestore
+  const normalizedUserEmail = currentUser.email.trim().toLowerCase();
+  const isGlobalAdmin =
+    normalizedUserEmail === 'adrian.byakko@gmail.com' || currentUser.role === 'Admin';
+  const visibleProjects = isGlobalAdmin
+    ? projects
+    : projects.filter(
+        (p) =>
+          p.ownerId === firebaseUser?.uid ||
+          Boolean(p.participants && normalizedUserEmail in p.participants) ||
+          !p.participants ||
+          Object.keys(p.participants).length === 0
+      );
+  const activeProject =
+    visibleProjects.find((p) => p.id === activeProjectId) ||
+    (isGlobalAdmin ? projects.find((p) => p.id === activeProjectId) || null : null);
+  const effectiveRole: 'Admin' | 'Editor' | 'Viewer' = isGlobalAdmin
+    ? 'Admin'
+    : activeProject?.participants?.[normalizedUserEmail]?.role || currentUser.role;
+  const isReadOnly = effectiveRole === 'Viewer';
+
+  // Subscribe to Projects Collection in Firestore (Authenticated only)
   useEffect(() => {
+    if (!authReady || !firebaseUser) return;
+
+    const fbEmail = (firebaseUser.email || '').trim().toLowerCase();
+    const isAdminUser = fbEmail === 'adrian.byakko@gmail.com' || currentUser.role === 'Admin';
+
     const unsub = subscribeProjects((projList) => {
       setProjects(projList);
-      if (projList.length === 0) {
+      const accessible = isAdminUser
+        ? projList
+        : projList.filter(
+            (p) =>
+              p.ownerId === firebaseUser.uid ||
+              Boolean(p.participants && fbEmail in p.participants) ||
+              !p.participants ||
+              Object.keys(p.participants).length === 0
+          );
+
+      if (projList.length === 0 && (currentUser.role === 'Admin' || currentUser.role === 'Editor')) {
         // Automatically seed first project if database is empty
         createProject(
           'Act I: The Citadel Sequence',
           'Cinematic arrival sequence and initial council assembly.',
-          currentUser.uid || 'admin'
+          firebaseUser.uid,
+          fbEmail,
+          firebaseUser.displayName || currentUser.name
         ).then((newId) => {
           setActiveProjectId(newId);
           setTimeout(() => centerCanvas(), 200);
         });
-      } else if (!activeProjectId || !projList.some((p) => p.id === activeProjectId)) {
-        setActiveProjectId(projList[0].id);
+      } else if (accessible.length > 0 && (!activeProjectId || !accessible.some((p) => p.id === activeProjectId))) {
+        setActiveProjectId(accessible[0].id);
         setTimeout(() => centerCanvas(), 200);
+      } else if (accessible.length === 0 && activeProjectId) {
+        setActiveProjectId('');
       }
     });
 
     return () => unsub();
-  }, [activeProjectId]);
+  }, [authReady, firebaseUser, activeProjectId, currentUser.role, currentUser.name]);
 
   // Subscribe to Real-Time Canvas Subcollections for the Active Project
   useEffect(() => {
-    if (!activeProjectId) return;
+    if (!authReady || !firebaseUser || !activeProjectId) return;
 
     const unsubCanvas = subscribeProjectCanvas(activeProjectId, (data) => {
       setAppState((prev) => ({
@@ -255,22 +346,41 @@ export default function App() {
     });
 
     return () => unsubCanvas();
-  }, [activeProjectId]);
+  }, [authReady, firebaseUser, activeProjectId]);
 
-  // Subscribe to Users & Web Image Database
+  // Subscribe to Web Image Database (Authenticated only)
   useEffect(() => {
-    const unsubUsers = subscribeUsers((users) => setUsersList(users));
-    const unsubImages = subscribeImages('images', (imgs) => setImagesDbList(imgs));
-    const unsubVideos = subscribeGlobalVideos((vids) => {
+    if (!authReady || !firebaseUser) return;
+
+    const unsubImages = subscribeAllImages((imgs) => setImagesDbList(imgs));
+    return () => {
+      unsubImages();
+    };
+  }, [authReady, firebaseUser]);
+
+  // Subscribe to Project-Scoped YouTube Video References
+  useEffect(() => {
+    if (!authReady || !firebaseUser || !activeProjectId) {
+      setAppState((prev) => ({ ...prev, globalVideos: [] }));
+      return;
+    }
+
+    const unsubVideos = subscribeProjectVideos(activeProjectId, (vids) => {
       setAppState((prev) => ({ ...prev, globalVideos: vids }));
     });
+    return () => unsubVideos();
+  }, [authReady, firebaseUser, activeProjectId]);
 
-    return () => {
-      unsubUsers();
-      unsubImages();
-      unsubVideos();
-    };
-  }, []);
+  // Subscribe to Users Collection (Admin only)
+  useEffect(() => {
+    if (!authReady || !firebaseUser || currentUser.role !== 'Admin') {
+      setUsersList([]);
+      return;
+    }
+
+    const unsubUsers = subscribeUsers((users) => setUsersList(users));
+    return () => unsubUsers();
+  }, [authReady, firebaseUser, currentUser.role]);
 
   // Check if an element bounding box overlaps a container with generous magnetic tolerance
   const findOverlappingContainer = useCallback(
@@ -622,7 +732,7 @@ export default function App() {
         zoomRafRef.current = null;
       }
     };
-  }, [stepZoomAnimation]);
+  }, [stepZoomAnimation, authReady, firebaseUser]);
 
   // Background Canvas Panning
   const handleCanvasMouseDown = (e: React.MouseEvent) => {
@@ -651,7 +761,7 @@ export default function App() {
     type: 'node' | 'text',
     e: React.MouseEvent
   ) => {
-    if (currentUser.role === 'Viewer') return;
+    if (isReadOnly) return;
     if ((e.target as HTMLElement).closest('.port')) return;
     if ((e.target as HTMLElement).closest('button')) return;
     if ((e.target as HTMLElement).closest('input')) return;
@@ -1049,7 +1159,15 @@ export default function App() {
     const curr = appState.nodes[nodeId];
     if (!curr) return;
 
-    const updatedNode = { ...curr, ...updates };
+    const normalizedUpdates: Partial<WorkflowNode> = { ...updates };
+    if ('image' in updates && updates.image) {
+      normalizedUpdates.imageDeletedFromAdmin = false;
+    }
+    if ('mapImage' in updates && updates.mapImage) {
+      normalizedUpdates.mapImageDeletedFromAdmin = false;
+    }
+
+    const updatedNode = { ...curr, ...normalizedUpdates };
     setAppState((prev) => ({
       ...prev,
       nodes: {
@@ -1063,7 +1181,13 @@ export default function App() {
   const handleDeleteNode = (nodeId: string) => {
     if (!activeProjectId) return;
     deleteNodeFromFirestore(activeProjectId, nodeId);
+    appState.connections
+      .filter((c) => c.source === nodeId || c.target === nodeId)
+      .forEach((c) => deleteConnectionFromFirestore(activeProjectId, c.id));
     setDeleteWarningNodeId(null);
+    if (activeEditNodeId === nodeId) {
+      setActiveEditNodeId(null);
+    }
   };
 
   const handleArchiveNode = (nodeId: string) => {
@@ -1078,6 +1202,53 @@ export default function App() {
       storeNote: '',
     });
     setDeleteWarningNodeId(null);
+    if (activeEditNodeId === nodeId) {
+      setActiveEditNodeId(null);
+    }
+  };
+
+  const handleDeleteImageRecords = async (imgIds: string[]) => {
+    if (imgIds.length === 0) return;
+    const targets = imagesDbList.filter((img) => imgIds.includes(img.id));
+    const deletedUrls = targets.map((img) => img.url).filter(Boolean);
+
+    const hasUnassigned = targets.some((img) => !img.projectId);
+    const affectedProjectIds = hasUnassigned
+      ? projects.map((p) => p.id)
+      : Array.from(
+          new Set([
+            ...targets.map((img) => img.projectId).filter((pid): pid is string => Boolean(pid)),
+            ...(activeProjectId ? [activeProjectId] : []),
+          ])
+        );
+
+    for (const id of imgIds) {
+      const target = targets.find((img) => img.id === id);
+      await deleteImageFromDb(id, target?.url || target?.storagePath);
+    }
+
+    if (deletedUrls.length > 0 && affectedProjectIds.length > 0) {
+      const urlSet = new Set(deletedUrls);
+      setAppState((prev) => {
+        let changed = false;
+        const nextNodes = { ...prev.nodes };
+        Object.entries(nextNodes).forEach(([id, n]) => {
+          const hitMain = Boolean(n.image && urlSet.has(n.image));
+          const hitMap = Boolean(n.mapImage && urlSet.has(n.mapImage));
+          if (hitMain || hitMap) {
+            changed = true;
+            nextNodes[id] = {
+              ...n,
+              ...(hitMain ? { image: null, imageDeletedFromAdmin: true } : {}),
+              ...(hitMap ? { mapImage: null, mapName: '', mapImageDeletedFromAdmin: true } : {}),
+            };
+          }
+        });
+        return changed ? { ...prev, nodes: nextNodes } : prev;
+      });
+
+      await clearDeletedImagesFromProjectNodes(deletedUrls, affectedProjectIds);
+    }
   };
 
   // Text Elements CRUD in Firestore
@@ -1169,21 +1340,25 @@ export default function App() {
     deleteTextFromFirestore(activeProjectId, textId);
   };
 
-  // Web Image Upload & Registry in Firestore (No Base64 in documents)
+  // Vercel Blob Upload & Registry in Firestore (No Base64 in documents)
   const handleUploadNodeImage = async (nodeId: string, file: File, isMap = false) => {
-    const reader = new FileReader();
-    reader.onload = async () => {
-      const base64Data = reader.result as string;
-      const folder = isMap ? 'maps' : 'images';
-      // 1. Upload file to server static folder
-      const res = await uploadImageApi(base64Data, file.name, folder);
+    if (!activeProjectId) return;
+    const folder = isMap ? 'maps' : 'images';
+    setUploadError(null);
+    setIsUploadingMedia(true);
+    try {
+      // 1. Upload file directly to Vercel Blob Storage
+      const res = await uploadImageToStorage(file, folder);
 
-      // 2. Register image in Firestore images collection
+      // 2. Register image metadata + Storage path + download URL in Firestore scoped to active project
       const imageRecord: ImageResource = {
         id: `img-${Date.now()}`,
+        projectId: activeProjectId,
         name: file.name,
         url: res.url,
+        storagePath: res.storagePath,
         folder,
+        sizeBytes: file.size,
         uploadedBy: currentUser.name,
         uploadedAt: new Date().toISOString(),
       };
@@ -1203,31 +1378,39 @@ export default function App() {
           handleUpdateNode(nodeId, { image: res.url });
         }
       }
-    };
-    reader.readAsDataURL(file);
+    } catch (err) {
+      setUploadError(err instanceof Error ? err.message : 'Failed to upload image.');
+    } finally {
+      setIsUploadingMedia(false);
+    }
   };
 
-  // Gallery multi-upload
+  // Gallery multi-upload to Vercel Blob Storage
   const handleUploadGalleryFiles = async (files: FileList) => {
+    if (!activeProjectId) return;
     const folder = galleryModalState.mode.includes('maps') ? 'maps' : 'images';
-    for (let i = 0; i < files.length; i++) {
-      const file = files[i];
-      const reader = new FileReader();
-      await new Promise<void>((resolve) => {
-        reader.onload = async () => {
-          const res = await uploadImageApi(reader.result as string, file.name, folder);
-          await registerImageInDb({
-            id: `img-${Date.now()}_${i}`,
-            name: file.name,
-            url: res.url,
-            folder: folder as 'images' | 'maps',
-            uploadedBy: currentUser.name,
-            uploadedAt: new Date().toISOString(),
-          });
-          resolve();
-        };
-        reader.readAsDataURL(file);
-      });
+    setUploadError(null);
+    setIsUploadingMedia(true);
+    try {
+      for (let i = 0; i < files.length; i++) {
+        const file = files[i];
+        const res = await uploadImageToStorage(file, folder);
+        await registerImageInDb({
+          id: `img-${Date.now()}_${i}`,
+          projectId: activeProjectId,
+          name: file.name,
+          url: res.url,
+          storagePath: res.storagePath,
+          folder: folder as 'images' | 'maps',
+          sizeBytes: file.size,
+          uploadedBy: currentUser.name,
+          uploadedAt: new Date().toISOString(),
+        });
+      }
+    } catch (err) {
+      setUploadError(err instanceof Error ? err.message : 'Failed to upload gallery assets.');
+    } finally {
+      setIsUploadingMedia(false);
     }
   };
 
@@ -1243,7 +1426,67 @@ export default function App() {
     ? appState.texts[activeTextPopover.elementId]
     : null;
 
-  const activeProject = projects.find((p) => p.id === activeProjectId) || null;
+  const activeGalleryFolder = galleryModalState.mode.includes('maps') ? 'maps' : 'images';
+  const filteredGalleryImages = imagesDbList.filter(
+    (img) => img.folder === activeGalleryFolder && Boolean(activeProjectId) && img.projectId === activeProjectId
+  );
+
+  const handleGoogleLogin = async () => {
+    setAuthError(null);
+    try {
+      await signInWithGoogle();
+    } catch (err) {
+      setAuthError(
+        err instanceof Error
+          ? err.message
+          : 'Google sign-in failed. Verify this domain is authorized in Firebase Authentication.'
+      );
+    }
+  };
+
+  if (!authReady) {
+    return (
+      <div className="w-screen h-screen bg-neutral-950 text-neutral-200 flex items-center justify-center">
+        <div className="flex flex-col items-center gap-3">
+          <div className="w-8 h-8 rounded-full border-2 border-blue-500 border-t-transparent animate-spin" />
+          <p className="text-xs text-neutral-400">Connecting to workspace...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!firebaseUser) {
+    return (
+      <div className="w-screen h-screen bg-neutral-950 text-neutral-100 flex items-center justify-center p-4">
+        <div className="w-full max-w-sm rounded-2xl bg-neutral-900 border border-neutral-800 p-7 shadow-2xl text-center space-y-5">
+          <div className="w-12 h-12 rounded-2xl bg-blue-600/20 border border-blue-500/30 text-blue-400 mx-auto flex items-center justify-center font-bold text-lg">
+            VW
+          </div>
+          <div className="space-y-1.5">
+            <h1 className="text-lg font-bold tracking-tight text-neutral-100">
+              Visual Workflow Canvas
+            </h1>
+            <p className="text-xs text-neutral-400 leading-relaxed">
+              Sign in with your Google account to access shared storyboard projects, real-time nodes, and cloud media assets.
+            </p>
+          </div>
+
+          {authError && (
+            <div className="p-3 rounded-xl bg-red-950/50 border border-red-800/60 text-xs text-red-300 text-left break-words">
+              {authError}
+            </div>
+          )}
+
+          <button
+            onClick={handleGoogleLogin}
+            className="w-full py-2.5 px-4 rounded-xl bg-blue-600 hover:bg-blue-500 active:bg-blue-700 text-white text-xs font-semibold shadow-lg shadow-blue-900/30 transition-colors cursor-pointer"
+          >
+            Sign in with Google
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div
@@ -1254,7 +1497,8 @@ export default function App() {
       {/* Top Application Header */}
       <Header
         user={currentUser}
-        projects={projects}
+        effectiveRole={effectiveRole}
+        projects={visibleProjects}
         activeProject={activeProject}
         storedCount={Object.keys(appState.storedNodes).length}
         zoom={zoom}
@@ -1266,6 +1510,7 @@ export default function App() {
         }}
         onOpenAdminConsole={() => setAdminConsoleOpen(true)}
         onOpenDeploymentGuide={() => setDeploymentGuideOpen(true)}
+        onOpenArchitecture={() => setArchitectureModalOpen(true)}
         onOpenGallery={(mode) => setGalleryModalState({ open: true, mode })}
         onOpenVideoLib={() => setGlobalVideoModalOpen(true)}
         onOpenArchive={() => setArchiveModalOpen(true)}
@@ -1288,7 +1533,7 @@ export default function App() {
           if (type === 'center') centerCanvas();
           if (type === 'fit') fitAllNodes();
         }}
-        onSignInGoogle={() => signInWithGoogle()}
+        onSignInGoogle={handleGoogleLogin}
         onSignOut={() => logOut()}
       />
 
@@ -1330,7 +1575,7 @@ export default function App() {
               <CanvasTextCard
                 element={element}
                 label={element.labelId ? appState.labels[element.labelId] : undefined}
-                isReadOnly={currentUser.role === 'Viewer'}
+                isReadOnly={isReadOnly}
                 isDropTarget={element.mode === 'container' && hoveredDropContainerId === element.id}
                 onOpenSettings={(id, e) => {
                   setActiveTextPopover({ elementId: id, x: e.clientX, y: e.clientY });
@@ -1350,7 +1595,7 @@ export default function App() {
             >
               <WorkflowNodeCard
                 node={node}
-                isReadOnly={currentUser.role === 'Viewer'}
+                isReadOnly={isReadOnly}
                 isHoveringContainer={
                   activeDragElement?.type === 'node' &&
                   activeDragElement.id === node.id &&
@@ -1429,7 +1674,13 @@ export default function App() {
             setTimeout(() => centerCanvas(), 150);
           }}
           onCreateProject={async (title, desc) => {
-            const pId = await createProject(title, desc, currentUser.uid || 'admin');
+            const pId = await createProject(
+              title,
+              desc,
+              currentUser.uid || 'admin',
+              currentUser.email,
+              currentUser.name
+            );
             setActiveProjectId(pId);
           }}
           onDeleteProject={async (pId) => {
@@ -1446,8 +1697,23 @@ export default function App() {
           onInviteUser={async (email, role) => {
             await inviteUserByEmail(email, role);
           }}
+          onDeleteUser={async (user) => {
+            await deleteUserCompletely(user, projects);
+          }}
+          onSetProjectParticipant={async (project, email, role, meta) => {
+            await setProjectParticipantRole(project, email, role, meta);
+          }}
+          onRemoveProjectParticipant={async (project, email) => {
+            await removeProjectParticipant(project, email);
+          }}
+          onSaveUserProjects={async (user, assignments) => {
+            await setUserProjectAssignments(user, assignments, projects);
+          }}
           onDeleteImageRecord={async (imgId) => {
-            await deleteImageFromDb(imgId);
+            await handleDeleteImageRecords([imgId]);
+          }}
+          onDeleteImagesBatch={async (imgIds) => {
+            await handleDeleteImageRecords(imgIds);
           }}
         />
       )}
@@ -1465,10 +1731,13 @@ export default function App() {
         <NodeDashboardModal
           node={activeNode}
           globalVideos={appState.globalVideos}
-          isReadOnly={currentUser.role === 'Viewer'}
+          isReadOnly={isReadOnly}
+          isArchived={Boolean(activeEditNodeId && appState.storedNodes[activeEditNodeId])}
           currentUserName={currentUser.name}
           onClose={() => setActiveEditNodeId(null)}
           onUpdateNode={handleUpdateNode}
+          onDeleteNode={handleDeleteNode}
+          onArchiveNode={handleArchiveNode}
           onOpenPinning={(id) => {
             setActiveEditNodeId(null);
             setPinningNodeId(id);
@@ -1492,7 +1761,7 @@ export default function App() {
         <PinningModal
           node={pinningNode}
           currentUserName={currentUser.name}
-          isReadOnly={currentUser.role === 'Viewer'}
+          isReadOnly={isReadOnly}
           onClose={() => {
             const id = pinningNode.id;
             setPinningNodeId(null);
@@ -1510,7 +1779,7 @@ export default function App() {
         <MapViewerModal
           node={mapViewerNode}
           currentUserName={currentUser.name}
-          isReadOnly={currentUser.role === 'Viewer'}
+          isReadOnly={isReadOnly}
           onClose={() => {
             const id = mapViewerNode.id;
             setMapViewerNodeId(null);
@@ -1598,12 +1867,20 @@ export default function App() {
         />
       )}
 
-      {/* Gallery Modal (Images & Maps from Firestore Web DB) */}
+      {/* Gallery Modal (Images & Maps scoped to active project) */}
       {galleryModalState.open && (
         <GalleryModal
           mode={galleryModalState.mode}
-          images={imagesDbList.map((img) => ({ id: img.id, name: img.name, url: img.url }))}
-          isLoading={false}
+          projectTitle={activeProject?.title}
+          isReadOnly={isReadOnly}
+          images={filteredGalleryImages.map((img) => ({
+            id: img.id,
+            name: img.name,
+            url: img.url,
+            sizeBytes: img.sizeBytes,
+            projectId: img.projectId,
+          }))}
+          isLoading={isUploadingMedia}
           onClose={() => setGalleryModalState({ open: false, mode: 'images-manage' })}
           onUploadFiles={handleUploadGalleryFiles}
           onSelectImage={(url) => {
@@ -1623,20 +1900,31 @@ export default function App() {
           }}
           onDeleteSelected={async (fileIds) => {
             for (const id of fileIds) {
-              await deleteImageFromDb(id);
+              const target = imagesDbList.find((img) => img.id === id);
+              await deleteImageFromDb(id, target?.url || target?.storagePath);
             }
           }}
         />
       )}
 
-      {/* Global Video Library Modal */}
+      {/* Project-Scoped Video Library Modal */}
       {globalVideoModalOpen && (
         <GlobalVideoModal
           videos={appState.globalVideos}
+          projectTitle={activeProject?.title}
+          isReadOnly={isReadOnly}
           author={currentUser.name}
           onClose={() => setGlobalVideoModalOpen(false)}
-          onAddVideo={(video) => addGlobalVideoDoc(video)}
-          onDeleteVideo={(id) => deleteGlobalVideoDoc(id)}
+          onAddVideo={(video) => {
+            if (activeProjectId) {
+              addProjectVideoDoc(activeProjectId, video);
+            }
+          }}
+          onDeleteVideo={(id) => {
+            if (activeProjectId) {
+              deleteProjectVideoDoc(activeProjectId, id);
+            }
+          }}
         />
       )}
 
@@ -1708,6 +1996,54 @@ export default function App() {
             setReplaceWarningTarget(null);
           }}
         />
+      )}
+      {architectureModalOpen && (
+        <div className="fixed inset-0 z-[80] bg-black/85 backdrop-blur-sm flex flex-col p-3 sm:p-5">
+          <div className="flex-1 flex flex-col rounded-2xl overflow-hidden border border-neutral-700/80 bg-[#090b10] shadow-2xl">
+            <div className="h-11 px-4 bg-neutral-900 border-b border-neutral-800 flex items-center justify-between gap-3 shrink-0">
+              <div className="flex items-center gap-2 min-w-0">
+                <span className="text-xs font-bold text-neutral-100 truncate">
+                  Application Architecture Diagram
+                </span>
+                <span className="hidden sm:inline text-[11px] font-mono text-cyan-400">
+                  /architecture-diagram.html
+                </span>
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                <a
+                  href="/architecture-diagram.html"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="px-2.5 py-1 rounded-lg bg-neutral-800 hover:bg-neutral-700 border border-neutral-700 text-[11px] font-semibold text-neutral-200 transition-colors"
+                >
+                  Open Standalone Tab
+                </a>
+                <button
+                  onClick={() => setArchitectureModalOpen(false)}
+                  className="px-2.5 py-1 rounded-lg bg-neutral-800 hover:bg-neutral-700 border border-neutral-700 text-[11px] font-semibold text-neutral-300 hover:text-white transition-colors"
+                >
+                  Close
+                </button>
+              </div>
+            </div>
+            <iframe
+              src="/architecture-diagram.html"
+              title="Visual Workflow Canvas Interactive Architecture Diagram"
+              className="w-full flex-1 border-0 bg-[#090b10]"
+            />
+          </div>
+        </div>
+      )}
+      {uploadError && (
+        <div className="fixed bottom-4 right-4 z-[90] max-w-sm rounded-xl bg-red-950/95 border border-red-700/70 px-4 py-3 text-xs text-red-200 shadow-2xl flex items-start justify-between gap-3">
+          <span>{uploadError}</span>
+          <button
+            onClick={() => setUploadError(null)}
+            className="text-red-300 hover:text-white font-bold shrink-0"
+          >
+            ✕
+          </button>
+        </div>
       )}
     </div>
   );
