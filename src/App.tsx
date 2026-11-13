@@ -110,6 +110,8 @@ export default function App() {
   // Users & Web Image DB from Firestore
   const [usersList, setUsersList] = useState<UserProfile[]>([]);
   const [imagesDbList, setImagesDbList] = useState<ImageResource[]>([]);
+  const [imagesDbLoaded, setImagesDbLoaded] = useState(false);
+  const recentlyUploadedUrlsRef = useRef<Set<string>>(new Set());
 
   // Zoom & Viewport
   const [zoom, setZoom] = useState(1);
@@ -260,6 +262,7 @@ export default function App() {
         setActiveProjectId('');
         setUsersList([]);
         setImagesDbList([]);
+        setImagesDbLoaded(false);
       }
     });
 
@@ -350,9 +353,15 @@ export default function App() {
 
   // Subscribe to Web Image Database (Authenticated only)
   useEffect(() => {
-    if (!authReady || !firebaseUser) return;
+    if (!authReady || !firebaseUser) {
+      setImagesDbLoaded(false);
+      return;
+    }
 
-    const unsubImages = subscribeAllImages((imgs) => setImagesDbList(imgs));
+    const unsubImages = subscribeAllImages((imgs) => {
+      setImagesDbList(imgs);
+      setImagesDbLoaded(true);
+    });
     return () => {
       unsubImages();
     };
@@ -371,7 +380,65 @@ export default function App() {
     return () => unsubVideos();
   }, [authReady, firebaseUser, activeProjectId]);
 
-  // Subscribe to Users Collection (Admin only)
+  // Reconcile any node whose managed image URL was already removed from Image DB
+  useEffect(() => {
+    if (!authReady || !firebaseUser || !activeProjectId || !imagesDbLoaded) return;
+
+    const normalizeUrl = (u?: string | null) => (u ? u.split('?')[0].trim() : '');
+    const isManagedMediaUrl = (u?: string | null) =>
+      Boolean(u && (u.includes('.blob.vercel-storage.com') || u.startsWith('/uploads/')));
+
+    const dbUrls = new Set(imagesDbList.map((img) => normalizeUrl(img.url)).filter(Boolean));
+    const orphanUrls: string[] = [];
+    const updatedNodes: Record<string, WorkflowNode> = {};
+    let hasOrphans = false;
+
+    Object.entries(appState.nodes).forEach(([id, node]) => {
+      const mainNorm = normalizeUrl(node.image);
+      const mapNorm = normalizeUrl(node.mapImage);
+      const mainOrphan =
+        isManagedMediaUrl(node.image) &&
+        !dbUrls.has(mainNorm) &&
+        !recentlyUploadedUrlsRef.current.has(mainNorm);
+      const mapOrphan =
+        isManagedMediaUrl(node.mapImage) &&
+        !dbUrls.has(mapNorm) &&
+        !recentlyUploadedUrlsRef.current.has(mapNorm);
+
+      if (mainOrphan || mapOrphan) {
+        hasOrphans = true;
+        if (mainOrphan && node.image) orphanUrls.push(node.image);
+        if (mapOrphan && node.mapImage) orphanUrls.push(node.mapImage);
+        updatedNodes[id] = {
+          ...node,
+          ...(mainOrphan ? { image: null, imageDeletedFromAdmin: true } : {}),
+          ...(mapOrphan ? { mapImage: null, mapName: '', mapImageDeletedFromAdmin: true } : {}),
+        };
+      }
+    });
+
+    if (!hasOrphans) return;
+
+    setAppState((prev) => ({
+      ...prev,
+      nodes: {
+        ...prev.nodes,
+        ...updatedNodes,
+      },
+    }));
+
+    if (!isReadOnly && orphanUrls.length > 0) {
+      clearDeletedImagesFromProjectNodes(orphanUrls, [activeProjectId]);
+    }
+  }, [
+    authReady,
+    firebaseUser,
+    activeProjectId,
+    imagesDbLoaded,
+    imagesDbList,
+    appState.nodes,
+    isReadOnly,
+  ]);
   useEffect(() => {
     if (!authReady || !firebaseUser || currentUser.role !== 'Admin') {
       setUsersList([]);
@@ -1209,32 +1276,26 @@ export default function App() {
 
   const handleDeleteImageRecords = async (imgIds: string[]) => {
     if (imgIds.length === 0) return;
+    const normalizeUrl = (u?: string | null) => (u ? u.split('?')[0].trim() : '');
     const targets = imagesDbList.filter((img) => imgIds.includes(img.id));
     const deletedUrls = targets.map((img) => img.url).filter(Boolean);
 
-    const hasUnassigned = targets.some((img) => !img.projectId);
-    const affectedProjectIds = hasUnassigned
-      ? projects.map((p) => p.id)
-      : Array.from(
-          new Set([
-            ...targets.map((img) => img.projectId).filter((pid): pid is string => Boolean(pid)),
-            ...(activeProjectId ? [activeProjectId] : []),
-          ])
-        );
+    const allProjectIds = Array.from(
+      new Set([
+        ...projects.map((p) => p.id),
+        ...targets.map((img) => img.projectId).filter((pid): pid is string => Boolean(pid)),
+        ...(activeProjectId ? [activeProjectId] : []),
+      ])
+    );
 
-    for (const id of imgIds) {
-      const target = targets.find((img) => img.id === id);
-      await deleteImageFromDb(id, target?.url || target?.storagePath);
-    }
-
-    if (deletedUrls.length > 0 && affectedProjectIds.length > 0) {
-      const urlSet = new Set(deletedUrls);
+    if (deletedUrls.length > 0) {
+      const urlSet = new Set(deletedUrls.map(normalizeUrl).filter(Boolean));
       setAppState((prev) => {
         let changed = false;
         const nextNodes = { ...prev.nodes };
         Object.entries(nextNodes).forEach(([id, n]) => {
-          const hitMain = Boolean(n.image && urlSet.has(n.image));
-          const hitMap = Boolean(n.mapImage && urlSet.has(n.mapImage));
+          const hitMain = Boolean(n.image && urlSet.has(normalizeUrl(n.image)));
+          const hitMap = Boolean(n.mapImage && urlSet.has(normalizeUrl(n.mapImage)));
           if (hitMain || hitMap) {
             changed = true;
             nextNodes[id] = {
@@ -1247,7 +1308,14 @@ export default function App() {
         return changed ? { ...prev, nodes: nextNodes } : prev;
       });
 
-      await clearDeletedImagesFromProjectNodes(deletedUrls, affectedProjectIds);
+      if (allProjectIds.length > 0) {
+        await clearDeletedImagesFromProjectNodes(deletedUrls, allProjectIds);
+      }
+    }
+
+    for (const id of imgIds) {
+      const target = targets.find((img) => img.id === id);
+      await deleteImageFromDb(id, target?.url || target?.storagePath);
     }
   };
 
@@ -1349,6 +1417,8 @@ export default function App() {
     try {
       // 1. Upload file directly to Vercel Blob Storage
       const res = await uploadImageToStorage(file, folder);
+      const normUrl = res.url.split('?')[0].trim();
+      recentlyUploadedUrlsRef.current.add(normUrl);
 
       // 2. Register image metadata + Storage path + download URL in Firestore scoped to active project
       const imageRecord: ImageResource = {

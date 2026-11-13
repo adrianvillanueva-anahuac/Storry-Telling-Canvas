@@ -28,7 +28,12 @@ export const WorkflowNodeCard: React.FC<WorkflowNodeCardProps> = ({
 }) => {
   const [isEditingTitle, setIsEditingTitle] = useState(false);
   const [titleValue, setTitleValue] = useState(node.title || 'Scene');
+  const [imageLoadError, setImageLoadError] = useState(false);
   const titleInputRef = useRef<HTMLInputElement>(null);
+
+  React.useEffect(() => {
+    setImageLoadError(false);
+  }, [node.image]);
 
   const handleTitleSubmit = () => {
     setIsEditingTitle(false);
@@ -163,7 +168,7 @@ export const WorkflowNodeCard: React.FC<WorkflowNodeCardProps> = ({
         onDragOver={(e) => e.preventDefault()}
         onDrop={handleDrop}
       >
-        {node.image ? (
+        {node.image && !imageLoadError ? (
           <div
             onClick={(e) => {
               e.stopPropagation();
@@ -174,11 +179,12 @@ export const WorkflowNodeCard: React.FC<WorkflowNodeCardProps> = ({
             <img
               src={node.image}
               alt={node.title}
+              onError={() => setImageLoadError(true)}
               className="w-full h-full object-cover group-hover/thumb:scale-105 transition-transform duration-300"
             />
             <div className="absolute inset-0 bg-black/20 group-hover/thumb:bg-black/0 transition-colors" />
           </div>
-        ) : node.imageDeletedFromAdmin ? (
+        ) : node.imageDeletedFromAdmin || imageLoadError ? (
           <div
             onClick={(e) => {
               e.stopPropagation();

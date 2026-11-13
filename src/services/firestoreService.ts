@@ -701,7 +701,8 @@ export async function clearDeletedImagesFromProjectNodes(
   deletedUrls: string[],
   projectIds: string[]
 ): Promise<void> {
-  const urlSet = new Set(deletedUrls.filter(Boolean));
+  const normalizeUrl = (u?: string | null) => (u ? u.split('?')[0].trim() : '');
+  const urlSet = new Set(deletedUrls.map(normalizeUrl).filter(Boolean));
   const uniqueProjectIds = Array.from(new Set(projectIds.filter(Boolean)));
   if (urlSet.size === 0 || uniqueProjectIds.length === 0) return;
 
@@ -722,8 +723,8 @@ export async function clearDeletedImagesFromProjectNodes(
         const snap = await getDocs(collection(db, 'projects', pid, subcol));
         for (const d of snap.docs) {
           const data = d.data() as WorkflowNode;
-          const hitMain = Boolean(data.image && urlSet.has(data.image));
-          const hitMap = Boolean(data.mapImage && urlSet.has(data.mapImage));
+          const hitMain = Boolean(data.image && urlSet.has(normalizeUrl(data.image)));
+          const hitMap = Boolean(data.mapImage && urlSet.has(normalizeUrl(data.mapImage)));
           if (hitMain || hitMap) {
             batch.update(doc(db, 'projects', pid, subcol, d.id), {
               ...(hitMain ? { image: null, imageDeletedFromAdmin: true } : {}),
