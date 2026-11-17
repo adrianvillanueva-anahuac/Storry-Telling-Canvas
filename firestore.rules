@@ -152,7 +152,29 @@ service cloud.firestore {
         data.x is string &&
         data.x.size() <= 40 &&
         data.y is string &&
-        data.y.size() <= 40;
+        data.y.size() <= 40 &&
+        (!('actors' in data) || (data.actors is list && data.actors.size() <= 100));
+    }
+
+    function isValidActor(data, actorId, projectId) {
+      return data.id == actorId &&
+        data.projectId == projectId &&
+        data.name is string &&
+        data.name.size() > 0 &&
+        data.name.size() <= 150 &&
+        (!('category' in data) || (data.category is string && data.category.size() <= 80)) &&
+        (!('description' in data) || (data.description is string && data.description.size() <= 2000)) &&
+        (!('thumbnailUrl' in data) || data.thumbnailUrl == null || (data.thumbnailUrl is string && data.thumbnailUrl.size() <= 2048)) &&
+        (!('thumbnailPath' in data) || data.thumbnailPath == null || (data.thumbnailPath is string && data.thumbnailPath.size() <= 512)) &&
+        data.states is list &&
+        data.states.size() <= 50 &&
+        (data.states.size() == 0 || data.states[0] is map) &&
+        data.tags is list &&
+        data.tags.size() <= 50 &&
+        (data.tags.size() == 0 || data.tags[0] is string) &&
+        (!('author' in data) || (data.author is string && data.author.size() <= 120)) &&
+        (!('createdAt' in data) || (data.createdAt is string && data.createdAt.size() <= 64)) &&
+        (!('updatedAt' in data) || (data.updatedAt is string && data.updatedAt.size() <= 64));
     }
 
     function isValidConnection(data, connectionId) {
@@ -174,6 +196,22 @@ service cloud.firestore {
         data.x.size() <= 40 &&
         data.y is string &&
         data.y.size() <= 40;
+    }
+
+    function isValidUserGeminiConfig(data, userId) {
+      return data.keys().hasAll(['userId', 'apiKey', 'updatedAt']) &&
+        data.keys().hasOnly(['userId', 'apiKey', 'updatedAt']) &&
+        data.userId is string &&
+        data.userId == userId &&
+        data.userId == request.auth.uid &&
+        data.userId.size() > 0 &&
+        data.userId.size() <= 128 &&
+        data.apiKey is string &&
+        data.apiKey.size() >= 10 &&
+        data.apiKey.size() <= 256 &&
+        data.updatedAt is string &&
+        data.updatedAt.size() > 0 &&
+        data.updatedAt.size() <= 64;
     }
 
     // Boot Connectivity Check Collection
@@ -233,6 +271,33 @@ service cloud.firestore {
         )
       );
       allow delete: if isAdmin() && isValidId(userId);
+
+      // Private per-user API key configuration (strictly owner-only)
+      match /private/{configId} {
+        allow get: if isVerified() &&
+          isValidId(userId) &&
+          isValidId(configId) &&
+          request.auth.uid == userId;
+        allow create: if isVerified() &&
+          isValidId(userId) &&
+          isValidId(configId) &&
+          configId == 'geminiConfig' &&
+          request.auth.uid == userId &&
+          isValidUserGeminiConfig(incoming(), userId);
+        allow update: if isVerified() &&
+          isValidId(userId) &&
+          isValidId(configId) &&
+          configId == 'geminiConfig' &&
+          request.auth.uid == userId &&
+          isValidUserGeminiConfig(incoming(), userId) &&
+          incoming().userId == existing().userId &&
+          incoming().diff(existing()).affectedKeys().hasOnly(['apiKey', 'updatedAt']);
+        allow delete: if isVerified() &&
+          isValidId(userId) &&
+          isValidId(configId) &&
+          configId == 'geminiConfig' &&
+          request.auth.uid == userId;
+      }
     }
 
     // Image Web Registry (Vercel Blob / web URLs & metadata, no raw base64)
@@ -319,6 +384,15 @@ service cloud.firestore {
           isValidId(videoId) &&
           isValidVideo(incoming());
         allow delete: if canEditProject(projectId) && isValidId(projectId) && isValidId(videoId);
+      }
+
+      match /actors/{actorId} {
+        allow read: if canReadProject(projectId);
+        allow create, update: if canEditProject(projectId) &&
+          isValidId(projectId) &&
+          isValidId(actorId) &&
+          isValidActor(incoming(), actorId, projectId);
+        allow delete: if canEditProject(projectId) && isValidId(projectId) && isValidId(actorId);
       }
     }
   }

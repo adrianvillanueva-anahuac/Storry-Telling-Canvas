@@ -20,11 +20,19 @@ export interface CommentPin {
 export interface DrawingElement {
   id: string;
   layer: 'enfoque' | 'accion' | 'descripcion' | 'map';
-  type: 'path' | 'figure';
+  type: 'path' | 'figure' | 'measure';
   shape?: string;
   d: string;
   stroke: string;
   width?: string;
+  opacity?: number;
+  measureLabel?: string;
+  measurePoints?: {
+    x1: number;
+    y1: number;
+    x2: number;
+    y2: number;
+  };
   baseWidth?: number;
   baseHeight?: number;
   transform: {
@@ -46,6 +54,34 @@ export interface VideoSnapshot {
 export interface VideoRef {
   globalId: string;
   snapshots: VideoSnapshot[];
+}
+
+export interface ActorStateOption {
+  id: string;
+  label: string;
+  color: string;
+}
+
+export interface ActorItem {
+  id: string;
+  projectId: string;
+  name: string;
+  category: string;
+  description: string;
+  thumbnailUrl: string | null;
+  thumbnailPath?: string;
+  states: ActorStateOption[];
+  tags: string[];
+  author: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface NodeActorAssignment {
+  id: string;
+  actorId: string;
+  stateId: string;
+  stateLabel: string;
 }
 
 export interface WorkflowNode {
@@ -75,6 +111,7 @@ export interface WorkflowNode {
     accion: VideoRef | null;
     descripcion: VideoRef | null;
   };
+  actors?: NodeActorAssignment[];
   pinCounter: number;
   mapPinCounter?: number;
   containerId: string | null;
@@ -83,6 +120,9 @@ export interface WorkflowNode {
   storeNote?: string;
 }
 
+export type LineStrokePattern = 'solid' | 'dotted' | 'dashed';
+export type ParallelArrowDirection = 'forward' | 'backward' | 'both' | 'none';
+
 export interface Connection {
   id: string;
   projectId?: string;
@@ -90,11 +130,24 @@ export interface Connection {
   sourcePort: 'top' | 'bottom' | 'left' | 'right';
   target: string;
   targetPort: 'top' | 'bottom' | 'left' | 'right';
-  type: 'curve' | 'straight';
-  style: 'solid' | 'dotted';
+  type: 'curve' | 'angle' | 'straight';
+  style: 'solid' | 'dotted' | 'dashed' | 'parallel';
   color: string;
   label: string;
-  arrows: 'none' | 'end' | 'both';
+  arrows: 'none' | 'start' | 'end' | 'both';
+  parallelArrows?: {
+    first: ParallelArrowDirection;
+    second: ParallelArrowDirection;
+  };
+  parallelStyles?: {
+    first: LineStrokePattern;
+    second: LineStrokePattern;
+  };
+  parallelLabelMode?: 'single' | 'separate';
+  parallelLabels?: {
+    first: string;
+    second: string;
+  };
 }
 
 export interface TextElement {
@@ -178,6 +231,7 @@ export interface AppState {
   labels: Record<string, LabelItem>;
   storedNodes: Record<string, WorkflowNode>;
   globalVideos: GlobalVideo[];
+  actors: ActorItem[];
 }
 
 export interface GalleryImage {
@@ -189,3 +243,41 @@ export interface GalleryImage {
   projectId?: string;
 }
 
+export interface ThemeDotColors {
+  farDotColor: string;
+  nearDotColor: string;
+}
+
+export interface CanvasStyleSettings {
+  isDark: boolean;
+  reactiveEnabled: boolean;
+  reactiveIntensity: number; // 0 - 100 (%)
+  reactiveRadius: number; // 80 - 520 (px)
+  themeColors: {
+    dark: ThemeDotColors;
+    light: ThemeDotColors;
+  };
+  vignetteEnabled: boolean;
+  vignetteIntensity: number; // 0 - 100 (%)
+  vignetteGradient: number; // 0 - 100 (%)
+}
+
+export const DEFAULT_CANVAS_STYLE: CanvasStyleSettings = {
+  isDark: true,
+  reactiveEnabled: true,
+  reactiveIntensity: 100,
+  reactiveRadius: 240,
+  themeColors: {
+    dark: {
+      farDotColor: '#3a3a3a',
+      nearDotColor: '#ededed',
+    },
+    light: {
+      farDotColor: '#f7f4ec',
+      nearDotColor: '#fffefa',
+    },
+  },
+  vignetteEnabled: true,
+  vignetteIntensity: 35,
+  vignetteGradient: 55,
+};

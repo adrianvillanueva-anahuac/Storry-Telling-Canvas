@@ -18,6 +18,7 @@ import {
   X,
   ExternalLink,
 } from 'lucide-react';
+import { useLanguage } from '../../hooks/useLanguage';
 
 interface AdminConsoleModalProps {
   currentUser: UserProfile;
@@ -68,6 +69,7 @@ export const AdminConsoleModal: React.FC<AdminConsoleModalProps> = ({
   onDeleteImageRecord,
   onDeleteImagesBatch,
 }) => {
+  const { t, tRole, locale } = useLanguage();
   const [activeTab, setActiveTab] = useState<'projects' | 'users' | 'images'>('projects');
 
   // New Project Form
@@ -308,84 +310,84 @@ export const AdminConsoleModal: React.FC<AdminConsoleModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/85 backdrop-blur-md flex items-center justify-center p-4">
-      <div className="bg-neutral-900 border border-neutral-700/80 rounded-2xl w-full max-w-5xl h-[88vh] shadow-2xl flex flex-col overflow-hidden">
+    <div className="fixed inset-0 z-50 bg-black/55 dark:bg-black/85 backdrop-blur-md flex items-center justify-center p-4">
+      <div className="bg-[#ebe7de] dark:bg-neutral-900 border border-[#c3beb1] dark:border-neutral-700/80 rounded-2xl w-full max-w-5xl h-[88vh] shadow-2xl flex flex-col overflow-hidden">
         {/* Top Header */}
-        <div className="p-4 border-b border-neutral-800 flex items-center justify-between">
+        <div className="p-4 border-b border-[#d4cfc3] dark:border-neutral-800 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="w-8 h-8 rounded-lg bg-blue-600/20 border border-blue-500/30 text-blue-400 flex items-center justify-center">
+            <div className="w-8 h-8 rounded-lg bg-blue-600/12 border border-blue-600/30 text-blue-700 dark:bg-blue-600/20 dark:border-blue-500/30 dark:text-blue-400 flex items-center justify-center">
               <Shield className="w-4 h-4" />
             </div>
             <div>
-              <h2 className="text-base font-bold text-neutral-100 flex items-center gap-2">
-                Workspace Administration Console
-                <span className="text-[10px] font-mono uppercase px-2 py-0.5 rounded bg-blue-600/20 text-blue-300 border border-blue-500/30">
-                  Firebase Firestore
+              <h2 className="text-base font-bold text-[#2b2924] dark:text-neutral-100 flex items-center gap-2">
+                {t('admin.title')}
+                <span className="text-[10px] font-mono uppercase px-2 py-0.5 rounded bg-blue-600/12 text-blue-800 border border-blue-600/30 dark:bg-blue-600/20 dark:text-blue-300 dark:border-blue-500/30">
+                  {t('admin.badge')}
                 </span>
               </h2>
-              <p className="text-xs text-neutral-400">
-                Manage cloud projects, user role permissions, and web image references
+              <p className="text-xs text-[#5c584e] dark:text-neutral-400">
+                {t('admin.subtitle')}
               </p>
             </div>
           </div>
 
           <button
             onClick={onClose}
-            className="w-8 h-8 rounded-full bg-neutral-800 hover:bg-neutral-700 flex items-center justify-center text-neutral-400 hover:text-white transition-colors"
+            className="w-8 h-8 rounded-full bg-[#dcd7cc] hover:bg-[#d2ccbf] dark:bg-neutral-800 dark:hover:bg-neutral-700 border border-[#c3beb1] dark:border-transparent flex items-center justify-center text-[#5c584e] hover:text-[#1f1d18] dark:text-neutral-400 dark:hover:text-white transition-colors"
           >
             <X className="w-4 h-4" />
           </button>
         </div>
 
         {/* Tab Navigation & Search Bar */}
-        <div className="px-4 py-2.5 border-b border-neutral-800 bg-neutral-950/60 flex items-center justify-between gap-4">
-          <div className="flex items-center gap-1.5 p-1 bg-neutral-900 rounded-xl border border-neutral-800">
+        <div className="px-4 py-2.5 border-b border-[#d4cfc3] dark:border-neutral-800 bg-[#e3ded3] dark:bg-neutral-950/60 flex items-center justify-between gap-4">
+          <div className="flex items-center gap-1.5 p-1 bg-[#d8d3c8] dark:bg-neutral-900 rounded-xl border border-[#c3beb1] dark:border-neutral-800">
             <button
               onClick={() => setActiveTab('projects')}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors whitespace-nowrap shrink-0 ${
                 activeTab === 'projects'
                   ? 'bg-blue-600 text-white shadow-sm'
-                  : 'text-neutral-400 hover:text-neutral-200'
+                  : 'text-[#5c584e] hover:text-[#1f1d18] dark:text-neutral-400 dark:hover:text-neutral-200'
               }`}
             >
               <LayoutGrid className="w-3.5 h-3.5" />
-              <span>Projects ({projects.length})</span>
+              <span>{t('admin.tabProjects', { count: projects.length })}</span>
             </button>
 
             <button
               onClick={() => setActiveTab('users')}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors whitespace-nowrap shrink-0 ${
                 activeTab === 'users'
                   ? 'bg-blue-600 text-white shadow-sm'
-                  : 'text-neutral-400 hover:text-neutral-200'
+                  : 'text-[#5c584e] hover:text-[#1f1d18] dark:text-neutral-400 dark:hover:text-neutral-200'
               }`}
             >
               <Users className="w-3.5 h-3.5" />
-              <span>Team & Roles ({users.length})</span>
+              <span>{t('admin.tabUsers', { count: users.length })}</span>
             </button>
 
             <button
               onClick={() => setActiveTab('images')}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors whitespace-nowrap shrink-0 ${
                 activeTab === 'images'
                   ? 'bg-blue-600 text-white shadow-sm'
-                  : 'text-neutral-400 hover:text-neutral-200'
+                  : 'text-[#5c584e] hover:text-[#1f1d18] dark:text-neutral-400 dark:hover:text-neutral-200'
               }`}
             >
               <ImageIcon className="w-3.5 h-3.5" />
-              <span>Image DB ({images.length})</span>
+              <span>{t('admin.tabImages', { count: images.length })}</span>
             </button>
           </div>
 
           {/* Quick search */}
           <div className="relative w-64">
-            <Search className="w-3.5 h-3.5 text-neutral-500 absolute left-3 top-2.5" />
+            <Search className="w-3.5 h-3.5 text-[#6e695d] dark:text-neutral-500 absolute left-3 top-2.5" />
             <input
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Filter..."
-              className="w-full bg-neutral-900 border border-neutral-700/80 rounded-xl pl-8 pr-3 py-1.5 text-xs text-neutral-200 outline-none focus:border-blue-500"
+              placeholder={t('admin.filterPlaceholder')}
+              className="w-full bg-[#e0dbd0] dark:bg-neutral-900 border border-[#c3beb1] dark:border-neutral-700/80 rounded-xl pl-8 pr-3 py-1.5 text-xs text-[#2b2924] dark:text-neutral-200 placeholder:text-[#757065] dark:placeholder:text-neutral-500 outline-none focus:border-blue-500"
             />
           </div>
         </div>
@@ -395,18 +397,18 @@ export const AdminConsoleModal: React.FC<AdminConsoleModalProps> = ({
           <div className="flex-1 overflow-y-auto p-4 space-y-4">
             <div className="flex items-center justify-between">
               <div>
-                <h3 className="text-sm font-semibold text-neutral-200">Storyboard Projects</h3>
-                <p className="text-xs text-neutral-400">
-                  Provision new narrative canvases or decommission completed storyboards
+                <h3 className="text-sm font-semibold text-[#2b2924] dark:text-neutral-200">{t('admin.projectsTitle')}</h3>
+                <p className="text-xs text-[#5c584e] dark:text-neutral-400">
+                  {t('admin.projectsSubtitle')}
                 </p>
               </div>
 
               <button
                 onClick={() => setIsCreatingProject(!isCreatingProject)}
-                className="flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-semibold text-white bg-blue-600 hover:bg-blue-500 rounded-xl shadow-sm transition-colors"
+                className="flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-semibold text-white bg-blue-600 hover:bg-blue-500 rounded-xl shadow-sm transition-colors whitespace-nowrap shrink-0"
               >
                 <Plus className="w-3.5 h-3.5" />
-                <span>New Project</span>
+                <span>{t('admin.newProject')}</span>
               </button>
             </div>
 
@@ -414,17 +416,17 @@ export const AdminConsoleModal: React.FC<AdminConsoleModalProps> = ({
             {isCreatingProject && (
               <form
                 onSubmit={handleCreateProjectSubmit}
-                className="p-4 rounded-xl bg-neutral-950 border border-blue-500/40 space-y-3 animate-in fade-in duration-150"
+                className="p-4 rounded-xl bg-[#e0dbd0] dark:bg-neutral-950 border border-blue-600/40 dark:border-blue-500/40 space-y-3 animate-in fade-in duration-150"
               >
-                <div className="flex items-center justify-between border-b border-neutral-800 pb-2">
-                  <span className="text-xs font-bold text-neutral-200 flex items-center gap-1.5">
-                    <FolderPlus className="w-4 h-4 text-blue-400" />
-                    <span>Create New Workspace Project</span>
+                <div className="flex items-center justify-between border-b border-[#c8c3b6] dark:border-neutral-800 pb-2">
+                  <span className="text-xs font-bold text-[#2b2924] dark:text-neutral-200 flex items-center gap-1.5">
+                    <FolderPlus className="w-4 h-4 text-blue-700 dark:text-blue-400" />
+                    <span>{t('admin.createProjectDrawerTitle')}</span>
                   </span>
                   <button
                     type="button"
                     onClick={() => setIsCreatingProject(false)}
-                    className="text-neutral-500 hover:text-white"
+                    className="text-[#6e695d] hover:text-[#1f1d18] dark:text-neutral-500 dark:hover:text-white"
                   >
                     <X className="w-4 h-4" />
                   </button>
@@ -432,25 +434,25 @@ export const AdminConsoleModal: React.FC<AdminConsoleModalProps> = ({
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div>
-                    <label className="text-xs text-neutral-400 block mb-1">Project Title</label>
+                    <label className="text-xs text-[#5c584e] dark:text-neutral-400 block mb-1">{t('admin.projectTitleLabel')}</label>
                     <input
                       type="text"
                       value={newTitle}
                       onChange={(e) => setNewTitle(e.target.value)}
-                      placeholder="e.g. Act II: Castle Infiltration"
+                      placeholder={t('admin.projectTitlePlaceholder')}
                       autoFocus
                       required
-                      className="w-full bg-neutral-900 border border-neutral-700 rounded-lg px-3 py-1.5 text-xs text-neutral-100 outline-none focus:border-blue-500"
+                      className="w-full bg-[#ebe7de] dark:bg-neutral-900 border border-[#c3beb1] dark:border-neutral-700 rounded-lg px-3 py-1.5 text-xs text-[#2b2924] dark:text-neutral-100 placeholder:text-[#757065] dark:placeholder:text-neutral-600 outline-none focus:border-blue-500"
                     />
                   </div>
                   <div>
-                    <label className="text-xs text-neutral-400 block mb-1">Description (optional)</label>
+                    <label className="text-xs text-[#5c584e] dark:text-neutral-400 block mb-1">{t('admin.projectDescLabel')}</label>
                     <input
                       type="text"
                       value={newDescription}
                       onChange={(e) => setNewDescription(e.target.value)}
-                      placeholder="Brief synopsis or team scope..."
-                      className="w-full bg-neutral-900 border border-neutral-700 rounded-lg px-3 py-1.5 text-xs text-neutral-100 outline-none focus:border-blue-500"
+                      placeholder={t('admin.projectDescPlaceholder')}
+                      className="w-full bg-[#ebe7de] dark:bg-neutral-900 border border-[#c3beb1] dark:border-neutral-700 rounded-lg px-3 py-1.5 text-xs text-[#2b2924] dark:text-neutral-100 placeholder:text-[#757065] dark:placeholder:text-neutral-600 outline-none focus:border-blue-500"
                     />
                   </div>
                 </div>
@@ -459,16 +461,16 @@ export const AdminConsoleModal: React.FC<AdminConsoleModalProps> = ({
                   <button
                     type="button"
                     onClick={() => setIsCreatingProject(false)}
-                    className="px-3 py-1 text-xs text-neutral-400 hover:text-white"
+                    className="px-3 py-1 text-xs text-[#5c584e] hover:text-[#1f1d18] dark:text-neutral-400 dark:hover:text-white"
                   >
-                    Cancel
+                    {t('common.cancel')}
                   </button>
                   <button
                     type="submit"
                     disabled={isProjectSubmitting || !newTitle.trim()}
                     className="px-4 py-1.5 text-xs font-semibold text-white bg-blue-600 hover:bg-blue-500 disabled:opacity-50 rounded-lg shadow-sm transition-colors"
                   >
-                    {isProjectSubmitting ? 'Creating...' : 'Provision Project'}
+                    {isProjectSubmitting ? t('admin.creatingProject') : t('admin.provisionProject')}
                   </button>
                 </div>
               </form>
@@ -483,44 +485,44 @@ export const AdminConsoleModal: React.FC<AdminConsoleModalProps> = ({
                     key={p.id}
                     className={`p-4 rounded-xl border transition-all ${
                       isActive
-                        ? 'bg-neutral-950 border-blue-500 ring-1 ring-blue-500/50'
-                        : 'bg-neutral-950 border-neutral-800/90 hover:border-neutral-700'
+                        ? 'bg-[#e0dbd0] border-blue-600 ring-1 ring-blue-600/40 dark:bg-neutral-950 dark:border-blue-500 dark:ring-blue-500/50'
+                        : 'bg-[#e0dbd0] border-[#c8c3b6] hover:border-[#aca698] dark:bg-neutral-950 dark:border-neutral-800/90 dark:hover:border-neutral-700'
                     }`}
                   >
                     <div className="flex items-start justify-between gap-2">
                       <div>
-                        <div className="flex items-center gap-2">
-                          <h4 className="text-sm font-bold text-neutral-100">{p.title}</h4>
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <h4 className="text-sm font-bold text-[#2b2924] dark:text-neutral-100">{p.title}</h4>
                           {isActive && (
-                            <span className="text-[10px] font-bold px-1.5 py-0.2 rounded bg-blue-600/20 text-blue-400 border border-blue-500/30">
-                              Active Canvas
+                            <span className="text-[10px] font-bold px-1.5 py-0.2 rounded bg-blue-600/12 text-blue-800 border border-blue-600/30 dark:bg-blue-600/20 dark:text-blue-400 dark:border-blue-500/30 whitespace-nowrap">
+                              {t('admin.activeCanvasBadge')}
                             </span>
                           )}
                           <span
-                            className={`text-[10px] font-semibold px-1.5 py-0.2 rounded ${
+                            className={`text-[10px] font-semibold px-1.5 py-0.2 rounded whitespace-nowrap ${
                               p.status === 'active'
-                                ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
-                                : 'bg-neutral-800 text-neutral-400'
+                                ? 'bg-emerald-600/12 text-emerald-800 border border-emerald-700/30 dark:bg-emerald-500/10 dark:text-emerald-400 dark:border-emerald-500/20'
+                                : 'bg-[#d4cfc3] text-[#5c584e] dark:bg-neutral-800 dark:text-neutral-400'
                             }`}
                           >
-                            {p.status}
+                            {p.status === 'active' ? t('common.active') : t('common.archived')}
                           </span>
                         </div>
-                        <p className="text-xs text-neutral-400 mt-1 line-clamp-2">
-                          {p.description || 'No description provided.'}
+                        <p className="text-xs text-[#5c584e] dark:text-neutral-400 mt-1 line-clamp-2">
+                          {p.description || t('admin.noDescription')}
                         </p>
                       </div>
 
-                      <div className="flex items-center gap-1">
+                      <div className="flex items-center gap-1 shrink-0">
                         <button
                           onClick={() => {
                             setSelectedTeamProjectId(p.id);
                             setActiveTab('users');
                           }}
-                          className="px-2 py-1 text-xs font-medium text-neutral-300 hover:text-white bg-neutral-800/80 hover:bg-neutral-700 rounded-md transition-colors flex items-center gap-1"
-                          title="Manage project participants and roles"
+                          className="px-2 py-1 text-xs font-medium text-[#3a362e] hover:text-[#1f1d18] bg-[#d4cfc3] hover:bg-[#c8c3b6] dark:text-neutral-300 dark:hover:text-white dark:bg-neutral-800/80 dark:hover:bg-neutral-700 rounded-md transition-colors flex items-center gap-1"
+                          title={t('admin.manageParticipantsTitle')}
                         >
-                          <Users className="w-3 h-3 text-blue-400" />
+                          <Users className="w-3 h-3 text-blue-700 dark:text-blue-400" />
                           <span>{Object.keys(p.participants || {}).length}</span>
                         </button>
                         <button
@@ -528,33 +530,33 @@ export const AdminConsoleModal: React.FC<AdminConsoleModalProps> = ({
                             onSelectProject(p.id);
                             onClose();
                           }}
-                          className="px-2.5 py-1 text-xs font-semibold text-blue-400 hover:text-white bg-blue-600/10 hover:bg-blue-600 rounded-md transition-colors"
-                          title="Open Canvas"
+                          className="px-2.5 py-1 text-xs font-semibold text-blue-700 hover:text-white bg-blue-600/12 hover:bg-blue-600 dark:text-blue-400 dark:bg-blue-600/10 dark:hover:bg-blue-600 rounded-md transition-colors whitespace-nowrap"
+                          title={t('admin.openCanvasTitle')}
                         >
-                          Open
+                          {t('admin.open')}
                         </button>
                         <button
                           onClick={() => onToggleProjectStatus(p.id, p.status)}
-                          className="p-1 text-neutral-400 hover:text-neutral-200 hover:bg-neutral-800 rounded transition-colors"
-                          title={p.status === 'active' ? 'Archive Project' : 'Activate Project'}
+                          className="p-1 text-[#5c584e] hover:text-[#1f1d18] hover:bg-[#d2ccbf] dark:text-neutral-400 dark:hover:text-neutral-200 dark:hover:bg-neutral-800 rounded transition-colors"
+                          title={p.status === 'active' ? t('admin.archiveProjectTitle') : t('admin.activateProjectTitle')}
                         >
                           <Archive className="w-3.5 h-3.5" />
                         </button>
                         <button
                           onClick={() => {
-                            if (confirm(`Permanently delete project "${p.title}"? This cannot be undone.`)) {
+                            if (confirm(t('admin.confirmDeleteProject', { title: p.title }))) {
                               onDeleteProject(p.id);
                             }
                           }}
-                          className="p-1 text-neutral-500 hover:text-red-400 hover:bg-neutral-800 rounded transition-colors"
-                          title="Delete Project"
+                          className="p-1 text-[#6e695d] hover:text-red-700 hover:bg-[#d2ccbf] dark:text-neutral-500 dark:hover:text-red-400 dark:hover:bg-neutral-800 rounded transition-colors"
+                          title={t('admin.deleteProjectTitle')}
                         >
                           <Trash2 className="w-3.5 h-3.5" />
                         </button>
                       </div>
                     </div>
 
-                    <div className="flex flex-wrap items-center justify-between gap-2 text-[10px] text-neutral-500 pt-3 mt-3 border-t border-neutral-800/60 font-mono">
+                    <div className="flex flex-wrap items-center justify-between gap-2 text-[10px] text-[#6e695d] dark:text-neutral-500 pt-3 mt-3 border-t border-[#ccc7ba] dark:border-neutral-800/60 font-mono">
                       <span>ID: {p.id}</span>
                       <div className="flex items-center gap-2">
                         <button
@@ -565,15 +567,18 @@ export const AdminConsoleModal: React.FC<AdminConsoleModalProps> = ({
                             setConfirmDeleteImagesMode(null);
                             setActiveTab('images');
                           }}
-                          className="px-2 py-0.5 rounded bg-neutral-900 hover:bg-neutral-800 border border-neutral-800 text-cyan-300 flex items-center gap-1 transition-colors"
-                          title="Inspect this project's images and storage in Image DB"
+                          className="px-2 py-0.5 rounded bg-[#d8d3c8] hover:bg-[#cdc7ba] border border-[#c3beb1] text-cyan-800 dark:bg-neutral-900 dark:hover:bg-neutral-800 dark:border-neutral-800 dark:text-cyan-300 flex items-center gap-1 transition-colors"
+                          title={t('admin.inspectStorageTitle')}
                         >
-                          <HardDrive className="w-3 h-3 text-cyan-400" />
+                          <HardDrive className="w-3 h-3 text-cyan-700 dark:text-cyan-400" />
                           <span>
-                            {formatMB(storageByProject[p.id]?.bytes || 0)} · {storageByProject[p.id]?.count || 0} imgs
+                            {t('admin.projectStorageBadge', {
+                              size: formatMB(storageByProject[p.id]?.bytes || 0),
+                              count: storageByProject[p.id]?.count || 0,
+                            })}
                           </span>
                         </button>
-                        <span>Created: {new Date(p.createdAt).toLocaleDateString()}</span>
+                        <span>{t('admin.createdDate', { date: new Date(p.createdAt).toLocaleDateString(locale) })}</span>
                       </div>
                     </div>
                   </div>
@@ -588,15 +593,15 @@ export const AdminConsoleModal: React.FC<AdminConsoleModalProps> = ({
           <div className="flex-1 overflow-y-auto p-4 space-y-4">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div>
-                <h3 className="text-sm font-semibold text-neutral-200">Team Members & Project Permissions</h3>
-                <p className="text-xs text-neutral-400">
-                  Manage workspace members, view project involvement, or select a project to manage its participants and roles
+                <h3 className="text-sm font-semibold text-[#2b2924] dark:text-neutral-200">{t('admin.teamTitle')}</h3>
+                <p className="text-xs text-[#5c584e] dark:text-neutral-400">
+                  {t('admin.teamSubtitle')}
                 </p>
               </div>
 
               <div className="flex flex-wrap items-center gap-2">
-                <div className="flex items-center gap-1.5 bg-neutral-950 border border-neutral-700/80 rounded-xl px-2.5 py-1">
-                  <FolderKanban className="w-3.5 h-3.5 text-blue-400 shrink-0" />
+                <div className="flex items-center gap-1.5 bg-[#e0dbd0] dark:bg-neutral-950 border border-[#c3beb1] dark:border-neutral-700/80 rounded-xl px-2.5 py-1">
+                  <FolderKanban className="w-3.5 h-3.5 text-blue-700 dark:text-blue-400 shrink-0" />
                   <select
                     value={selectedTeamProjectId}
                     onChange={(e) => {
@@ -604,15 +609,18 @@ export const AdminConsoleModal: React.FC<AdminConsoleModalProps> = ({
                       setAddParticipantEmail('');
                       setEditingUserKey(null);
                     }}
-                    className="bg-transparent text-xs text-neutral-200 font-medium outline-none cursor-pointer max-w-[220px]"
-                    title="Filter or manage participants for a specific project"
+                    className="bg-transparent text-xs text-[#2b2924] dark:text-neutral-200 font-medium outline-none cursor-pointer max-w-[220px]"
+                    title={t('admin.teamFilterTitle')}
                   >
-                    <option value="all" className="bg-neutral-900">
-                      All Team Members ({users.length})
+                    <option value="all" className="bg-[#ebe7de] text-[#2b2924] dark:bg-neutral-900 dark:text-neutral-200">
+                      {t('admin.allTeamMembers', { count: users.length })}
                     </option>
                     {projects.map((p) => (
-                      <option key={p.id} value={p.id} className="bg-neutral-900">
-                        Project: {p.title} ({Object.keys(p.participants || {}).length})
+                      <option key={p.id} value={p.id} className="bg-[#ebe7de] text-[#2b2924] dark:bg-neutral-900 dark:text-neutral-200">
+                        {t('admin.projectFilterOption', {
+                          title: p.title,
+                          count: Object.keys(p.participants || {}).length,
+                        })}
                       </option>
                     ))}
                   </select>
@@ -626,10 +634,10 @@ export const AdminConsoleModal: React.FC<AdminConsoleModalProps> = ({
                       setInviteProjectIds({ [selectedTeamProject.id]: true });
                     }
                   }}
-                  className="flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-semibold text-white bg-blue-600 hover:bg-blue-500 rounded-xl shadow-sm transition-colors"
+                  className="flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-semibold text-white bg-blue-600 hover:bg-blue-500 rounded-xl shadow-sm transition-colors whitespace-nowrap shrink-0"
                 >
                   <UserPlus className="w-3.5 h-3.5" />
-                  <span>Invite / Add Member</span>
+                  <span>{t('admin.inviteMemberBtn')}</span>
                 </button>
               </div>
             </div>
@@ -638,17 +646,17 @@ export const AdminConsoleModal: React.FC<AdminConsoleModalProps> = ({
             {isInvitingUser && (
               <form
                 onSubmit={handleInviteUserSubmit}
-                className="p-4 rounded-xl bg-neutral-950 border border-blue-500/40 space-y-3 animate-in fade-in duration-150"
+                className="p-4 rounded-xl bg-[#e0dbd0] dark:bg-neutral-950 border border-blue-600/40 dark:border-blue-500/40 space-y-3 animate-in fade-in duration-150"
               >
-                <div className="flex items-center justify-between border-b border-neutral-800 pb-2">
-                  <span className="text-xs font-bold text-neutral-200 flex items-center gap-1.5">
-                    <UserPlus className="w-4 h-4 text-blue-400" />
-                    <span>Authorize or Invite Team Member</span>
+                <div className="flex items-center justify-between border-b border-[#c8c3b6] dark:border-neutral-800 pb-2">
+                  <span className="text-xs font-bold text-[#2b2924] dark:text-neutral-200 flex items-center gap-1.5">
+                    <UserPlus className="w-4 h-4 text-blue-700 dark:text-blue-400" />
+                    <span>{t('admin.inviteDrawerTitle')}</span>
                   </span>
                   <button
                     type="button"
                     onClick={() => setIsInvitingUser(false)}
-                    className="text-neutral-500 hover:text-white"
+                    className="text-[#6e695d] hover:text-[#1f1d18] dark:text-neutral-500 dark:hover:text-white"
                   >
                     <X className="w-4 h-4" />
                   </button>
@@ -656,36 +664,36 @@ export const AdminConsoleModal: React.FC<AdminConsoleModalProps> = ({
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div>
-                    <label className="text-xs text-neutral-400 block mb-1">User Email</label>
+                    <label className="text-xs text-[#5c584e] dark:text-neutral-400 block mb-1">{t('admin.userEmailLabel')}</label>
                     <input
                       type="email"
                       value={inviteEmail}
                       onChange={(e) => setInviteEmail(e.target.value)}
-                      placeholder="e.g. artist@studio.com"
+                      placeholder={t('admin.userEmailPlaceholder')}
                       autoFocus
                       required
-                      className="w-full bg-neutral-900 border border-neutral-700 rounded-lg px-3 py-1.5 text-xs text-neutral-100 outline-none focus:border-blue-500"
+                      className="w-full bg-[#ebe7de] dark:bg-neutral-900 border border-[#c3beb1] dark:border-neutral-700 rounded-lg px-3 py-1.5 text-xs text-[#2b2924] dark:text-neutral-100 placeholder:text-[#757065] dark:placeholder:text-neutral-600 outline-none focus:border-blue-500"
                     />
                   </div>
 
                   <div>
-                    <label className="text-xs text-neutral-400 block mb-1">Assigned Role</label>
+                    <label className="text-xs text-[#5c584e] dark:text-neutral-400 block mb-1">{t('admin.assignedRoleLabel')}</label>
                     <select
                       value={inviteRole}
                       onChange={(e) => setInviteRole(e.target.value as 'Admin' | 'Editor' | 'Viewer')}
-                      className="w-full bg-neutral-900 border border-neutral-700 rounded-lg px-3 py-1.5 text-xs text-neutral-100 outline-none focus:border-blue-500"
+                      className="w-full bg-[#ebe7de] dark:bg-neutral-900 border border-[#c3beb1] dark:border-neutral-700 rounded-lg px-3 py-1.5 text-xs text-[#2b2924] dark:text-neutral-100 outline-none focus:border-blue-500"
                     >
-                      <option value="Admin">Admin (Create / delete projects, manage users)</option>
-                      <option value="Editor">Editor (Add nodes, edit canvas & drawings)</option>
-                      <option value="Viewer">Viewer (Read-only observation)</option>
+                      <option value="Admin" className="bg-[#ebe7de] text-[#2b2924] dark:bg-neutral-900 dark:text-neutral-200">{t('admin.roleDescAdmin')}</option>
+                      <option value="Editor" className="bg-[#ebe7de] text-[#2b2924] dark:bg-neutral-900 dark:text-neutral-200">{t('admin.roleDescEditor')}</option>
+                      <option value="Viewer" className="bg-[#ebe7de] text-[#2b2924] dark:bg-neutral-900 dark:text-neutral-200">{t('admin.roleDescViewer')}</option>
                     </select>
                   </div>
                 </div>
 
                 {projects.length > 0 && (
                   <div className="space-y-1.5">
-                    <label className="text-xs text-neutral-400 block">
-                      Assign to Project(s) immediately (optional)
+                    <label className="text-xs text-[#5c584e] dark:text-neutral-400 block">
+                      {t('admin.assignProjectsImmediate')}
                     </label>
                     <div className="flex flex-wrap gap-2">
                       {projects.map((p) => {
@@ -699,11 +707,11 @@ export const AdminConsoleModal: React.FC<AdminConsoleModalProps> = ({
                             }
                             className={`px-2.5 py-1 rounded-lg text-[11px] font-medium border flex items-center gap-1.5 transition-colors ${
                               checked
-                                ? 'bg-blue-600/20 border-blue-500/60 text-blue-200'
-                                : 'bg-neutral-900 border-neutral-800 text-neutral-400 hover:text-neutral-200'
+                                ? 'bg-blue-600/15 border-blue-600/50 text-blue-800 dark:bg-blue-600/20 dark:border-blue-500/60 dark:text-blue-200'
+                                : 'bg-[#ebe7de] border-[#c3beb1] text-[#5c584e] hover:text-[#1f1d18] dark:bg-neutral-900 dark:border-neutral-800 dark:text-neutral-400 dark:hover:text-neutral-200'
                             }`}
                           >
-                            {checked && <Check className="w-3 h-3 text-blue-400" />}
+                            {checked && <Check className="w-3 h-3 text-blue-700 dark:text-blue-400" />}
                             <span>{p.title}</span>
                           </button>
                         );
@@ -716,16 +724,16 @@ export const AdminConsoleModal: React.FC<AdminConsoleModalProps> = ({
                   <button
                     type="button"
                     onClick={() => setIsInvitingUser(false)}
-                    className="px-3 py-1 text-xs text-neutral-400 hover:text-white"
+                    className="px-3 py-1 text-xs text-[#5c584e] hover:text-[#1f1d18] dark:text-neutral-400 dark:hover:text-white"
                   >
-                    Cancel
+                    {t('common.cancel')}
                   </button>
                   <button
                     type="submit"
                     disabled={isUserSubmitting || !inviteEmail.trim()}
                     className="px-4 py-1.5 text-xs font-semibold text-white bg-blue-600 hover:bg-blue-500 disabled:opacity-50 rounded-lg shadow-sm transition-colors"
                   >
-                    {isUserSubmitting ? 'Authorizing...' : 'Authorize User'}
+                    {isUserSubmitting ? t('admin.authorizing') : t('admin.authorizeUser')}
                   </button>
                 </div>
               </form>
@@ -733,18 +741,18 @@ export const AdminConsoleModal: React.FC<AdminConsoleModalProps> = ({
 
             {/* Project-Specific Participant Management Bar */}
             {selectedTeamProject && (
-              <div className="p-3.5 rounded-xl bg-neutral-950 border border-blue-500/30 flex flex-wrap items-center justify-between gap-3">
+              <div className="p-3.5 rounded-xl bg-[#e0dbd0] dark:bg-neutral-950 border border-blue-600/35 dark:border-blue-500/30 flex flex-wrap items-center justify-between gap-3">
                 <div>
                   <div className="flex items-center gap-2">
-                    <span className="text-xs font-bold text-neutral-100">
-                      Participants in "{selectedTeamProject.title}"
+                    <span className="text-xs font-bold text-[#2b2924] dark:text-neutral-100">
+                      {t('admin.participantsIn', { title: selectedTeamProject.title })}
                     </span>
-                    <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-blue-600/20 text-blue-300 border border-blue-500/30">
-                      {Object.keys(selectedTeamProject.participants || {}).length} assigned
+                    <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-blue-600/12 text-blue-800 border border-blue-600/30 dark:bg-blue-600/20 dark:text-blue-300 dark:border-blue-500/30">
+                      {t('admin.assignedCount', { count: Object.keys(selectedTeamProject.participants || {}).length })}
                     </span>
                   </div>
-                  <p className="text-[11px] text-neutral-400 mt-0.5">
-                    Add existing team members to this project or adjust their project-specific role.
+                  <p className="text-[11px] text-[#5c584e] dark:text-neutral-400 mt-0.5">
+                    {t('admin.participantsHint')}
                   </p>
                 </div>
 
@@ -752,9 +760,9 @@ export const AdminConsoleModal: React.FC<AdminConsoleModalProps> = ({
                   <select
                     value={addParticipantEmail}
                     onChange={(e) => setAddParticipantEmail(e.target.value)}
-                    className="bg-neutral-900 border border-neutral-700 rounded-lg px-2.5 py-1.5 text-xs text-neutral-200 outline-none focus:border-blue-500 max-w-[210px]"
+                    className="bg-[#ebe7de] dark:bg-neutral-900 border border-[#c3beb1] dark:border-neutral-700 rounded-lg px-2.5 py-1.5 text-xs text-[#2b2924] dark:text-neutral-200 outline-none focus:border-blue-500 max-w-[210px]"
                   >
-                    <option value="">Select user to add...</option>
+                    <option value="" className="bg-[#ebe7de] text-[#2b2924] dark:bg-neutral-900 dark:text-neutral-200">{t('admin.selectUserToAdd')}</option>
                     {users
                       .filter(
                         (u) =>
@@ -765,7 +773,7 @@ export const AdminConsoleModal: React.FC<AdminConsoleModalProps> = ({
                           )
                       )
                       .map((u) => (
-                        <option key={u.uid || u.email} value={u.email.trim().toLowerCase()}>
+                        <option key={u.uid || u.email} value={u.email.trim().toLowerCase()} className="bg-[#ebe7de] text-[#2b2924] dark:bg-neutral-900 dark:text-neutral-200">
                           {u.name || u.email} ({u.email})
                         </option>
                       ))}
@@ -774,11 +782,11 @@ export const AdminConsoleModal: React.FC<AdminConsoleModalProps> = ({
                   <select
                     value={addParticipantRole}
                     onChange={(e) => setAddParticipantRole(e.target.value as 'Admin' | 'Editor' | 'Viewer')}
-                    className="bg-neutral-900 border border-neutral-700 rounded-lg px-2 py-1.5 text-xs text-neutral-200 outline-none focus:border-blue-500"
+                    className="bg-[#ebe7de] dark:bg-neutral-900 border border-[#c3beb1] dark:border-neutral-700 rounded-lg px-2 py-1.5 text-xs text-[#2b2924] dark:text-neutral-200 outline-none focus:border-blue-500"
                   >
-                    <option value="Admin">Admin</option>
-                    <option value="Editor">Editor</option>
-                    <option value="Viewer">Viewer</option>
+                    <option value="Admin" className="bg-[#ebe7de] text-[#2b2924] dark:bg-neutral-900 dark:text-neutral-200">{tRole('Admin')}</option>
+                    <option value="Editor" className="bg-[#ebe7de] text-[#2b2924] dark:bg-neutral-900 dark:text-neutral-200">{tRole('Editor')}</option>
+                    <option value="Viewer" className="bg-[#ebe7de] text-[#2b2924] dark:bg-neutral-900 dark:text-neutral-200">{tRole('Viewer')}</option>
                   </select>
 
                   <button
@@ -797,37 +805,37 @@ export const AdminConsoleModal: React.FC<AdminConsoleModalProps> = ({
                       );
                       setAddParticipantEmail('');
                     }}
-                    className="px-3 py-1.5 text-xs font-semibold text-white bg-blue-600 hover:bg-blue-500 disabled:opacity-40 rounded-lg transition-colors"
+                    className="px-3 py-1.5 text-xs font-semibold text-white bg-blue-600 hover:bg-blue-500 disabled:opacity-40 rounded-lg transition-colors whitespace-nowrap shrink-0"
                   >
-                    Add to Project
+                    {t('admin.addToProject')}
                   </button>
 
                   <button
                     type="button"
                     onClick={() => setSelectedTeamProjectId('all')}
-                    className="px-2.5 py-1.5 text-xs text-neutral-400 hover:text-white bg-neutral-900 border border-neutral-800 rounded-lg transition-colors"
+                    className="px-2.5 py-1.5 text-xs text-[#5c584e] hover:text-[#1f1d18] bg-[#dcd7cc] hover:bg-[#d2ccbf] border border-[#c3beb1] dark:text-neutral-400 dark:hover:text-white dark:bg-neutral-900 dark:border-neutral-800 rounded-lg transition-colors whitespace-nowrap shrink-0"
                   >
-                    View All Users
+                    {t('admin.viewAllUsers')}
                   </button>
                 </div>
               </div>
             )}
 
             {/* Users / Project Participants Table */}
-            <div className="rounded-xl border border-neutral-800 bg-neutral-950 overflow-hidden">
+            <div className="rounded-xl border border-[#c8c3b6] dark:border-neutral-800 bg-[#e0dbd0] dark:bg-neutral-950 overflow-hidden">
               <table className="w-full text-left border-collapse text-xs">
                 <thead>
-                  <tr className="border-b border-neutral-800 bg-neutral-900 text-neutral-400">
-                    <th className="py-2.5 px-4 font-semibold">User</th>
+                  <tr className="border-b border-[#c8c3b6] dark:border-neutral-800 bg-[#d8d3c8] dark:bg-neutral-900 text-[#5c584e] dark:text-neutral-400">
+                    <th className="py-2.5 px-4 font-semibold">{t('admin.colUser')}</th>
                     <th className="py-2.5 px-4 font-semibold">
-                      {selectedTeamProject ? 'Project Role' : 'Global Role'}
+                      {selectedTeamProject ? t('admin.colProjectRole') : t('admin.colGlobalRole')}
                     </th>
-                    <th className="py-2.5 px-4 font-semibold">Projects Involved</th>
-                    <th className="py-2.5 px-4 font-semibold">Status</th>
-                    <th className="py-2.5 px-4 font-semibold text-right">Actions</th>
+                    <th className="py-2.5 px-4 font-semibold">{t('admin.colProjectsInvolved')}</th>
+                    <th className="py-2.5 px-4 font-semibold">{t('admin.colStatus')}</th>
+                    <th className="py-2.5 px-4 font-semibold text-right">{t('admin.colActions')}</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-neutral-800/80">
+                <tbody className="divide-y divide-[#ccc7ba] dark:divide-neutral-800/80">
                   {(() => {
                     const rows = selectedTeamProject
                       ? Object.values(selectedTeamProject.participants || {})
@@ -854,10 +862,10 @@ export const AdminConsoleModal: React.FC<AdminConsoleModalProps> = ({
                     if (rows.length === 0) {
                       return (
                         <tr>
-                          <td colSpan={5} className="py-8 text-center text-neutral-500">
+                          <td colSpan={5} className="py-8 text-center text-[#6e695d] dark:text-neutral-500">
                             {selectedTeamProject
-                              ? 'No participants assigned to this project yet. Select a user above to add them.'
-                              : 'No matching team members found.'}
+                              ? t('admin.noParticipants')
+                              : t('admin.noMatchingUsers')}
                           </td>
                         </tr>
                       );
@@ -874,31 +882,31 @@ export const AdminConsoleModal: React.FC<AdminConsoleModalProps> = ({
 
                       return (
                         <React.Fragment key={userKey}>
-                          <tr className="hover:bg-neutral-900/40 transition-colors">
+                          <tr className="hover:bg-[#d6d1c6]/60 dark:hover:bg-neutral-900/40 transition-colors">
                             <td className="py-2.5 px-4">
                               <div className="flex items-center gap-2.5">
                                 {u.photoURL ? (
                                   <img
                                     src={u.photoURL}
                                     alt=""
-                                    className="w-7 h-7 rounded-full border border-neutral-700"
+                                    className="w-7 h-7 rounded-full border border-[#c3beb1] dark:border-neutral-700"
                                   />
                                 ) : (
-                                  <div className="w-7 h-7 rounded-full bg-blue-600/20 text-blue-400 border border-blue-500/30 font-bold flex items-center justify-center text-xs">
+                                  <div className="w-7 h-7 rounded-full bg-blue-600/15 text-blue-700 border border-blue-600/30 dark:bg-blue-600/20 dark:text-blue-400 dark:border-blue-500/30 font-bold flex items-center justify-center text-xs">
                                     {u.name ? u.name.charAt(0).toUpperCase() : cleanEmail.charAt(0).toUpperCase()}
                                   </div>
                                 )}
                                 <div>
-                                  <p className="font-semibold text-neutral-200 flex items-center gap-1.5">
-                                    <span>{u.name || 'Team Member'}</span>
-                                    {isSelf && <span className="text-[10px] text-blue-400">(You)</span>}
+                                  <p className="font-semibold text-[#2b2924] dark:text-neutral-200 flex items-center gap-1.5">
+                                    <span>{u.name || t('admin.defaultMemberName')}</span>
+                                    {isSelf && <span className="text-[10px] text-blue-700 dark:text-blue-400">{t('admin.youTag')}</span>}
                                     {isTargetSuperAdmin && (
-                                      <span className="text-[10px] px-1.5 py-0.2 rounded bg-amber-500/10 text-amber-300 border border-amber-500/30">
-                                        Super User
+                                      <span className="text-[10px] px-1.5 py-0.2 rounded bg-amber-500/18 text-amber-900 border border-amber-600/35 dark:bg-amber-500/10 dark:text-amber-300 dark:border-amber-500/30">
+                                        {t('admin.superUser')}
                                       </span>
                                     )}
                                   </p>
-                                  <p className="text-[10px] text-neutral-500 font-mono">{u.email}</p>
+                                  <p className="text-[10px] text-[#6e695d] dark:text-neutral-500 font-mono">{u.email}</p>
                                 </div>
                               </div>
                             </td>
@@ -916,11 +924,11 @@ export const AdminConsoleModal: React.FC<AdminConsoleModalProps> = ({
                                       { uid: u.uid, name: u.name }
                                     )
                                   }
-                                  className="bg-neutral-900 border border-neutral-700 rounded-lg px-2 py-1 text-xs text-neutral-200 font-medium outline-none focus:border-blue-500 disabled:opacity-50"
+                                  className="bg-[#ebe7de] dark:bg-neutral-900 border border-[#c3beb1] dark:border-neutral-700 rounded-lg px-2 py-1 text-xs text-[#2b2924] dark:text-neutral-200 font-medium outline-none focus:border-blue-500 disabled:opacity-50"
                                 >
-                                  <option value="Admin">Admin</option>
-                                  <option value="Editor">Editor</option>
-                                  <option value="Viewer">Viewer</option>
+                                  <option value="Admin" className="bg-[#ebe7de] text-[#2b2924] dark:bg-neutral-900 dark:text-neutral-200">{tRole('Admin')}</option>
+                                  <option value="Editor" className="bg-[#ebe7de] text-[#2b2924] dark:bg-neutral-900 dark:text-neutral-200">{tRole('Editor')}</option>
+                                  <option value="Viewer" className="bg-[#ebe7de] text-[#2b2924] dark:bg-neutral-900 dark:text-neutral-200">{tRole('Viewer')}</option>
                                 </select>
                               ) : (
                                 <select
@@ -929,11 +937,11 @@ export const AdminConsoleModal: React.FC<AdminConsoleModalProps> = ({
                                   onChange={(e) =>
                                     u.uid && onUpdateUserRole(u.uid, e.target.value as 'Admin' | 'Editor' | 'Viewer')
                                   }
-                                  className="bg-neutral-900 border border-neutral-700 rounded-lg px-2 py-1 text-xs text-neutral-200 font-medium outline-none focus:border-blue-500 disabled:opacity-50"
+                                  className="bg-[#ebe7de] dark:bg-neutral-900 border border-[#c3beb1] dark:border-neutral-700 rounded-lg px-2 py-1 text-xs text-[#2b2924] dark:text-neutral-200 font-medium outline-none focus:border-blue-500 disabled:opacity-50"
                                 >
-                                  <option value="Admin">Admin</option>
-                                  <option value="Editor">Editor</option>
-                                  <option value="Viewer">Viewer</option>
+                                  <option value="Admin" className="bg-[#ebe7de] text-[#2b2924] dark:bg-neutral-900 dark:text-neutral-200">{tRole('Admin')}</option>
+                                  <option value="Editor" className="bg-[#ebe7de] text-[#2b2924] dark:bg-neutral-900 dark:text-neutral-200">{tRole('Editor')}</option>
+                                  <option value="Viewer" className="bg-[#ebe7de] text-[#2b2924] dark:bg-neutral-900 dark:text-neutral-200">{tRole('Viewer')}</option>
                                 </select>
                               )}
                             </td>
@@ -941,8 +949,8 @@ export const AdminConsoleModal: React.FC<AdminConsoleModalProps> = ({
                             <td className="py-2.5 px-4">
                               <div className="flex flex-wrap items-center gap-1.5 max-w-xs">
                                 {userProjects.length === 0 ? (
-                                  <span className="text-[11px] text-neutral-500 italic">
-                                    No project assigned
+                                  <span className="text-[11px] text-[#6e695d] dark:text-neutral-500 italic">
+                                    {t('admin.noProjectAssigned')}
                                   </span>
                                 ) : (
                                   userProjects.map(({ project: p, role }) => (
@@ -952,12 +960,12 @@ export const AdminConsoleModal: React.FC<AdminConsoleModalProps> = ({
                                       onClick={() => setSelectedTeamProjectId(p.id)}
                                       className={`px-2 py-0.5 rounded-md text-[10px] font-medium border transition-colors text-left ${
                                         selectedTeamProjectId === p.id
-                                          ? 'bg-blue-600/20 border-blue-500/50 text-blue-300'
-                                          : 'bg-neutral-900 border-neutral-700/80 text-neutral-300 hover:border-blue-500/40'
+                                          ? 'bg-blue-600/15 border-blue-600/50 text-blue-800 dark:bg-blue-600/20 dark:border-blue-500/50 dark:text-blue-300'
+                                          : 'bg-[#ebe7de] border-[#c3beb1] text-[#3a362e] hover:border-blue-600/50 dark:bg-neutral-900 dark:border-neutral-700/80 dark:text-neutral-300 dark:hover:border-blue-500/40'
                                       }`}
-                                      title={`Filter to ${p.title} (${role})`}
+                                      title={t('admin.filterToProjectRole', { title: p.title, role: tRole(role) })}
                                     >
-                                      {p.title} · <span className="text-blue-400">{role}</span>
+                                      {p.title} · <span className="text-blue-700 dark:text-blue-400">{tRole(role)}</span>
                                     </button>
                                   ))
                                 )}
@@ -969,14 +977,14 @@ export const AdminConsoleModal: React.FC<AdminConsoleModalProps> = ({
                                 <span
                                   className={`w-fit px-2 py-0.5 rounded text-[10px] font-semibold ${
                                     u.isRegistered !== false
-                                      ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
-                                      : 'bg-amber-500/10 text-amber-400 border border-amber-500/20'
+                                      ? 'bg-emerald-600/12 text-emerald-800 border border-emerald-700/30 dark:bg-emerald-500/10 dark:text-emerald-400 dark:border-emerald-500/20'
+                                      : 'bg-amber-500/18 text-amber-900 border border-amber-600/35 dark:bg-amber-500/10 dark:text-amber-400 dark:border-amber-500/20'
                                   }`}
                                 >
-                                  {u.isRegistered !== false ? 'Active' : 'Invited'}
+                                  {u.isRegistered !== false ? t('common.active') : t('common.invited')}
                                 </span>
-                                <span className="text-[10px] text-neutral-500 font-mono">
-                                  {u.lastLoginAt ? new Date(u.lastLoginAt).toLocaleDateString() : 'Pending'}
+                                <span className="text-[10px] text-[#6e695d] dark:text-neutral-500 font-mono">
+                                  {u.lastLoginAt ? new Date(u.lastLoginAt).toLocaleDateString(locale) : t('admin.pending')}
                                 </span>
                               </div>
                             </td>
@@ -986,23 +994,23 @@ export const AdminConsoleModal: React.FC<AdminConsoleModalProps> = ({
                                 <button
                                   type="button"
                                   onClick={() => openUserProjectEditor(u)}
-                                  className={`px-2 py-1 rounded-lg text-[11px] font-medium border transition-colors flex items-center gap-1 ${
+                                  className={`px-2 py-1 rounded-lg text-[11px] font-medium border transition-colors flex items-center gap-1 whitespace-nowrap ${
                                     isEditingProjects
                                       ? 'bg-blue-600 text-white border-blue-500'
-                                      : 'bg-neutral-900 hover:bg-neutral-800 text-neutral-300 border-neutral-700'
+                                      : 'bg-[#ebe7de] hover:bg-[#d6d1c6] text-[#3a362e] border-[#c3beb1] dark:bg-neutral-900 dark:hover:bg-neutral-800 dark:text-neutral-300 dark:border-neutral-700'
                                   }`}
-                                  title="Assign user to project(s) and set project roles"
+                                  title={t('admin.assignProjectsTitle')}
                                 >
                                   <FolderKanban className="w-3 h-3" />
-                                  <span>Projects</span>
+                                  <span>{t('admin.projectsBtn')}</span>
                                 </button>
 
                                 {selectedTeamProject && !isTargetSuperAdmin && (
                                   <button
                                     type="button"
                                     onClick={() => onRemoveProjectParticipant(selectedTeamProject, cleanEmail)}
-                                    className="p-1.5 text-neutral-400 hover:text-amber-300 hover:bg-neutral-800 rounded-lg transition-colors"
-                                    title={`Remove from ${selectedTeamProject.title}`}
+                                    className="p-1.5 text-[#5c584e] hover:text-amber-700 hover:bg-[#d2ccbf] dark:text-neutral-400 dark:hover:text-amber-300 dark:hover:bg-neutral-800 rounded-lg transition-colors"
+                                    title={t('admin.removeFromProjectTitle', { title: selectedTeamProject.title })}
                                   >
                                     <UserMinus className="w-3.5 h-3.5" />
                                   </button>
@@ -1025,22 +1033,22 @@ export const AdminConsoleModal: React.FC<AdminConsoleModalProps> = ({
                                         }}
                                         className="px-2 py-1 text-[10px] font-semibold bg-red-600 hover:bg-red-500 text-white rounded-md transition-colors disabled:opacity-50"
                                       >
-                                        {deletingUserKey === userKey ? 'Deleting...' : 'Confirm'}
+                                        {deletingUserKey === userKey ? t('admin.deleting') : t('common.confirm')}
                                       </button>
                                       <button
                                         type="button"
                                         onClick={() => setConfirmDeleteUserKey(null)}
-                                        className="px-1.5 py-1 text-[10px] text-neutral-400 hover:text-white"
+                                        className="px-1.5 py-1 text-[10px] text-[#5c584e] hover:text-[#1f1d18] dark:text-neutral-400 dark:hover:text-white"
                                       >
-                                        Cancel
+                                        {t('common.cancel')}
                                       </button>
                                     </div>
                                   ) : (
                                     <button
                                       type="button"
                                       onClick={() => setConfirmDeleteUserKey(userKey)}
-                                      className="p-1.5 text-neutral-500 hover:text-red-400 hover:bg-neutral-800 rounded-lg transition-colors"
-                                      title="Delete user from workspace and all projects"
+                                      className="p-1.5 text-[#6e695d] hover:text-red-700 hover:bg-[#d2ccbf] dark:text-neutral-500 dark:hover:text-red-400 dark:hover:bg-neutral-800 rounded-lg transition-colors"
+                                      title={t('admin.deleteUserTitle')}
                                     >
                                       <Trash2 className="w-3.5 h-3.5" />
                                     </button>
@@ -1052,15 +1060,15 @@ export const AdminConsoleModal: React.FC<AdminConsoleModalProps> = ({
 
                           {/* Inline Project Assignment Drawer for This User */}
                           {isEditingProjects && (
-                            <tr className="bg-neutral-900/60">
-                              <td colSpan={5} className="p-3.5 border-t border-blue-500/20">
+                            <tr className="bg-[#d8d3c8]/70 dark:bg-neutral-900/60">
+                              <td colSpan={5} className="p-3.5 border-t border-blue-600/25 dark:border-blue-500/20">
                                 <div className="space-y-2.5">
                                   <div className="flex items-center justify-between">
-                                    <span className="text-xs font-semibold text-neutral-200">
-                                      Assign Projects & Roles for {u.name || u.email}
+                                    <span className="text-xs font-semibold text-[#2b2924] dark:text-neutral-200">
+                                      {t('admin.assignDrawerTitle', { name: u.name || u.email })}
                                     </span>
-                                    <span className="text-[11px] text-neutral-400">
-                                      Check projects to include this user and pick their role per project
+                                    <span className="text-[11px] text-[#5c584e] dark:text-neutral-400">
+                                      {t('admin.assignDrawerHint')}
                                     </span>
                                   </div>
 
@@ -1073,8 +1081,8 @@ export const AdminConsoleModal: React.FC<AdminConsoleModalProps> = ({
                                           key={p.id}
                                           className={`flex items-center justify-between gap-2 p-2.5 rounded-lg border transition-colors ${
                                             isAssigned
-                                              ? 'bg-neutral-950 border-blue-500/50'
-                                              : 'bg-neutral-950/50 border-neutral-800'
+                                              ? 'bg-[#ebe7de] border-blue-600/50 dark:bg-neutral-950 dark:border-blue-500/50'
+                                              : 'bg-[#ebe7de]/60 border-[#c3beb1] dark:bg-neutral-950/50 dark:border-neutral-800'
                                           }`}
                                         >
                                           <label className="flex items-center gap-2 cursor-pointer flex-1 min-w-0">
@@ -1093,9 +1101,9 @@ export const AdminConsoleModal: React.FC<AdminConsoleModalProps> = ({
                                                     : null,
                                                 }));
                                               }}
-                                              className="rounded border-neutral-700 bg-neutral-900 text-blue-600 focus:ring-0"
+                                              className="rounded border-[#b5afa0] bg-[#ebe7de] dark:border-neutral-700 dark:bg-neutral-900 text-blue-600 focus:ring-0"
                                             />
-                                            <span className="text-xs text-neutral-200 truncate font-medium">
+                                            <span className="text-xs text-[#2b2924] dark:text-neutral-200 truncate font-medium">
                                               {p.title}
                                             </span>
                                           </label>
@@ -1109,11 +1117,11 @@ export const AdminConsoleModal: React.FC<AdminConsoleModalProps> = ({
                                                   [p.id]: e.target.value as 'Admin' | 'Editor' | 'Viewer',
                                                 }))
                                               }
-                                              className="bg-neutral-900 border border-neutral-700 rounded-md px-2 py-0.5 text-[11px] text-neutral-200 outline-none focus:border-blue-500"
+                                              className="bg-[#e0dbd0] dark:bg-neutral-900 border border-[#c3beb1] dark:border-neutral-700 rounded-md px-2 py-0.5 text-[11px] text-[#2b2924] dark:text-neutral-200 outline-none focus:border-blue-500"
                                             >
-                                              <option value="Admin">Admin</option>
-                                              <option value="Editor">Editor</option>
-                                              <option value="Viewer">Viewer</option>
+                                              <option value="Admin" className="bg-[#ebe7de] text-[#2b2924] dark:bg-neutral-900 dark:text-neutral-200">{tRole('Admin')}</option>
+                                              <option value="Editor" className="bg-[#ebe7de] text-[#2b2924] dark:bg-neutral-900 dark:text-neutral-200">{tRole('Editor')}</option>
+                                              <option value="Viewer" className="bg-[#ebe7de] text-[#2b2924] dark:bg-neutral-900 dark:text-neutral-200">{tRole('Viewer')}</option>
                                             </select>
                                           )}
                                         </div>
@@ -1125,9 +1133,9 @@ export const AdminConsoleModal: React.FC<AdminConsoleModalProps> = ({
                                     <button
                                       type="button"
                                       onClick={() => setEditingUserKey(null)}
-                                      className="px-3 py-1 text-xs text-neutral-400 hover:text-white"
+                                      className="px-3 py-1 text-xs text-[#5c584e] hover:text-[#1f1d18] dark:text-neutral-400 dark:hover:text-white"
                                     >
-                                      Cancel
+                                      {t('common.cancel')}
                                     </button>
                                     <button
                                       type="button"
@@ -1135,7 +1143,7 @@ export const AdminConsoleModal: React.FC<AdminConsoleModalProps> = ({
                                       onClick={() => handleSaveAssignmentsSubmit(u)}
                                       className="px-3.5 py-1.5 text-xs font-semibold text-white bg-blue-600 hover:bg-blue-500 disabled:opacity-50 rounded-lg transition-colors"
                                     >
-                                      {isSavingAssignments ? 'Saving...' : 'Save Project Assignments'}
+                                      {isSavingAssignments ? t('common.saving') : t('admin.saveAssignments')}
                                     </button>
                                   </div>
                                 </div>
@@ -1158,20 +1166,20 @@ export const AdminConsoleModal: React.FC<AdminConsoleModalProps> = ({
             {/* Top Header & Project Scope Selector */}
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div>
-                <h3 className="text-sm font-semibold text-neutral-200 flex items-center gap-2">
-                  <span>Web Image Repository</span>
-                  <span className="text-[11px] font-mono px-2 py-0.5 rounded bg-cyan-500/10 text-cyan-300 border border-cyan-500/30">
-                    Total: {formatMB(totalWorkspaceBytes)} · {images.length} files
+                <h3 className="text-sm font-semibold text-[#2b2924] dark:text-neutral-200 flex items-center gap-2">
+                  <span>{t('admin.imageDbTitle')}</span>
+                  <span className="text-[11px] font-mono px-2 py-0.5 rounded bg-cyan-600/12 text-cyan-800 border border-cyan-600/30 dark:bg-cyan-500/10 dark:text-cyan-300 dark:border-cyan-500/30">
+                    {t('admin.totalStats', { size: formatMB(totalWorkspaceBytes), count: images.length })}
                   </span>
                 </h3>
-                <p className="text-xs text-neutral-400 mt-0.5">
-                  Inspect storage usage per project, select one or multiple images, or clear all images in a project
+                <p className="text-xs text-[#5c584e] dark:text-neutral-400 mt-0.5">
+                  {t('admin.imageDbSubtitle')}
                 </p>
               </div>
 
               <div className="flex flex-wrap items-center gap-2">
-                <div className="flex items-center gap-1.5 bg-neutral-950 border border-neutral-700/80 rounded-xl px-2.5 py-1.5">
-                  <FolderKanban className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
+                <div className="flex items-center gap-1.5 bg-[#e0dbd0] dark:bg-neutral-950 border border-[#c3beb1] dark:border-neutral-700/80 rounded-xl px-2.5 py-1.5">
+                  <FolderKanban className="w-3.5 h-3.5 text-cyan-700 dark:text-cyan-400 shrink-0" />
                   <select
                     value={selectedImageProjectId}
                     onChange={(e) => {
@@ -1179,22 +1187,28 @@ export const AdminConsoleModal: React.FC<AdminConsoleModalProps> = ({
                       setSelectedImageIds(new Set());
                       setConfirmDeleteImagesMode(null);
                     }}
-                    className="bg-transparent text-xs text-neutral-200 font-medium outline-none cursor-pointer max-w-[260px]"
+                    className="bg-transparent text-xs text-[#2b2924] dark:text-neutral-200 font-medium outline-none cursor-pointer max-w-[260px]"
                   >
-                    <option value="all" className="bg-neutral-900">
-                      All Projects ({images.length} · {formatMB(totalWorkspaceBytes)})
+                    <option value="all" className="bg-[#ebe7de] text-[#2b2924] dark:bg-neutral-900 dark:text-neutral-200">
+                      {t('admin.allProjectsScope', {
+                        count: images.length,
+                        size: formatMB(totalWorkspaceBytes),
+                      })}
                     </option>
                     {projects.map((p) => {
                       const stat = storageByProject[p.id] || { count: 0, bytes: 0 };
                       return (
-                        <option key={p.id} value={p.id} className="bg-neutral-900">
+                        <option key={p.id} value={p.id} className="bg-[#ebe7de] text-[#2b2924] dark:bg-neutral-900 dark:text-neutral-200">
                           {p.title} ({stat.count} · {formatMB(stat.bytes)})
                         </option>
                       );
                     })}
                     {(storageByProject['__unassigned__']?.count || 0) > 0 && (
-                      <option value="__unassigned__" className="bg-neutral-900">
-                        Legacy / Unassigned ({storageByProject['__unassigned__'].count} · {formatMB(storageByProject['__unassigned__'].bytes)})
+                      <option value="__unassigned__" className="bg-[#ebe7de] text-[#2b2924] dark:bg-neutral-900 dark:text-neutral-200">
+                        {t('admin.legacyUnassignedOption', {
+                          count: storageByProject['__unassigned__'].count,
+                          size: formatMB(storageByProject['__unassigned__'].bytes),
+                        })}
                       </option>
                     )}
                   </select>
@@ -1212,25 +1226,30 @@ export const AdminConsoleModal: React.FC<AdminConsoleModalProps> = ({
                 .reduce((sum, img) => sum + getImageBytes(img), 0);
               const scopeTitle =
                 selectedImageProjectId === 'all'
-                  ? 'All Visible Images'
+                  ? t('admin.allVisibleImages')
                   : selectedImageProjectId === '__unassigned__'
-                    ? 'Legacy / Unassigned'
-                    : projects.find((p) => p.id === selectedImageProjectId)?.title || 'Selected Project';
+                    ? t('admin.legacyUnassigned')
+                    : projects.find((p) => p.id === selectedImageProjectId)?.title ||
+                      t('admin.selectedProjectFallback');
 
               return (
-                <div className="p-3 rounded-xl bg-neutral-950 border border-neutral-800 flex flex-wrap items-center justify-between gap-3">
+                <div className="p-3 rounded-xl bg-[#e0dbd0] dark:bg-neutral-950 border border-[#c8c3b6] dark:border-neutral-800 flex flex-wrap items-center justify-between gap-3">
                   <div className="flex flex-wrap items-center gap-3 text-xs">
-                    <span className="text-neutral-300 font-semibold flex items-center gap-1.5">
-                      <HardDrive className="w-3.5 h-3.5 text-cyan-400" />
+                    <span className="text-[#3a362e] dark:text-neutral-300 font-semibold flex items-center gap-1.5">
+                      <HardDrive className="w-3.5 h-3.5 text-cyan-700 dark:text-cyan-400" />
                       <span>{scopeTitle}:</span>
-                      <span className="font-mono text-cyan-300">{formatMB(visibleBytes)}</span>
+                      <span className="font-mono text-cyan-800 dark:text-cyan-300">{formatMB(visibleBytes)}</span>
                     </span>
-                    <span className="text-neutral-500 font-mono text-[11px]">
-                      {filteredImages.length} {filteredImages.length === 1 ? 'image' : 'images'}
+                    <span className="text-[#6e695d] dark:text-neutral-500 font-mono text-[11px]">
+                      {filteredImages.length}{' '}
+                      {filteredImages.length === 1 ? t('admin.imageSingular') : t('admin.imagePlural')}
                     </span>
                     {visibleSelectedIds.length > 0 && (
-                      <span className="text-amber-300 font-mono text-[11px] bg-amber-500/10 border border-amber-500/30 px-2 py-0.5 rounded">
-                        {visibleSelectedIds.length} selected ({formatMB(selectedBytes)})
+                      <span className="text-amber-900 dark:text-amber-300 font-mono text-[11px] bg-amber-500/18 dark:bg-amber-500/10 border border-amber-600/35 dark:border-amber-500/30 px-2 py-0.5 rounded">
+                        {t('admin.selectedStorageBadge', {
+                          count: visibleSelectedIds.length,
+                          size: formatMB(selectedBytes),
+                        })}
                       </span>
                     )}
                   </div>
@@ -1238,9 +1257,9 @@ export const AdminConsoleModal: React.FC<AdminConsoleModalProps> = ({
                   <div className="flex flex-wrap items-center gap-2">
                     {visibleSelectedIds.length > 0 && (
                       confirmDeleteImagesMode?.type === 'selected' ? (
-                        <div className="flex items-center gap-1.5 bg-red-950/60 border border-red-700/60 px-2.5 py-1 rounded-lg">
-                          <span className="text-[11px] text-red-200 font-medium">
-                            Delete {visibleSelectedIds.length} selected?
+                        <div className="flex items-center gap-1.5 bg-red-600/12 dark:bg-red-950/60 border border-red-600/35 dark:border-red-700/60 px-2.5 py-1 rounded-lg">
+                          <span className="text-[11px] text-red-800 dark:text-red-200 font-medium">
+                            {t('admin.deleteSelectedPrompt', { count: visibleSelectedIds.length })}
                           </span>
                           <button
                             type="button"
@@ -1248,25 +1267,25 @@ export const AdminConsoleModal: React.FC<AdminConsoleModalProps> = ({
                             onClick={() => handleConfirmBatchDelete(visibleSelectedIds)}
                             className="px-2 py-0.5 rounded bg-red-600 hover:bg-red-500 text-white text-[11px] font-semibold disabled:opacity-50"
                           >
-                            {isDeletingImages ? 'Deleting...' : 'Confirm'}
+                            {isDeletingImages ? t('admin.deleting') : t('common.confirm')}
                           </button>
                           <button
                             type="button"
                             disabled={isDeletingImages}
                             onClick={() => setConfirmDeleteImagesMode(null)}
-                            className="px-1.5 py-0.5 text-[11px] text-neutral-300 hover:text-white"
+                            className="px-1.5 py-0.5 text-[11px] text-[#5c584e] hover:text-[#1f1d18] dark:text-neutral-300 dark:hover:text-white"
                           >
-                            Cancel
+                            {t('common.cancel')}
                           </button>
                         </div>
                       ) : (
                         <button
                           type="button"
                           onClick={() => setConfirmDeleteImagesMode({ type: 'selected' })}
-                          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-amber-600/20 hover:bg-amber-600/30 text-amber-200 border border-amber-500/40 transition-colors"
+                          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-amber-500/20 hover:bg-amber-500/30 text-amber-900 border border-amber-600/40 dark:bg-amber-600/20 dark:hover:bg-amber-600/30 dark:text-amber-200 dark:border-amber-500/40 transition-colors whitespace-nowrap shrink-0"
                         >
                           <Trash2 className="w-3.5 h-3.5" />
-                          <span>Delete Selected ({visibleSelectedIds.length})</span>
+                          <span>{t('admin.deleteSelectedBtn', { count: visibleSelectedIds.length })}</span>
                         </button>
                       )
                     )}
@@ -1274,9 +1293,12 @@ export const AdminConsoleModal: React.FC<AdminConsoleModalProps> = ({
                     {filteredImages.length > 0 && (
                       confirmDeleteImagesMode?.type === 'all' &&
                       confirmDeleteImagesMode.scopeId === selectedImageProjectId ? (
-                        <div className="flex items-center gap-1.5 bg-red-950/70 border border-red-700/70 px-2.5 py-1 rounded-lg">
-                          <span className="text-[11px] text-red-200 font-medium">
-                            Delete ALL {filteredImages.length} images ({formatMB(visibleBytes)})?
+                        <div className="flex items-center gap-1.5 bg-red-600/12 dark:bg-red-950/70 border border-red-600/35 dark:border-red-700/70 px-2.5 py-1 rounded-lg">
+                          <span className="text-[11px] text-red-800 dark:text-red-200 font-medium">
+                            {t('admin.deleteAllImagesPrompt', {
+                              count: filteredImages.length,
+                              size: formatMB(visibleBytes),
+                            })}
                           </span>
                           <button
                             type="button"
@@ -1284,15 +1306,15 @@ export const AdminConsoleModal: React.FC<AdminConsoleModalProps> = ({
                             onClick={() => handleConfirmBatchDelete(confirmDeleteImagesMode.ids)}
                             className="px-2 py-0.5 rounded bg-red-600 hover:bg-red-500 text-white text-[11px] font-semibold disabled:opacity-50"
                           >
-                            {isDeletingImages ? 'Deleting...' : 'Confirm Delete All'}
+                            {isDeletingImages ? t('admin.deleting') : t('admin.confirmDeleteAll')}
                           </button>
                           <button
                             type="button"
                             disabled={isDeletingImages}
                             onClick={() => setConfirmDeleteImagesMode(null)}
-                            className="px-1.5 py-0.5 text-[11px] text-neutral-300 hover:text-white"
+                            className="px-1.5 py-0.5 text-[11px] text-[#5c584e] hover:text-[#1f1d18] dark:text-neutral-300 dark:hover:text-white"
                           >
-                            Cancel
+                            {t('common.cancel')}
                           </button>
                         </div>
                       ) : (
@@ -1306,13 +1328,13 @@ export const AdminConsoleModal: React.FC<AdminConsoleModalProps> = ({
                               ids: visibleIds,
                             })
                           }
-                          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-red-600/90 hover:bg-red-500 text-white transition-colors"
+                          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-red-600/90 hover:bg-red-500 text-white transition-colors whitespace-nowrap shrink-0"
                         >
                           <Trash2 className="w-3.5 h-3.5" />
                           <span>
                             {selectedImageProjectId === 'all'
-                              ? `Delete All (${filteredImages.length})`
-                              : `Delete All in Project (${filteredImages.length})`}
+                              ? t('admin.deleteAllCount', { count: filteredImages.length })
+                              : t('admin.deleteAllInProjectCount', { count: filteredImages.length })}
                           </span>
                         </button>
                       )
@@ -1337,13 +1359,13 @@ export const AdminConsoleModal: React.FC<AdminConsoleModalProps> = ({
                   (img) => getImageBucketId(img) === '__unassigned__'
                 );
                 if (unassigned.length > 0) {
-                  groups.push({ id: '__unassigned__', title: 'Legacy / Unassigned', items: unassigned });
+                  groups.push({ id: '__unassigned__', title: t('admin.legacyUnassigned'), items: unassigned });
                 }
               } else {
                 const singleTitle =
                   selectedImageProjectId === '__unassigned__'
-                    ? 'Legacy / Unassigned'
-                    : projects.find((p) => p.id === selectedImageProjectId)?.title || 'Project';
+                    ? t('admin.legacyUnassigned')
+                    : projects.find((p) => p.id === selectedImageProjectId)?.title || t('admin.projectFallback');
                 groups.push({
                   id: selectedImageProjectId,
                   title: singleTitle,
@@ -1353,8 +1375,8 @@ export const AdminConsoleModal: React.FC<AdminConsoleModalProps> = ({
 
               if (groups.length === 0) {
                 return (
-                  <div className="rounded-xl border border-neutral-800 bg-neutral-950 py-10 text-center text-xs text-neutral-500">
-                    No projects or image records found.
+                  <div className="rounded-xl border border-[#c8c3b6] dark:border-neutral-800 bg-[#e0dbd0] dark:bg-neutral-950 py-10 text-center text-xs text-[#6e695d] dark:text-neutral-500">
+                    {t('admin.noImageRecords')}
                   </div>
                 );
               }
@@ -1367,26 +1389,27 @@ export const AdminConsoleModal: React.FC<AdminConsoleModalProps> = ({
                 return (
                   <div
                     key={group.id}
-                    className="rounded-xl border border-neutral-800 bg-neutral-950 overflow-hidden"
+                    className="rounded-xl border border-[#c8c3b6] dark:border-neutral-800 bg-[#e0dbd0] dark:bg-neutral-950 overflow-hidden"
                   >
-                    <div className="px-4 py-2.5 bg-neutral-900/90 border-b border-neutral-800 flex flex-wrap items-center justify-between gap-2">
+                    <div className="px-4 py-2.5 bg-[#d8d3c8] dark:bg-neutral-900/90 border-b border-[#c8c3b6] dark:border-neutral-800 flex flex-wrap items-center justify-between gap-2">
                       <div className="flex items-center gap-2.5">
-                        <FolderKanban className="w-3.5 h-3.5 text-blue-400" />
-                        <span className="text-xs font-bold text-neutral-100">{group.title}</span>
-                        <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-cyan-500/10 text-cyan-300 border border-cyan-500/30">
+                        <FolderKanban className="w-3.5 h-3.5 text-blue-700 dark:text-blue-400" />
+                        <span className="text-xs font-bold text-[#2b2924] dark:text-neutral-100">{group.title}</span>
+                        <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-cyan-600/12 text-cyan-800 border border-cyan-600/30 dark:bg-cyan-500/10 dark:text-cyan-300 dark:border-cyan-500/30">
                           {formatMB(groupBytes)}
                         </span>
-                        <span className="text-[10px] font-mono text-neutral-400">
-                          {group.items.length} {group.items.length === 1 ? 'file' : 'files'}
+                        <span className="text-[10px] font-mono text-[#5c584e] dark:text-neutral-400">
+                          {group.items.length}{' '}
+                          {group.items.length === 1 ? t('admin.fileSingular') : t('admin.filePlural')}
                         </span>
                       </div>
 
                       {group.items.length > 0 && (
                         confirmDeleteImagesMode?.type === 'all' &&
                         confirmDeleteImagesMode.scopeId === `group:${group.id}` ? (
-                          <div className="flex items-center gap-1.5 bg-red-950/70 border border-red-700/70 px-2 py-0.5 rounded-lg">
-                            <span className="text-[11px] text-red-200">
-                              Delete all {group.items.length} in {group.title}?
+                          <div className="flex items-center gap-1.5 bg-red-600/12 dark:bg-red-950/70 border border-red-600/35 dark:border-red-700/70 px-2 py-0.5 rounded-lg">
+                            <span className="text-[11px] text-red-800 dark:text-red-200">
+                              {t('admin.deleteGroupPrompt', { count: group.items.length, title: group.title })}
                             </span>
                             <button
                               type="button"
@@ -1394,15 +1417,15 @@ export const AdminConsoleModal: React.FC<AdminConsoleModalProps> = ({
                               onClick={() => handleConfirmBatchDelete(confirmDeleteImagesMode.ids)}
                               className="px-2 py-0.5 rounded bg-red-600 hover:bg-red-500 text-white text-[10px] font-semibold disabled:opacity-50"
                             >
-                              {isDeletingImages ? 'Deleting...' : 'Confirm'}
+                              {isDeletingImages ? t('admin.deleting') : t('common.confirm')}
                             </button>
                             <button
                               type="button"
                               disabled={isDeletingImages}
                               onClick={() => setConfirmDeleteImagesMode(null)}
-                              className="px-1.5 py-0.5 text-[10px] text-neutral-300 hover:text-white"
+                              className="px-1.5 py-0.5 text-[10px] text-[#5c584e] hover:text-[#1f1d18] dark:text-neutral-300 dark:hover:text-white"
                             >
-                              Cancel
+                              {t('common.cancel')}
                             </button>
                           </div>
                         ) : (
@@ -1416,10 +1439,10 @@ export const AdminConsoleModal: React.FC<AdminConsoleModalProps> = ({
                                 ids: group.items.map((i) => i.id),
                               })
                             }
-                            className="px-2.5 py-1 rounded-lg text-[11px] font-semibold text-red-300 hover:text-white bg-red-950/40 hover:bg-red-600/80 border border-red-800/50 transition-colors flex items-center gap-1"
+                            className="px-2.5 py-1 rounded-lg text-[11px] font-semibold text-red-700 hover:text-white bg-red-600/12 hover:bg-red-600 border border-red-600/35 dark:text-red-300 dark:hover:text-white dark:bg-red-950/40 dark:hover:bg-red-600/80 dark:border-red-800/50 transition-colors flex items-center gap-1 whitespace-nowrap shrink-0"
                           >
                             <Trash2 className="w-3 h-3" />
-                            <span>Delete All ({group.items.length})</span>
+                            <span>{t('admin.deleteAllCount', { count: group.items.length })}</span>
                           </button>
                         )
                       )}
@@ -1427,7 +1450,7 @@ export const AdminConsoleModal: React.FC<AdminConsoleModalProps> = ({
 
                     <table className="w-full text-left border-collapse text-xs">
                       <thead>
-                        <tr className="border-b border-neutral-800 bg-neutral-900/50 text-neutral-400">
+                        <tr className="border-b border-[#c8c3b6] dark:border-neutral-800 bg-[#dcd7cc]/70 dark:bg-neutral-900/50 text-[#5c584e] dark:text-neutral-400">
                           <th className="py-2 px-3 w-9">
                             <input
                               type="checkbox"
@@ -1444,22 +1467,22 @@ export const AdminConsoleModal: React.FC<AdminConsoleModalProps> = ({
                                   return next;
                                 });
                               }}
-                              className="rounded border-neutral-700 bg-neutral-900 text-blue-600 focus:ring-0 cursor-pointer"
-                              title="Select all images in this project"
+                              className="rounded border-[#b5afa0] bg-[#ebe7de] dark:border-neutral-700 dark:bg-neutral-900 text-blue-600 focus:ring-0 cursor-pointer"
+                              title={t('admin.selectAllProjectTitle')}
                             />
                           </th>
-                          <th className="py-2 px-3 font-semibold w-16">Preview</th>
-                          <th className="py-2 px-3 font-semibold">Name &amp; Category</th>
-                          <th className="py-2 px-3 font-semibold w-24">Size</th>
-                          <th className="py-2 px-3 font-semibold">Web URL</th>
-                          <th className="py-2 px-3 font-semibold text-right w-16">Action</th>
+                          <th className="py-2 px-3 font-semibold w-16">{t('admin.colPreview')}</th>
+                          <th className="py-2 px-3 font-semibold">{t('admin.colNameCategory')}</th>
+                          <th className="py-2 px-3 font-semibold w-24">{t('admin.colSize')}</th>
+                          <th className="py-2 px-3 font-semibold">{t('admin.colWebUrl')}</th>
+                          <th className="py-2 px-3 font-semibold text-right w-16">{t('admin.colAction')}</th>
                         </tr>
                       </thead>
-                      <tbody className="divide-y divide-neutral-800/80">
+                      <tbody className="divide-y divide-[#ccc7ba] dark:divide-neutral-800/80">
                         {group.items.length === 0 ? (
                           <tr>
-                            <td colSpan={6} className="py-6 text-center text-neutral-500">
-                              No images registered in this project yet.
+                            <td colSpan={6} className="py-6 text-center text-[#6e695d] dark:text-neutral-500">
+                              {t('admin.noImagesInProject')}
                             </td>
                           </tr>
                         ) : (
@@ -1470,7 +1493,7 @@ export const AdminConsoleModal: React.FC<AdminConsoleModalProps> = ({
                               <tr
                                 key={img.id}
                                 className={`transition-colors ${
-                                  isChecked ? 'bg-blue-950/25' : 'hover:bg-neutral-900/40'
+                                  isChecked ? 'bg-blue-600/12 dark:bg-blue-950/25' : 'hover:bg-[#d6d1c6]/60 dark:hover:bg-neutral-900/40'
                                 }`}
                               >
                                 <td className="py-2 px-3">
@@ -1478,26 +1501,30 @@ export const AdminConsoleModal: React.FC<AdminConsoleModalProps> = ({
                                     type="checkbox"
                                     checked={isChecked}
                                     onChange={() => toggleImageSelected(img.id)}
-                                    className="rounded border-neutral-700 bg-neutral-900 text-blue-600 focus:ring-0 cursor-pointer"
+                                    className="rounded border-[#b5afa0] bg-[#ebe7de] dark:border-neutral-700 dark:bg-neutral-900 text-blue-600 focus:ring-0 cursor-pointer"
                                   />
                                 </td>
                                 <td className="py-2 px-3 w-16">
                                   <img
                                     src={img.url}
                                     alt=""
-                                    className="w-12 h-8 object-cover rounded-md border border-neutral-800"
+                                    className="w-12 h-8 object-cover rounded-md border border-[#c3beb1] dark:border-neutral-800"
                                   />
                                 </td>
                                 <td className="py-2 px-3">
-                                  <p className="font-semibold text-neutral-200">{img.name}</p>
-                                  <span className="text-[10px] text-neutral-500 uppercase font-mono">
-                                    {img.folder}
+                                  <p className="font-semibold text-[#2b2924] dark:text-neutral-200">{img.name}</p>
+                                  <span className="text-[10px] text-[#6e695d] dark:text-neutral-500 uppercase font-mono">
+                                    {img.folder === 'maps'
+                                      ? t('admin.folderMaps')
+                                      : img.folder === 'images'
+                                      ? t('admin.folderImages')
+                                      : img.folder}
                                   </span>
                                 </td>
-                                <td className="py-2 px-3 font-mono text-[11px] text-cyan-300">
+                                <td className="py-2 px-3 font-mono text-[11px] text-cyan-800 dark:text-cyan-300">
                                   {formatMB(bytes)}
                                 </td>
-                                <td className="py-2 px-3 font-mono text-[11px] text-blue-400 truncate max-w-xs">
+                                <td className="py-2 px-3 font-mono text-[11px] text-blue-700 dark:text-blue-400 truncate max-w-xs">
                                   <a
                                     href={img.url}
                                     target="_blank"
@@ -1511,8 +1538,8 @@ export const AdminConsoleModal: React.FC<AdminConsoleModalProps> = ({
                                 <td className="py-2 px-3 text-right">
                                   <button
                                     onClick={() => onDeleteImageRecord(img.id)}
-                                    className="p-1 text-neutral-500 hover:text-red-400 rounded transition-colors"
-                                    title="Delete Image Record"
+                                    className="p-1 text-[#6e695d] hover:text-red-700 dark:text-neutral-500 dark:hover:text-red-400 rounded transition-colors"
+                                    title={t('admin.deleteImageRecordTitle')}
                                   >
                                     <Trash2 className="w-3.5 h-3.5" />
                                   </button>

@@ -1,13 +1,24 @@
 import React, { useRef, useState } from 'react';
 import { WorkflowNode } from '../types/workflow';
-import { Unlink, Edit3, Trash2, MessageSquare, Image as ImageIcon } from 'lucide-react';
+import { Unlink, Trash2, MessageSquare, Image as ImageIcon, Pencil } from 'lucide-react';
 import { ShreddedImageIcon } from './icons/ShreddedImageIcon';
+import { useLanguage } from '../hooks/useLanguage';
 
 interface WorkflowNodeCardProps {
   node: WorkflowNode;
   isReadOnly: boolean;
   isHoveringContainer?: boolean;
-  onStartPortDrag: (nodeId: string, port: 'top' | 'bottom' | 'left' | 'right', e: React.MouseEvent) => void;
+  isHighlighted?: boolean;
+  isSelected?: boolean;
+  searchMatchState?: 'none' | 'match' | 'dimmed';
+  isConnectionDragging?: boolean;
+  activeSourcePort?: 'top' | 'bottom' | 'left' | 'right' | null;
+  approachedPort?: {
+    port: 'top' | 'bottom' | 'left' | 'right';
+    proximity: number;
+    isReady: boolean;
+  } | null;
+  onStartPortDrag: (nodeId: string, port: 'top' | 'bottom' | 'left' | 'right', e: React.PointerEvent) => void;
   onOpenDashboard: (nodeId: string) => void;
   onDeleteRequest: (nodeId: string) => void;
   onUnlinkContainer: (nodeId: string) => void;
@@ -19,6 +30,12 @@ export const WorkflowNodeCard: React.FC<WorkflowNodeCardProps> = ({
   node,
   isReadOnly,
   isHoveringContainer = false,
+  isHighlighted = false,
+  isSelected = false,
+  searchMatchState = 'none',
+  isConnectionDragging = false,
+  activeSourcePort = null,
+  approachedPort = null,
   onStartPortDrag,
   onOpenDashboard,
   onDeleteRequest,
@@ -26,10 +43,13 @@ export const WorkflowNodeCard: React.FC<WorkflowNodeCardProps> = ({
   onUpdateTitle,
   onImagePaste,
 }) => {
+  const { t } = useLanguage();
   const [isEditingTitle, setIsEditingTitle] = useState(false);
-  const [titleValue, setTitleValue] = useState(node.title || 'Scene');
+  const [titleValue, setTitleValue] = useState(node.title || t('node.defaultScene'));
   const [imageLoadError, setImageLoadError] = useState(false);
   const titleInputRef = useRef<HTMLInputElement>(null);
+  const pointerDownPointRef = useRef<{ x: number; y: number } | null>(null);
+  const lastTitleTapRef = useRef<number>(0);
 
   React.useEffect(() => {
     setImageLoadError(false);
@@ -38,7 +58,7 @@ export const WorkflowNodeCard: React.FC<WorkflowNodeCardProps> = ({
   const handleTitleSubmit = () => {
     setIsEditingTitle(false);
     if (titleValue.trim() !== node.title) {
-      onUpdateTitle(node.id, titleValue.trim() || 'Untitled Scene');
+      onUpdateTitle(node.id, titleValue.trim() || t('node.untitledScene'));
     }
   };
 
@@ -50,93 +70,169 @@ export const WorkflowNodeCard: React.FC<WorkflowNodeCardProps> = ({
     }
   };
 
+  const handleThumbClick = (e: React.MouseEvent) => {
+    if (e.button === 1) return;
+    e.stopPropagation();
+    if (e.shiftKey) return;
+    const start = pointerDownPointRef.current;
+    if (start && Math.hypot(e.clientX - start.x, e.clientY - start.y) > 8) return;
+    onOpenDashboard(node.id);
+  };
+
   return (
     <div
       id={node.id}
       data-node-id={node.id}
+      data-selected={isSelected ? 'true' : 'false'}
+      onPointerDown={(e) => {
+        pointerDownPointRef.current = { x: e.clientX, y: e.clientY };
+      }}
       style={{
         left: node.x,
         top: node.y,
         width: 220,
       }}
-      className={`workflow-node absolute bg-neutral-850 dark:bg-neutral-900 border rounded-xl transition-[border-color,box-shadow] duration-150 group cursor-grab active:cursor-grabbing z-10 select-none ${
+      className={`workflow-node touch-canvas absolute bg-[#706d65] dark:bg-neutral-900 border rounded-xl transition-[opacity,filter,border-color,box-shadow] duration-200 group cursor-grab active:cursor-grabbing select-none ${
+        searchMatchState === 'dimmed'
+          ? 'opacity-20 saturate-50 hover:opacity-55 z-10'
+          : searchMatchState === 'match'
+          ? 'opacity-100 z-20'
+          : 'z-10'
+      } ${
         isHoveringContainer
           ? 'border-blue-400 ring-2 ring-blue-400/70 shadow-[0_0_24px_rgba(59,130,246,0.6)]'
-          : 'border-neutral-700/80 hover:border-blue-500/80 shadow-lg'
+          : isHighlighted
+          ? 'border-sky-400 ring-2 ring-sky-400/85 shadow-[0_0_28px_rgba(56,189,248,0.6)]'
+          : isSelected
+          ? 'border-sky-400 ring-2 ring-sky-400/75 shadow-[0_0_22px_rgba(56,189,248,0.38)]'
+          : searchMatchState === 'match'
+          ? 'border-sky-400 ring-2 ring-sky-400/80 shadow-[0_0_24px_rgba(56,189,248,0.45)]'
+          : 'border-[#57544d] hover:border-blue-400 dark:border-neutral-700/80 dark:hover:border-blue-500/80 shadow-md dark:shadow-lg'
       }`}
     >
-      {/* Floating Action Bar on Hover */}
+      {/* Floating Action Bar on Hover / Touch Selection (Outside Upper Right) */}
       {!isReadOnly && (
-        <div className="absolute -top-10 left-1/2 -translate-x-1/2 opacity-0 group-hover:opacity-100 transition-opacity bg-neutral-900/95 border border-neutral-700 rounded-full py-1 px-2.5 flex items-center gap-1.5 shadow-xl z-20 pointer-events-none group-hover:pointer-events-auto backdrop-blur-sm">
-          {node.containerId && (
+        <div className="touch-action-bar absolute -top-9 right-0 pb-2 opacity-0 group-hover:opacity-100 transition-opacity z-30 pointer-events-none group-hover:pointer-events-auto">
+          <div className="bg-[#ebe7de]/95 dark:bg-neutral-900/95 border border-[#c3beb1] dark:border-neutral-700 rounded-full py-1 px-2 flex items-center gap-1 shadow-lg dark:shadow-xl backdrop-blur-sm">
             <button
-              onMouseDown={(e) => e.stopPropagation()}
+              onPointerDown={(e) => { if (e.button !== 1) e.stopPropagation(); }}
               onClick={(e) => {
                 e.stopPropagation();
-                onUnlinkContainer(node.id);
+                setTitleValue(node.title || t('node.defaultScene'));
+                setIsEditingTitle(true);
               }}
-              className="p-1 hover:bg-red-500/20 text-amber-300 hover:text-red-300 rounded-full transition-colors"
-              title="Romper conexión con el contenedor"
+              className="p-1.5 hover:bg-blue-500/15 dark:hover:bg-blue-500/20 text-[#5c584e] hover:text-blue-700 dark:text-neutral-400 dark:hover:text-blue-300 rounded-full transition-colors cursor-pointer"
+              title={t('node.renameNode')}
             >
-              <Unlink className="w-3.5 h-3.5" />
+              <Pencil className="w-3.5 h-3.5" />
             </button>
-          )}
 
-          <button
-            onClick={(e) => {
-              e.stopPropagation();
-              onOpenDashboard(node.id);
-            }}
-            className="p-1 hover:bg-neutral-800 text-neutral-400 hover:text-blue-400 rounded-full transition-colors"
-            title="Edit Node Details"
-          >
-            <Edit3 className="w-3.5 h-3.5" />
-          </button>
+            {node.containerId && (
+              <button
+                onPointerDown={(e) => { if (e.button !== 1) e.stopPropagation(); }}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onUnlinkContainer(node.id);
+                }}
+                className="p-1.5 hover:bg-red-500/15 dark:hover:bg-red-500/20 text-amber-700 hover:text-red-700 dark:text-amber-300 dark:hover:text-red-300 rounded-full transition-colors cursor-pointer"
+                title={t('node.unlinkContainer')}
+              >
+                <Unlink className="w-3.5 h-3.5" />
+              </button>
+            )}
 
-          <button
-            onClick={(e) => {
-              e.stopPropagation();
-              onDeleteRequest(node.id);
-            }}
-            className="p-1 hover:bg-red-500/20 text-neutral-400 hover:text-red-400 rounded-full transition-colors"
-            title="Delete or Archive Node"
-          >
-            <Trash2 className="w-3.5 h-3.5" />
-          </button>
+            <button
+              onPointerDown={(e) => { if (e.button !== 1) e.stopPropagation(); }}
+              onClick={(e) => {
+                e.stopPropagation();
+                onDeleteRequest(node.id);
+              }}
+              className="p-1.5 hover:bg-red-500/15 dark:hover:bg-red-500/20 text-[#5c584e] hover:text-red-700 dark:text-neutral-400 dark:hover:text-red-400 rounded-full transition-colors cursor-pointer"
+              title={t('node.deleteOrArchive')}
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+            </button>
+          </div>
         </div>
       )}
 
       {/* Connection Ports */}
       {(['top', 'bottom', 'left', 'right'] as const).map((port) => {
-        let posClass = '';
-        if (port === 'top') posClass = '-top-2 left-1/2 -translate-x-1/2';
-        if (port === 'bottom') posClass = '-bottom-2 left-1/2 -translate-x-1/2';
-        if (port === 'left') posClass = '-left-2 top-1/2 -translate-y-1/2';
-        if (port === 'right') posClass = '-right-2 top-1/2 -translate-y-1/2';
+        const translateClass =
+          port === 'top'
+            ? '-top-2 left-1/2 -translate-x-1/2'
+            : port === 'bottom'
+            ? '-bottom-2 left-1/2 -translate-x-1/2'
+            : port === 'left'
+            ? '-left-2 top-1/2 -translate-y-1/2'
+            : '-right-2 top-1/2 -translate-y-1/2';
+
+        const isActiveSource = isConnectionDragging && activeSourcePort === port;
+        const isApproached = isConnectionDragging && approachedPort?.port === port;
+        const isReadyTarget = isApproached && approachedPort.isReady;
+        const proximity = isApproached ? approachedPort.proximity : 0;
+
+        let stateClass =
+          'port-idle bg-[#dedad0] dark:bg-neutral-900 border-2 border-blue-600 dark:border-blue-500 opacity-0 group-hover:opacity-100 hover:bg-blue-500 hover:scale-125 shadow-md';
+        let dynamicStyle: React.CSSProperties | undefined;
+
+        if (isReadOnly) {
+          stateClass = 'opacity-0 pointer-events-none border-2 border-blue-600 dark:border-blue-500';
+        } else if (isConnectionDragging) {
+          if (isActiveSource) {
+            stateClass =
+              'opacity-100 bg-blue-600 dark:bg-blue-500 border-2 border-blue-200 dark:border-blue-200 scale-110 shadow-sm';
+          } else if (isReadyTarget) {
+            stateClass =
+              'opacity-100 bg-blue-600 dark:bg-blue-500 border-2 border-blue-100 dark:border-blue-200 scale-125';
+            dynamicStyle = {
+              boxShadow: '0 0 3px 0px rgba(37, 99, 235, 0.35)',
+            };
+          } else if (isApproached) {
+            const glowBlur = 6 + proximity * 26;
+            const glowSpread = 1 + proximity * 7;
+            const glowAlpha = (0.28 + proximity * 0.68).toFixed(2);
+            const scale = (0.9 + proximity * 0.25).toFixed(3);
+            stateClass =
+              'bg-[#dedad0] dark:bg-neutral-900 border-2 border-blue-400 dark:border-blue-400';
+            dynamicStyle = {
+              opacity: Number((0.28 + proximity * 0.72).toFixed(2)),
+              transform: `scale(${scale})`,
+              boxShadow: `0 0 ${glowBlur.toFixed(1)}px ${glowSpread.toFixed(1)}px rgba(59, 130, 246, ${glowAlpha}), inset 0 0 ${(2 + proximity * 5).toFixed(1)}px rgba(96, 165, 250, ${glowAlpha})`,
+            };
+          } else {
+            stateClass =
+              'opacity-0 pointer-events-none bg-[#dedad0] dark:bg-neutral-900 border-2 border-blue-600 dark:border-blue-500';
+          }
+        }
 
         return (
           <div
             key={port}
             data-port={port}
             data-node={node.id}
-            onMouseDown={(e) => {
+            onPointerDown={(e) => {
+              if ((e.pointerType === 'mouse' && e.button !== 0) || isReadOnly) return;
               e.stopPropagation();
               onStartPortDrag(node.id, port, e);
             }}
-            className={`port absolute ${posClass} w-3.5 h-3.5 rounded-full bg-neutral-900 border-2 border-blue-500 hover:bg-blue-500 hover:scale-125 cursor-crosshair z-30 transition-transform shadow-md`}
-            title={`Connect from ${port}`}
+            style={dynamicStyle}
+            className={`port absolute ${translateClass} w-3.5 h-3.5 rounded-full ${stateClass} cursor-crosshair z-30 transition-[opacity,transform,box-shadow,background-color,border-color] duration-150`}
+            title={t('node.connectFromPort', { port: t(`port.${port}`) })}
           />
         );
       })}
 
       {/* Node Header / Title */}
-      <div className="p-2.5 border-b border-neutral-800 bg-neutral-900/60 rounded-t-xl flex items-center justify-between gap-2">
+      <div className="p-2.5 border-b border-[#57544d]/80 dark:border-neutral-800 bg-[#5e5b54] dark:bg-neutral-900/60 rounded-t-xl flex items-center justify-between gap-2">
         {isEditingTitle ? (
           <input
             ref={titleInputRef}
             type="text"
             value={titleValue}
             onChange={(e) => setTitleValue(e.target.value)}
+            onPointerDown={(e) => { if (e.button !== 1) e.stopPropagation(); }}
+            onDoubleClick={(e) => e.stopPropagation()}
             onBlur={handleTitleSubmit}
             onKeyDown={(e) => {
               if (e.key === 'Enter') handleTitleSubmit();
@@ -146,18 +242,35 @@ export const WorkflowNodeCard: React.FC<WorkflowNodeCardProps> = ({
               }
             }}
             autoFocus
-            className="w-full text-xs font-semibold bg-neutral-800 text-neutral-100 px-1.5 py-0.5 rounded border border-blue-500 focus:outline-none"
+            className="w-full text-xs font-semibold bg-[#4f4c46] dark:bg-neutral-800 text-[#f3f0e8] dark:text-neutral-100 px-1.5 py-0.5 rounded border border-blue-500 focus:outline-none"
           />
         ) : (
           <div
             onDoubleClick={(e) => {
               e.stopPropagation();
-              if (!isReadOnly) setIsEditingTitle(true);
+              if (!isReadOnly) {
+                setTitleValue(node.title || t('node.defaultScene'));
+                setIsEditingTitle(true);
+              }
             }}
-            className="text-xs font-semibold text-neutral-200 truncate cursor-text hover:text-white flex-1 min-w-0"
-            title="Double-click to rename"
+            onPointerUp={(e) => {
+              if (e.pointerType === 'mouse' || isReadOnly) return;
+              const start = pointerDownPointRef.current;
+              if (start && Math.hypot(e.clientX - start.x, e.clientY - start.y) > 8) return;
+              const now = Date.now();
+              if (now - lastTitleTapRef.current < 320) {
+                e.stopPropagation();
+                lastTitleTapRef.current = 0;
+                setTitleValue(node.title || t('node.defaultScene'));
+                setIsEditingTitle(true);
+              } else {
+                lastTitleTapRef.current = now;
+              }
+            }}
+            className="text-xs font-semibold text-[#f3f0e8] dark:text-neutral-200 truncate cursor-text hover:text-[#faf8f2] dark:hover:text-white flex-1 min-w-0"
+            title={t('node.doubleTapRename')}
           >
-            {node.title || 'Scene'}
+            {node.title || t('node.defaultScene')}
           </div>
         )}
       </div>
@@ -170,11 +283,8 @@ export const WorkflowNodeCard: React.FC<WorkflowNodeCardProps> = ({
       >
         {node.image && !imageLoadError ? (
           <div
-            onClick={(e) => {
-              e.stopPropagation();
-              onOpenDashboard(node.id);
-            }}
-            className="relative rounded-lg overflow-hidden bg-black aspect-video group/thumb cursor-pointer border border-neutral-800"
+            onClick={handleThumbClick}
+            className="relative rounded-lg overflow-hidden bg-black aspect-video group/thumb cursor-pointer border border-[#54514a] dark:border-neutral-800"
           >
             <img
               src={node.image}
@@ -186,29 +296,23 @@ export const WorkflowNodeCard: React.FC<WorkflowNodeCardProps> = ({
           </div>
         ) : node.imageDeletedFromAdmin || imageLoadError ? (
           <div
-            onClick={(e) => {
-              e.stopPropagation();
-              onOpenDashboard(node.id);
-            }}
+            onClick={handleThumbClick}
             className="aspect-video rounded-lg border-2 border-dashed border-red-500/70 hover:border-red-400 flex flex-col items-center justify-center text-red-400 gap-1 p-2 text-center transition-colors cursor-pointer bg-red-950/25 hover:bg-red-950/40"
-            title="Imagen eliminada desde administración. Haz clic para decidir qué hacer."
+            title={t('node.deletedImageTitle')}
           >
             <ShreddedImageIcon className="w-10 h-10 text-red-500" />
             <span className="text-[11px] font-semibold leading-tight text-red-400">
-              Imagen eliminada
+              {t('node.deletedImage')}
             </span>
           </div>
         ) : (
           <div
-            onClick={(e) => {
-              e.stopPropagation();
-              onOpenDashboard(node.id);
-            }}
-            className="aspect-video rounded-lg border-2 border-dashed border-neutral-700/80 hover:border-blue-500/80 flex flex-col items-center justify-center text-neutral-500 hover:text-neutral-300 gap-1.5 p-2 text-center transition-colors cursor-pointer bg-neutral-900/40"
+            onClick={handleThumbClick}
+            className="aspect-video rounded-lg border-2 border-dashed border-[#c2bdb1]/70 dark:border-neutral-700/80 hover:border-blue-400 dark:hover:border-blue-500/80 flex flex-col items-center justify-center text-[#eae6dc] dark:text-neutral-500 hover:text-[#faf8f2] dark:hover:text-neutral-300 gap-1.5 p-2 text-center transition-colors cursor-pointer bg-[#625f58]/50 dark:bg-neutral-900/40"
           >
-            <ImageIcon className="w-5 h-5 text-neutral-600" />
+            <ImageIcon className="w-5 h-5 text-[#dbd6ca] dark:text-neutral-600" />
             <span className="text-[11px] font-medium leading-tight">
-              Paste or Drop Image
+              {t('node.pasteOrDrop')}
             </span>
           </div>
         )}
@@ -216,8 +320,8 @@ export const WorkflowNodeCard: React.FC<WorkflowNodeCardProps> = ({
         {/* Comment count badge */}
         {node.pins && node.pins.length > 0 && (
           <div
-            className="absolute top-4 right-4 bg-blue-600 text-white text-[10px] font-bold h-5 min-w-[20px] px-1 rounded-full flex items-center justify-center shadow-lg border border-neutral-900"
-            title={`${node.pins.length} comments & tasks`}
+            className="absolute top-4 right-4 bg-blue-600 text-white text-[10px] font-bold h-5 min-w-[20px] px-1 rounded-full flex items-center justify-center shadow-lg border border-[#57544d] dark:border-neutral-900"
+            title={t('node.commentsBadgeTitle', { count: node.pins.length })}
           >
             <MessageSquare className="w-2.5 h-2.5 mr-0.5 inline" />
             {node.pins.length}

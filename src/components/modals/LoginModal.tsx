@@ -36,63 +36,63 @@ export const LoginModal: React.FC<LoginModalProps> = ({ onLogin }) => {
   };
 
   return (
-    <div className="fixed inset-0 z-[100] bg-black/90 backdrop-blur-md flex items-center justify-center p-4">
-      <div className="bg-neutral-900 border border-neutral-700/80 rounded-2xl w-full max-w-sm shadow-2xl p-7 text-center space-y-5">
-        <div className="w-14 h-14 rounded-2xl bg-blue-600/20 border border-blue-500/30 text-blue-400 mx-auto flex items-center justify-center shadow-lg">
+    <div className="fixed inset-0 z-[100] bg-black/60 dark:bg-black/90 backdrop-blur-md flex items-center justify-center p-4">
+      <div className="bg-[#ebe7de] dark:bg-neutral-900 border border-[#c3beb1] dark:border-neutral-700/80 rounded-2xl w-full max-w-sm shadow-2xl p-7 text-center space-y-5">
+        <div className="w-14 h-14 rounded-2xl bg-blue-600/15 dark:bg-blue-600/20 border border-blue-600/30 dark:border-blue-500/30 text-blue-700 dark:text-blue-400 mx-auto flex items-center justify-center shadow-lg">
           <Workflow className="w-7 h-7" />
         </div>
 
         <div>
-          <h2 className="text-lg font-bold text-neutral-100 tracking-tight">Workspace Login</h2>
-          <p className="text-xs text-neutral-400 mt-1">Enter your credentials to access the canvas</p>
+          <h2 className="text-lg font-bold text-[#2b2924] dark:text-neutral-100 tracking-tight">Workspace Login</h2>
+          <p className="text-xs text-[#5c584e] dark:text-neutral-400 mt-1">Enter your credentials to access the canvas</p>
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-3.5 text-left">
           <div>
-            <label className="text-xs text-neutral-400 block mb-1">Username</label>
+            <label className="text-xs text-[#5c584e] dark:text-neutral-400 block mb-1">Username</label>
             <div className="relative">
-              <User className="w-4 h-4 text-neutral-500 absolute left-3 top-2.5" />
+              <User className="w-4 h-4 text-[#6e695d] dark:text-neutral-500 absolute left-3 top-2.5" />
               <input
                 type="text"
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
                 placeholder="Username (e.g. Director, Artist)"
-                className="w-full bg-neutral-950 border border-neutral-700 rounded-xl pl-9 pr-3 py-2 text-xs text-neutral-100 outline-none focus:border-blue-500"
+                className="w-full bg-[#e0dbd0] dark:bg-neutral-950 border border-[#c3beb1] dark:border-neutral-700 rounded-xl pl-9 pr-3 py-2 text-xs text-[#2b2924] dark:text-neutral-100 outline-none focus:border-blue-500"
               />
             </div>
           </div>
 
           <div>
-            <label className="text-xs text-neutral-400 block mb-1">Access PIN</label>
+            <label className="text-xs text-[#5c584e] dark:text-neutral-400 block mb-1">Access PIN</label>
             <div className="relative">
-              <KeyRound className="w-4 h-4 text-neutral-500 absolute left-3 top-2.5" />
+              <KeyRound className="w-4 h-4 text-[#6e695d] dark:text-neutral-500 absolute left-3 top-2.5" />
               <input
                 type="password"
                 value={pin}
                 onChange={(e) => setPin(e.target.value)}
                 placeholder="PIN"
-                className="w-full bg-neutral-950 border border-neutral-700 rounded-xl pl-9 pr-3 py-2 text-xs text-neutral-100 outline-none focus:border-blue-500"
+                className="w-full bg-[#e0dbd0] dark:bg-neutral-950 border border-[#c3beb1] dark:border-neutral-700 rounded-xl pl-9 pr-3 py-2 text-xs text-[#2b2924] dark:text-neutral-100 outline-none focus:border-blue-500"
               />
             </div>
           </div>
 
           <div>
-            <label className="text-xs text-neutral-400 block mb-1">Project Role</label>
+            <label className="text-xs text-[#5c584e] dark:text-neutral-400 block mb-1">Project Role</label>
             <div className="relative">
-              <ShieldCheck className="w-4 h-4 text-neutral-500 absolute left-3 top-2.5 pointer-events-none" />
+              <ShieldCheck className="w-4 h-4 text-[#6e695d] dark:text-neutral-500 absolute left-3 top-2.5 pointer-events-none" />
               <select
                 value={role}
                 onChange={(e) => setRole(e.target.value as 'Admin' | 'Editor' | 'Viewer')}
-                className="w-full bg-neutral-950 border border-neutral-700 rounded-xl pl-9 pr-3 py-2 text-xs text-neutral-100 outline-none focus:border-blue-500"
+                className="w-full bg-[#e0dbd0] dark:bg-neutral-950 border border-[#c3beb1] dark:border-neutral-700 rounded-xl pl-9 pr-3 py-2 text-xs text-[#2b2924] dark:text-neutral-100 outline-none focus:border-blue-500"
               >
-                <option value="Admin">Admin (Full Edit & Delete Access)</option>
-                <option value="Editor">Editor (Edit Nodes & Annotations)</option>
-                <option value="Viewer">Viewer (Read-Only Canvas)</option>
+                <option value="Admin" className="bg-[#ebe7de] text-[#2b2924] dark:bg-neutral-900 dark:text-neutral-200">Admin (Full Edit & Delete Access)</option>
+                <option value="Editor" className="bg-[#ebe7de] text-[#2b2924] dark:bg-neutral-900 dark:text-neutral-200">Editor (Edit Nodes & Annotations)</option>
+                <option value="Viewer" className="bg-[#ebe7de] text-[#2b2924] dark:bg-neutral-900 dark:text-neutral-200">Viewer (Read-Only Canvas)</option>
               </select>
             </div>
           </div>
 
-          {error && <p className="text-xs text-red-400 font-medium text-center">{error}</p>}
+          {error && <p className="text-xs text-red-700 dark:text-red-400 font-medium text-center">{error}</p>}
 
           <button
             type="submit"

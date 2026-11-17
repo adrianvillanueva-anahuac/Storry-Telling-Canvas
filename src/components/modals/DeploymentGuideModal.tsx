@@ -110,53 +110,53 @@ export const DeploymentGuideModal: React.FC<DeploymentGuideModalProps> = ({
   ];
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-sm p-4 overflow-y-auto">
-      <div className="bg-neutral-900 border border-neutral-700 w-full max-w-3xl rounded-xl shadow-2xl flex flex-col max-h-[90vh] overflow-hidden animate-in fade-in zoom-in-95 duration-150">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/55 dark:bg-black/75 backdrop-blur-sm p-4 overflow-y-auto">
+      <div className="bg-[#ebe7de] dark:bg-neutral-900 border border-[#c3beb1] dark:border-neutral-700 w-full max-w-3xl rounded-xl shadow-2xl flex flex-col max-h-[90vh] overflow-hidden animate-in fade-in zoom-in-95 duration-150">
         {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-neutral-800 bg-neutral-950/60">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-[#d4cfc3] dark:border-neutral-800 bg-[#e3ded3] dark:bg-neutral-950/60">
           <div className="flex items-center gap-3">
-            <div className="p-2 bg-amber-500/10 border border-amber-500/20 text-amber-400 rounded-lg">
+            <div className="p-2 bg-amber-500/15 dark:bg-amber-500/10 border border-amber-600/35 dark:border-amber-500/20 text-amber-700 dark:text-amber-400 rounded-lg">
               <Rocket className="w-5 h-5" />
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <h2 className="text-lg font-bold text-neutral-100">
+                <h2 className="text-lg font-bold text-[#2b2924] dark:text-neutral-100">
                   Deploy to Firebase Hosting
                 </h2>
-                <span className="px-2 py-0.5 text-xs font-semibold rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 flex items-center gap-1">
+                <span className="px-2 py-0.5 text-xs font-semibold rounded-full bg-emerald-600/12 text-emerald-800 border border-emerald-700/30 dark:bg-emerald-500/10 dark:text-emerald-400 dark:border-emerald-500/20 flex items-center gap-1">
                   <Sparkles className="w-3 h-3" />
                   Free Spark Plan
                 </span>
               </div>
-              <p className="text-xs text-neutral-400">
+              <p className="text-xs text-[#5c584e] dark:text-neutral-400">
                 Interactive guide to publish your Visual Workflow Canvas to a global CDN with free SSL
               </p>
             </div>
           </div>
           <button
             onClick={onClose}
-            className="p-1.5 text-neutral-400 hover:text-neutral-100 hover:bg-neutral-800 rounded-lg transition-colors"
+            className="p-1.5 text-[#5c584e] hover:text-[#1f1d18] hover:bg-[#dcd7cc] dark:text-neutral-400 dark:hover:text-neutral-100 dark:hover:bg-neutral-800 rounded-lg transition-colors cursor-pointer"
           >
             <X className="w-5 h-5" />
           </button>
         </div>
 
         {/* Project Context Pill Bar */}
-        <div className="px-6 py-3 bg-neutral-950/40 border-b border-neutral-800 flex flex-wrap items-center justify-between gap-3 text-xs">
-          <div className="flex items-center gap-4 text-neutral-300">
+        <div className="px-6 py-3 bg-[#e0dbd0] dark:bg-neutral-950/40 border-b border-[#d4cfc3] dark:border-neutral-800 flex flex-wrap items-center justify-between gap-3 text-xs">
+          <div className="flex items-center gap-4 text-[#3a362e] dark:text-neutral-300">
             <div>
-              <span className="text-neutral-500 mr-1.5">Project ID:</span>
-              <code className="px-1.5 py-0.5 bg-neutral-800 text-amber-300 rounded font-mono">
+              <span className="text-[#5c584e] dark:text-neutral-500 mr-1.5">Project ID:</span>
+              <code className="px-1.5 py-0.5 bg-[#d5cfc2] text-amber-800 dark:bg-neutral-800 dark:text-amber-300 rounded font-mono">
                 {projectId}
               </code>
             </div>
             <div>
-              <span className="text-neutral-500 mr-1.5">Live URL:</span>
+              <span className="text-[#5c584e] dark:text-neutral-500 mr-1.5">Live URL:</span>
               <a
                 href={hostingUrl}
                 target="_blank"
                 rel="noreferrer"
-                className="text-cyan-400 hover:underline flex items-center gap-1 font-mono"
+                className="text-cyan-700 dark:text-cyan-400 hover:underline flex items-center gap-1 font-mono"
               >
                 {hostingUrl}
                 <ExternalLink className="w-3 h-3" />
@@ -168,7 +168,7 @@ export const DeploymentGuideModal: React.FC<DeploymentGuideModalProps> = ({
             href={consoleUrl}
             target="_blank"
             rel="noreferrer"
-            className="flex items-center gap-1.5 text-neutral-400 hover:text-neutral-200 transition-colors"
+            className="flex items-center gap-1.5 text-[#5c584e] hover:text-[#1f1d18] dark:text-neutral-400 dark:hover:text-neutral-200 transition-colors"
           >
             <Globe className="w-3.5 h-3.5" />
             <span>Open Firebase Console</span>
@@ -178,17 +178,17 @@ export const DeploymentGuideModal: React.FC<DeploymentGuideModalProps> = ({
         {/* Content Body */}
         <div className="p-6 overflow-y-auto space-y-6 text-sm">
           {/* Download Project ZIP Banner */}
-          <div className="p-4 rounded-xl bg-blue-950/30 border border-blue-500/30 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+          <div className="p-4 rounded-xl bg-blue-600/10 dark:bg-blue-950/30 border border-blue-600/30 dark:border-blue-500/30 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
             <div className="flex items-start gap-3">
-              <div className="p-2 rounded-lg bg-blue-500/10 border border-blue-500/20 text-blue-400 shrink-0">
+              <div className="p-2 rounded-lg bg-blue-600/12 dark:bg-blue-500/10 border border-blue-600/30 dark:border-blue-500/20 text-blue-700 dark:text-blue-400 shrink-0">
                 <Download className="w-5 h-5" />
               </div>
               <div>
-                <h4 className="text-xs font-bold text-blue-200 uppercase tracking-wider">
+                <h4 className="text-xs font-bold text-blue-900 dark:text-blue-200 uppercase tracking-wider">
                   ¿No tienes los archivos en tu PC todavía?
                 </h4>
-                <p className="text-xs text-blue-300/80 leading-relaxed mt-0.5">
-                  Descarga el código completo en un archivo <code className="text-blue-100 font-mono">.zip</code> listo para descomprimir en tu computadora y desplegar en 1 minuto.
+                <p className="text-xs text-blue-800/85 dark:text-blue-300/80 leading-relaxed mt-0.5">
+                  Descarga el código completo en un archivo <code className="text-blue-950 dark:text-blue-100 font-mono">.zip</code> listo para descomprimir en tu computadora y desplegar en 1 minuto.
                 </p>
               </div>
             </div>
@@ -196,7 +196,7 @@ export const DeploymentGuideModal: React.FC<DeploymentGuideModalProps> = ({
             <button
               onClick={handleDownloadZip}
               disabled={downloading}
-              className="px-4 py-2 bg-blue-600 hover:bg-blue-500 active:bg-blue-700 disabled:opacity-50 text-white font-semibold text-xs rounded-lg transition-colors flex items-center gap-2 shrink-0 shadow-lg shadow-blue-900/30 cursor-pointer"
+              className="px-4 py-2 bg-blue-600 hover:bg-blue-500 active:bg-blue-700 disabled:opacity-50 text-white font-semibold text-xs rounded-lg transition-colors flex items-center gap-2 shrink-0 shadow-lg shadow-blue-900/20 dark:shadow-blue-900/30 cursor-pointer"
             >
               {downloading ? (
                 <>
@@ -213,15 +213,15 @@ export const DeploymentGuideModal: React.FC<DeploymentGuideModalProps> = ({
           </div>
 
           {/* Recommended Folder Hierarchy */}
-          <div className="p-4 rounded-xl bg-neutral-950/60 border border-neutral-800 space-y-2.5">
-            <div className="flex items-center gap-2 text-xs font-semibold text-neutral-300 uppercase tracking-wider">
-              <FolderTree className="w-4 h-4 text-amber-400" />
+          <div className="p-4 rounded-xl bg-[#e0dbd0] dark:bg-neutral-950/60 border border-[#c8c3b6] dark:border-neutral-800 space-y-2.5">
+            <div className="flex items-center gap-2 text-xs font-semibold text-[#2b2924] dark:text-neutral-300 uppercase tracking-wider">
+              <FolderTree className="w-4 h-4 text-amber-700 dark:text-amber-400" />
               <span>Jerarquía recomendada en tu computadora</span>
             </div>
-            <p className="text-xs text-neutral-400">
-              Descomprime el archivo en una ruta limpia y sin espacios en tu disco local (ej. <code className="text-neutral-200 font-mono">C:\Proyectos\visual-workflow-canvas</code>):
+            <p className="text-xs text-[#5c584e] dark:text-neutral-400">
+              Descomprime el archivo en una ruta limpia y sin espacios en tu disco local (ej. <code className="text-[#2b2924] dark:text-neutral-200 font-mono">C:\Proyectos\visual-workflow-canvas</code>):
             </p>
-            <div className="bg-black/70 border border-neutral-800/80 rounded-lg p-3 font-mono text-[11px] text-neutral-300 leading-relaxed overflow-x-auto">
+            <div className="bg-[#23201b] dark:bg-black/70 border border-[#3d3930] dark:border-neutral-800/80 rounded-lg p-3 font-mono text-[11px] text-neutral-300 leading-relaxed overflow-x-auto">
               <div>C:\</div>
               <div>└── <span className="text-amber-400">Proyectos\</span> <span className="text-neutral-500">← Carpeta raíz para tus proyectos de desarrollo</span></div>
               <div>&nbsp;&nbsp;&nbsp;&nbsp;└── <span className="text-emerald-400">visual-workflow-canvas\</span> <span className="text-neutral-500">← Descomprime el ZIP aquí</span></div>
@@ -235,15 +235,15 @@ export const DeploymentGuideModal: React.FC<DeploymentGuideModalProps> = ({
           </div>
 
           {/* Quick Summary Banner */}
-          <div className="p-4 rounded-lg bg-neutral-800/40 border border-neutral-700/60 flex items-start gap-3">
-            <FileCode2 className="w-5 h-5 text-amber-400 shrink-0 mt-0.5" />
+          <div className="p-4 rounded-lg bg-[#e0dbd0] dark:bg-neutral-800/40 border border-[#c3beb1] dark:border-neutral-700/60 flex items-start gap-3">
+            <FileCode2 className="w-5 h-5 text-amber-700 dark:text-amber-400 shrink-0 mt-0.5" />
             <div className="space-y-1">
-              <h4 className="text-xs font-semibold text-neutral-200 uppercase tracking-wider">
+              <h4 className="text-xs font-semibold text-[#2b2924] dark:text-neutral-200 uppercase tracking-wider">
                 Archivos de configuración listos en el repositorio
               </h4>
-              <p className="text-xs text-neutral-400 leading-relaxed">
-                <code className="text-neutral-200 font-mono">firebase.json</code> y{' '}
-                <code className="text-neutral-200 font-mono">.firebaserc</code> ya están creados con reglas de reescritura SPA para <code className="text-neutral-200 font-mono">dist/</code> y enlaces a <code className="text-neutral-200 font-mono">firestore.rules</code>. No necesitas ejecutar <code className="text-neutral-200 font-mono">firebase init</code>.
+              <p className="text-xs text-[#5c584e] dark:text-neutral-400 leading-relaxed">
+                <code className="text-[#2b2924] dark:text-neutral-200 font-mono">firebase.json</code> y{' '}
+                <code className="text-[#2b2924] dark:text-neutral-200 font-mono">.firebaserc</code> ya están creados con reglas de reescritura SPA para <code className="text-[#2b2924] dark:text-neutral-200 font-mono">dist/</code> y enlaces a <code className="text-[#2b2924] dark:text-neutral-200 font-mono">firestore.rules</code>. No necesitas ejecutar <code className="text-[#2b2924] dark:text-neutral-200 font-mono">firebase init</code>.
               </p>
             </div>
           </div>
@@ -257,25 +257,25 @@ export const DeploymentGuideModal: React.FC<DeploymentGuideModalProps> = ({
                   key={s.step}
                   className={`p-4 rounded-xl border transition-all ${
                     isDone
-                      ? 'bg-emerald-950/20 border-emerald-800/40'
-                      : 'bg-neutral-800/30 border-neutral-700/70 hover:border-neutral-600'
+                      ? 'bg-emerald-600/10 border-emerald-700/35 dark:bg-emerald-950/20 dark:border-emerald-800/40'
+                      : 'bg-[#e0dbd0] border-[#c8c3b6] hover:border-[#a6a092] dark:bg-neutral-800/30 dark:border-neutral-700/70 dark:hover:border-neutral-600'
                   }`}
                 >
                   <div className="flex items-start justify-between gap-3 mb-2">
                     <div className="flex items-center gap-2.5">
                       <button
                         onClick={() => toggleStep(s.step)}
-                        className="text-neutral-400 hover:text-emerald-400 transition-colors"
+                        className="text-[#5c584e] hover:text-emerald-700 dark:text-neutral-400 dark:hover:text-emerald-400 transition-colors cursor-pointer"
                         title={isDone ? 'Mark as incomplete' : 'Mark as done'}
                       >
                         {isDone ? (
-                          <CheckCircle2 className="w-5 h-5 text-emerald-400" />
+                          <CheckCircle2 className="w-5 h-5 text-emerald-700 dark:text-emerald-400" />
                         ) : (
-                          <Circle className="w-5 h-5 text-neutral-500" />
+                          <Circle className="w-5 h-5 text-[#757065] dark:text-neutral-500" />
                         )}
                       </button>
-                      <span className="font-semibold text-neutral-100 flex items-center gap-2">
-                        <span className="w-5 h-5 rounded-full bg-neutral-700/80 text-neutral-200 text-xs flex items-center justify-center font-mono font-bold">
+                      <span className="font-semibold text-[#2b2924] dark:text-neutral-100 flex items-center gap-2">
+                        <span className="w-5 h-5 rounded-full bg-[#d2ccbf] text-[#2b2924] dark:bg-neutral-700/80 dark:text-neutral-200 text-xs flex items-center justify-center font-mono font-bold">
                           {s.step}
                         </span>
                         {s.title}
@@ -284,26 +284,26 @@ export const DeploymentGuideModal: React.FC<DeploymentGuideModalProps> = ({
 
                     <button
                       onClick={() => copyToClipboard(s.command, `step-${s.step}`)}
-                      className="px-2.5 py-1 text-xs font-medium rounded-md bg-neutral-800 hover:bg-neutral-700 text-neutral-200 border border-neutral-700 flex items-center gap-1.5 transition-colors"
+                      className="px-2.5 py-1 text-xs font-medium rounded-md bg-[#dcd7cc] hover:bg-[#d2ccbf] text-[#2b2924] border border-[#c3beb1] dark:bg-neutral-800 dark:hover:bg-neutral-700 dark:text-neutral-200 dark:border-neutral-700 flex items-center gap-1.5 transition-colors cursor-pointer"
                     >
                       {copiedKey === `step-${s.step}` ? (
                         <>
-                          <Check className="w-3.5 h-3.5 text-emerald-400" />
-                          <span className="text-emerald-400">Copied!</span>
+                          <Check className="w-3.5 h-3.5 text-emerald-700 dark:text-emerald-400" />
+                          <span className="text-emerald-700 dark:text-emerald-400">Copied!</span>
                         </>
                       ) : (
                         <>
-                          <Copy className="w-3.5 h-3.5 text-neutral-400" />
+                          <Copy className="w-3.5 h-3.5 text-[#5c584e] dark:text-neutral-400" />
                           <span>Copy command</span>
                         </>
                       )}
                     </button>
                   </div>
 
-                  <p className="text-xs text-neutral-400 mb-3 ml-7">{s.desc}</p>
+                  <p className="text-xs text-[#5c584e] dark:text-neutral-400 mb-3 ml-7">{s.desc}</p>
 
                   {/* Terminal Code Snippet */}
-                  <div className="ml-7 bg-black/60 border border-neutral-800 rounded-lg p-3 font-mono text-xs text-neutral-200 flex items-center justify-between group">
+                  <div className="ml-7 bg-[#23201b] dark:bg-black/60 border border-[#3d3930] dark:border-neutral-800 rounded-lg p-3 font-mono text-xs text-neutral-200 flex items-center justify-between group">
                     <div className="flex items-center gap-2 overflow-x-auto whitespace-pre">
                       <Terminal className="w-4 h-4 text-amber-400 shrink-0" />
                       <span className="text-emerald-400 select-none">$</span>
@@ -312,7 +312,7 @@ export const DeploymentGuideModal: React.FC<DeploymentGuideModalProps> = ({
                   </div>
 
                   {s.tips && (
-                    <p className="ml-7 mt-2 text-[11px] text-neutral-500 italic">
+                    <p className="ml-7 mt-2 text-[11px] text-[#6e695d] dark:text-neutral-500 italic">
                       Tip: {s.tips}
                     </p>
                   )}
@@ -322,10 +322,10 @@ export const DeploymentGuideModal: React.FC<DeploymentGuideModalProps> = ({
           </div>
 
           {/* Quick All-in-One Shortcut */}
-          <div className="p-4 rounded-xl bg-gradient-to-r from-amber-950/20 to-neutral-900 border border-amber-500/20">
+          <div className="p-4 rounded-xl bg-amber-500/10 dark:bg-gradient-to-r dark:from-amber-950/20 dark:to-neutral-900 border border-amber-600/35 dark:border-amber-500/20">
             <div className="flex items-center justify-between mb-2">
-              <span className="text-xs font-semibold text-amber-300 uppercase tracking-wider flex items-center gap-1.5">
-                <Sparkles className="w-4 h-4 text-amber-400" />
+              <span className="text-xs font-semibold text-amber-800 dark:text-amber-300 uppercase tracking-wider flex items-center gap-1.5">
+                <Sparkles className="w-4 h-4 text-amber-700 dark:text-amber-400" />
                 One-Line Fast Deploy (Once CLI is installed & logged in)
               </span>
               <button
@@ -335,12 +335,12 @@ export const DeploymentGuideModal: React.FC<DeploymentGuideModalProps> = ({
                     'one-liner'
                   )
                 }
-                className="px-2.5 py-1 text-xs font-medium rounded-md bg-amber-500/20 hover:bg-amber-500/30 text-amber-200 border border-amber-500/30 flex items-center gap-1.5 transition-colors"
+                className="px-2.5 py-1 text-xs font-medium rounded-md bg-amber-500/20 hover:bg-amber-500/30 text-amber-900 dark:text-amber-200 border border-amber-600/35 dark:border-amber-500/30 flex items-center gap-1.5 transition-colors cursor-pointer"
               >
                 {copiedKey === 'one-liner' ? (
                   <>
-                    <Check className="w-3.5 h-3.5 text-emerald-400" />
-                    <span className="text-emerald-400">Copied!</span>
+                    <Check className="w-3.5 h-3.5 text-emerald-700 dark:text-emerald-400" />
+                    <span className="text-emerald-700 dark:text-emerald-400">Copied!</span>
                   </>
                 ) : (
                   <>
@@ -350,7 +350,7 @@ export const DeploymentGuideModal: React.FC<DeploymentGuideModalProps> = ({
                 )}
               </button>
             </div>
-            <div className="bg-black/60 border border-neutral-800 rounded-lg p-2.5 font-mono text-xs text-amber-200/90 flex items-center gap-2 overflow-x-auto">
+            <div className="bg-[#23201b] dark:bg-black/60 border border-[#3d3930] dark:border-neutral-800 rounded-lg p-2.5 font-mono text-xs text-amber-200/90 flex items-center gap-2 overflow-x-auto">
               <Terminal className="w-4 h-4 text-amber-400 shrink-0" />
               <span className="text-emerald-400 select-none">$</span>
               <span>npm run build && firebase deploy --only hosting</span>
@@ -358,32 +358,32 @@ export const DeploymentGuideModal: React.FC<DeploymentGuideModalProps> = ({
           </div>
 
           {/* Checklist & Post-Deployment Tips */}
-          <div className="border border-neutral-800 rounded-xl p-4 bg-neutral-950/40 space-y-3">
-            <h4 className="text-xs font-semibold text-neutral-300 uppercase tracking-wider flex items-center gap-1.5">
-              <ShieldCheck className="w-4 h-4 text-emerald-400" />
+          <div className="border border-[#c8c3b6] dark:border-neutral-800 rounded-xl p-4 bg-[#e0dbd0] dark:bg-neutral-950/40 space-y-3">
+            <h4 className="text-xs font-semibold text-[#2b2924] dark:text-neutral-300 uppercase tracking-wider flex items-center gap-1.5">
+              <ShieldCheck className="w-4 h-4 text-emerald-700 dark:text-emerald-400" />
               Post-Deployment Verification & Auth Domains
             </h4>
-            <div className="space-y-2 text-xs text-neutral-400">
+            <div className="space-y-2 text-xs text-[#5c584e] dark:text-neutral-400">
               <div className="flex items-start gap-2">
-                <Check className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
+                <Check className="w-4 h-4 text-emerald-700 dark:text-emerald-400 shrink-0 mt-0.5" />
                 <div>
-                  <span className="text-neutral-200 font-medium">
+                  <span className="text-[#2b2924] dark:text-neutral-200 font-medium">
                     Google Sign-In Domain Whitelist:
                   </span>{' '}
                   Ensure{' '}
-                  <code className="text-amber-300 font-mono">
+                  <code className="text-amber-800 dark:text-amber-300 font-mono">
                     {projectId}.web.app
                   </code>
                   ,{' '}
-                  <code className="text-amber-300 font-mono">
+                  <code className="text-amber-800 dark:text-amber-300 font-mono">
                     {projectId}.firebaseapp.com
                   </code>
-                  , or your <code className="text-amber-300 font-mono">*.vercel.app</code> / custom domain are listed in Firebase Console under{' '}
+                  , or your <code className="text-amber-800 dark:text-amber-300 font-mono">*.vercel.app</code> / custom domain are listed in Firebase Console under{' '}
                   <a
                     href={authDomainsUrl}
                     target="_blank"
                     rel="noreferrer"
-                    className="text-cyan-400 hover:underline inline-flex items-center gap-0.5"
+                    className="text-cyan-700 dark:text-cyan-400 hover:underline inline-flex items-center gap-0.5"
                   >
                     Authentication &gt; Settings &gt; Authorized domains
                     <ExternalLink className="w-3 h-3 inline" />
@@ -392,24 +392,24 @@ export const DeploymentGuideModal: React.FC<DeploymentGuideModalProps> = ({
                 </div>
               </div>
               <div className="flex items-start gap-2">
-                <Check className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
+                <Check className="w-4 h-4 text-emerald-700 dark:text-emerald-400 shrink-0 mt-0.5" />
                 <div>
-                  <span className="text-neutral-200 font-medium">Firebase Storage Enabled:</span>{' '}
-                  Image and map uploads go directly to Firebase Storage (<code className="text-neutral-300 font-mono">{projectId}.firebasestorage.app</code>) so static hosting on Firebase Hosting or Vercel works completely serverless. Ensure Storage is activated in Firebase Console with authenticated read/write rules.
+                  <span className="text-[#2b2924] dark:text-neutral-200 font-medium">Firebase Storage Enabled:</span>{' '}
+                  Image and map uploads go directly to Firebase Storage (<code className="text-[#3a362e] dark:text-neutral-300 font-mono">{projectId}.firebasestorage.app</code>) so static hosting on Firebase Hosting or Vercel works completely serverless. Ensure Storage is activated in Firebase Console with authenticated read/write rules.
                 </div>
               </div>
               <div className="flex items-start gap-2">
-                <Check className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
+                <Check className="w-4 h-4 text-emerald-700 dark:text-emerald-400 shrink-0 mt-0.5" />
                 <div>
-                  <span className="text-neutral-200 font-medium">Vercel Deployment (Alternative):</span>{' '}
-                  <code className="text-neutral-300 font-mono">vercel.json</code> is already configured with SPA rewrites. Run <code className="text-neutral-300 font-mono">vercel --prod</code> (build: <code className="text-neutral-300 font-mono">npm run build</code>, output: <code className="text-neutral-300 font-mono">dist</code>).
+                  <span className="text-[#2b2924] dark:text-neutral-200 font-medium">Vercel Deployment (Alternative):</span>{' '}
+                  <code className="text-[#3a362e] dark:text-neutral-300 font-mono">vercel.json</code> is already configured with SPA rewrites. Run <code className="text-[#3a362e] dark:text-neutral-300 font-mono">vercel --prod</code> (build: <code className="text-[#3a362e] dark:text-neutral-300 font-mono">npm run build</code>, output: <code className="text-[#3a362e] dark:text-neutral-300 font-mono">dist</code>).
                 </div>
               </div>
               <div className="flex items-start gap-2">
-                <Check className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
+                <Check className="w-4 h-4 text-emerald-700 dark:text-emerald-400 shrink-0 mt-0.5" />
                 <div>
-                  <span className="text-neutral-200 font-medium">Firestore Security Rules:</span>{' '}
-                  Verified Google Auth and RBAC rules (<code className="text-neutral-300 font-mono">Admin</code>, <code className="text-neutral-300 font-mono">Editor</code>, <code className="text-neutral-300 font-mono">Viewer</code>) protect projects, nodes, connections, and user profiles.
+                  <span className="text-[#2b2924] dark:text-neutral-200 font-medium">Firestore Security Rules:</span>{' '}
+                  Verified Google Auth and RBAC rules (<code className="text-[#3a362e] dark:text-neutral-300 font-mono">Admin</code>, <code className="text-[#3a362e] dark:text-neutral-300 font-mono">Editor</code>, <code className="text-[#3a362e] dark:text-neutral-300 font-mono">Viewer</code>) protect projects, nodes, connections, and user profiles.
                 </div>
               </div>
             </div>
@@ -417,14 +417,14 @@ export const DeploymentGuideModal: React.FC<DeploymentGuideModalProps> = ({
         </div>
 
         {/* Footer */}
-        <div className="px-6 py-4 border-t border-neutral-800 bg-neutral-950/60 flex items-center justify-between">
-          <div className="text-xs text-neutral-400 flex items-center gap-1.5">
-            <AlertCircle className="w-4 h-4 text-amber-400" />
-            <span>Need to update rules as well? Run <code className="text-neutral-200 font-mono">firebase deploy</code></span>
+        <div className="px-6 py-4 border-t border-[#d4cfc3] dark:border-neutral-800 bg-[#e3ded3] dark:bg-neutral-950/60 flex items-center justify-between">
+          <div className="text-xs text-[#5c584e] dark:text-neutral-400 flex items-center gap-1.5">
+            <AlertCircle className="w-4 h-4 text-amber-700 dark:text-amber-400" />
+            <span>Need to update rules as well? Run <code className="text-[#2b2924] dark:text-neutral-200 font-mono">firebase deploy</code></span>
           </div>
           <button
             onClick={onClose}
-            className="px-4 py-2 bg-neutral-800 hover:bg-neutral-700 text-neutral-100 text-xs font-semibold rounded-lg transition-colors border border-neutral-700"
+            className="px-4 py-2 bg-[#dcd7cc] hover:bg-[#d2ccbf] text-[#2b2924] border border-[#c3beb1] dark:bg-neutral-800 dark:hover:bg-neutral-700 dark:text-neutral-100 dark:border-neutral-700 text-xs font-semibold rounded-lg transition-colors cursor-pointer"
           >
             Close Guide
           </button>

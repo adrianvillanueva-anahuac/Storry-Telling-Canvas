@@ -7,6 +7,7 @@ import { fileURLToPath } from 'url';
 import { createServer as createViteServer } from 'vite';
 import { del } from '@vercel/blob';
 import { handleUpload, type HandleUploadBody } from '@vercel/blob/client';
+import { GoogleGenAI, Part } from '@google/genai';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -234,7 +235,11 @@ app.post('/api/state', (req, res) => {
   res.json({ success });
 });
 
-// Vercel Blob client upload token endpoint (mirrors /api/blob-token.ts in local Express dev)
+// Vercel Blob configuration status + client upload token endpoint (mirrors /api/blob-token.ts in local Express dev)
+app.get('/api/blob-token', (_req, res) => {
+  res.json({ configured: Boolean(process.env.BLOB_READ_WRITE_TOKEN) });
+});
+
 app.post('/api/blob-token', async (req, res) => {
   if (!process.env.BLOB_READ_WRITE_TOKEN) {
     return res.status(503).json({ error: 'BLOB_READ_WRITE_TOKEN is not configured' });
@@ -289,6 +294,219 @@ app.post('/api/blob-delete', async (req, res) => {
   }
 });
 
+// Gemini Image Generation & Editing endpoint (mirrors /api/gemini-image.ts in local Express dev)
+const GEMINI_ASPECT_RATIOS = new Set(['1:1', '3:4', '4:3', '9:16', '16:9', '1:4', '1:8', '4:1', '8:1']);
+const GEMINI_IMAGE_SIZES = new Set(['1K', '2K', '4K']);
+
+function readFirebaseWebApiKey(): string {
+  try {
+    const raw = fs.readFileSync(path.join(__dirname, 'firebase-applet-config.json'), 'utf8');
+    const parsed = JSON.parse(raw) as { apiKey?: string };
+    if (parsed.apiKey) return parsed.apiKey;
+  } catch {
+    // ignore missing file
+  }
+  return process.env.VITE_FIREBASE_API_KEY || '';
+}
+
+async function verifyBearerFirebaseToken(authHeader?: string): Promise<boolean> {
+  if (!authHeader || !authHeader.startsWith('Bearer ')) return false;
+  const idToken = authHeader.slice(7).trim();
+  const apiKey = readFirebaseWebApiKey();
+  if (!idToken || !apiKey) return false;
+  try {
+    const res = await fetch(
+      `https://identitytoolkit.googleapis.com/v1/accounts:lookup?key=${encodeURIComponent(apiKey)}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ idToken }),
+      }
+    );
+    if (!res.ok) return false;
+    const data = (await res.json()) as { users?: Array<{ emailVerified?: boolean }> };
+    return Boolean(data.users && data.users.length > 0 && data.users[0].emailVerified !== false);
+  } catch {
+    return false;
+  }
+}
+
+async function resolveEditSourceImage(
+  sourceImageUrl?: string,
+  sourceBase64?: string,
+  sourceMimeType?: string
+): Promise<{ data: string; mimeType: string }> {
+  if (typeof sourceBase64 === 'string' && sourceBase64.trim()) {
+    const match = sourceBase64.match(/^data:([^;]+);base64,(.+)$/);
+    if (match) {
+      return { mimeType: match[1], data: match[2] };
+    }
+    return { mimeType: sourceMimeType || 'image/png', data: sourceBase64.trim() };
+  }
+
+  if (typeof sourceImageUrl === 'string' && sourceImageUrl.trim()) {
+    const trimmed = sourceImageUrl.trim();
+    if (trimmed.startsWith('data:')) {
+      const match = trimmed.match(/^data:([^;]+);base64,(.+)$/);
+      if (!match) throw new Error('Invalid source image data URL.');
+      return { mimeType: match[1], data: match[2] };
+    }
+
+    if (trimmed.startsWith('/uploads/')) {
+      const rel = trimmed.replace(/^\/uploads\//, '');
+      const absPath = path.resolve(UPLOADS_DIR, rel);
+      if (!absPath.startsWith(path.resolve(UPLOADS_DIR) + path.sep) || !fs.existsSync(absPath)) {
+        throw new Error('Local source image file could not be found.');
+      }
+      const ext = path.extname(absPath).toLowerCase();
+      const mimeMap: Record<string, string> = {
+        '.jpg': 'image/jpeg',
+        '.jpeg': 'image/jpeg',
+        '.png': 'image/png',
+        '.webp': 'image/webp',
+        '.gif': 'image/gif',
+      };
+      return {
+        mimeType: mimeMap[ext] || 'image/png',
+        data: fs.readFileSync(absPath).toString('base64'),
+      };
+    }
+
+    let parsedUrl: URL;
+    try {
+      parsedUrl = new URL(trimmed);
+    } catch {
+      throw new Error('Source image URL must be a valid HTTPS URL.');
+    }
+    if (parsedUrl.protocol !== 'https:') {
+      throw new Error('Source image URL must use HTTPS.');
+    }
+
+    const imgRes = await fetch(parsedUrl.toString());
+    if (!imgRes.ok) {
+      throw new Error(`Failed to fetch source image (${imgRes.status}).`);
+    }
+    const contentType = (imgRes.headers.get('content-type') || 'image/png').split(';')[0].trim();
+    const arrayBuf = await imgRes.arrayBuffer();
+    return {
+      mimeType: contentType.startsWith('image/') ? contentType : 'image/png',
+      data: Buffer.from(arrayBuf).toString('base64'),
+    };
+  }
+
+  throw new Error('Source image is required when editing an image.');
+}
+
+app.post('/api/gemini-image', async (req, res) => {
+  const isAuthorized = await verifyBearerFirebaseToken(req.headers.authorization);
+  if (!isAuthorized) {
+    return res.status(401).json({ error: 'Authentication required to generate images.' });
+  }
+
+  const {
+    mode,
+    prompt,
+    sourceImageUrl,
+    sourceBase64,
+    sourceMimeType,
+    aspectRatio,
+    imageSize,
+    userApiKey,
+  } = req.body || {};
+
+  const resolvedApiKey =
+    (typeof userApiKey === 'string' && userApiKey.trim()) ||
+    process.env.GEMINI_API_KEY ||
+    '';
+
+  if (!resolvedApiKey) {
+    return res.status(400).json({
+      error: 'No Gemini API key configured. Please add your API key in the user menu.',
+    });
+  }
+
+  const trimmedPrompt = typeof prompt === 'string' ? prompt.trim() : '';
+  if (!trimmedPrompt) {
+    return res.status(400).json({ error: 'Please enter a text prompt.' });
+  }
+
+  const resolvedMode = mode === 'edit' ? 'edit' : 'create';
+  const validAspectRatio =
+    typeof aspectRatio === 'string' && GEMINI_ASPECT_RATIOS.has(aspectRatio) ? aspectRatio : '16:9';
+  const validImageSize =
+    typeof imageSize === 'string' && GEMINI_IMAGE_SIZES.has(imageSize) ? imageSize : '1K';
+
+  try {
+    const parts: Part[] = [];
+    if (resolvedMode === 'edit') {
+      const source = await resolveEditSourceImage(sourceImageUrl, sourceBase64, sourceMimeType);
+      parts.push({
+        inlineData: {
+          data: source.data,
+          mimeType: source.mimeType,
+        },
+      });
+    }
+    parts.push({ text: trimmedPrompt });
+
+    const ai = new GoogleGenAI({
+      apiKey: resolvedApiKey,
+      httpOptions: {
+        headers: {
+          'User-Agent': 'aistudio-build',
+        },
+      },
+    });
+
+    const response = await ai.models.generateContent({
+      model: 'gemini-nano-banana-2.1',
+      contents: { parts },
+      config: {
+        imageConfig: {
+          aspectRatio: validAspectRatio,
+          imageSize: validImageSize,
+        },
+      },
+    });
+
+    let imageBase64 = '';
+    let mimeType = 'image/png';
+    let responseText = '';
+
+    for (const part of response.candidates?.[0]?.content?.parts ?? []) {
+      if (part.inlineData?.data) {
+        imageBase64 = part.inlineData.data;
+        mimeType = part.inlineData.mimeType || 'image/png';
+        break;
+      } else if (part.text) {
+        responseText += part.text;
+      }
+    }
+
+    if (!imageBase64) {
+      return res.status(422).json({
+        error: responseText || 'No image was returned by Gemini. Try refining your prompt.',
+      });
+    }
+
+    return res.json({
+      imageDataUrl: `data:${mimeType};base64,${imageBase64}`,
+      mimeType,
+      text: responseText,
+    });
+  } catch (err: any) {
+    const rawMsg = err?.message || 'Image generation failed.';
+    let status = typeof err?.status === 'number' && err.status >= 400 && err.status < 600 ? err.status : 500;
+    if (status === 500) {
+      if (/API_KEY_INVALID|API key not valid|invalid.*key/i.test(rawMsg)) status = 400;
+      else if (/PERMISSION_DENIED|403/i.test(rawMsg)) status = 403;
+      else if (/NOT_FOUND|404/i.test(rawMsg)) status = 404;
+      else if (/RESOURCE_EXHAUSTED|quota|429/i.test(rawMsg)) status = 429;
+    }
+    return res.status(status).json({ error: rawMsg });
+  }
+});
+
 // Upload image (base64 or data url)
 app.post('/api/upload', (req, res) => {
   try {
@@ -304,7 +522,7 @@ app.post('/api/upload', (req, res) => {
     }
 
     // Split base64 header
-    const matches = base64Data.match(/^data:([A-Za-z-+/]+);base64,(.+)$/);
+    const matches = base64Data.match(/^data:([^;]+)(?:;[^;]*)?;base64,(.+)$/);
     const buffer = matches ? Buffer.from(matches[2], 'base64') : Buffer.from(base64Data, 'base64');
 
     const cleanName = `${Date.now()}_${(filename || 'image.png').replace(/[^a-zA-Z0-9._-]/g, '_')}`;
@@ -401,7 +619,9 @@ app.post('/api/gallery/delete', (req, res) => {
 
     if (Array.isArray(fileIds)) {
       fileIds.forEach((id) => {
-        const filePath = path.join(folderPath, id);
+        const safeId = path.basename(String(id || ''));
+        if (!safeId) return;
+        const filePath = path.join(folderPath, safeId);
         if (fs.existsSync(filePath)) {
           fs.unlinkSync(filePath);
         }
@@ -416,25 +636,6 @@ app.post('/api/gallery/delete', (req, res) => {
 
 // Development vs Production static/Vite mounting
 async function startServer() {
-  if (!isProduction) {
-    const disableHmr = process.env.DISABLE_HMR === 'true';
-    const vite = await createViteServer({
-      server: {
-        middlewareMode: true,
-        allowedHosts: true,
-        hmr: disableHmr ? false : true,
-        watch: disableHmr ? null : {},
-      },
-      appType: 'spa',
-    });
-    app.use(vite.middlewares);
-  } else {
-    app.use(express.static(path.join(__dirname, 'dist')));
-    app.get('*', (_req, res) => {
-      res.sendFile(path.join(__dirname, 'dist', 'index.html'));
-    });
-  }
-
   const httpServer = app.listen(PORT, HOST, () => {
     console.log(`Server listening on http://${HOST}:${PORT}`);
   });
@@ -442,6 +643,35 @@ async function startServer() {
     console.error('Server listen error:', err);
     process.exit(1);
   });
+
+  if (!isProduction) {
+    const disableHmr = process.env.DISABLE_HMR === 'true';
+    const vitePromise = createViteServer({
+      server: {
+        middlewareMode: true,
+        allowedHosts: true,
+        hmr: disableHmr ? false : { server: httpServer },
+        watch: disableHmr ? null : {},
+      },
+      appType: 'spa',
+    });
+
+    vitePromise.catch((err) => {
+      console.error('Vite dev server initialization error:', err);
+      process.exit(1);
+    });
+
+    app.use((req, res, next) => {
+      vitePromise
+        .then((vite) => vite.middlewares(req, res, next))
+        .catch(next);
+    });
+  } else {
+    app.use(express.static(path.join(__dirname, 'dist')));
+    app.get('*', (_req, res) => {
+      res.sendFile(path.join(__dirname, 'dist', 'index.html'));
+    });
+  }
 }
 
 startServer();

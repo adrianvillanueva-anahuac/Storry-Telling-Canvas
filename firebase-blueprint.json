@@ -91,7 +91,11 @@
         "accion": { "type": "string" },
         "descripcion": { "type": "string" },
         "pinCounter": { "type": "number" },
-        "containerId": { "type": "string" }
+        "containerId": { "type": "string" },
+        "actors": {
+          "type": "array",
+          "description": "Assigned scene actors/3D elements and their scene states"
+        }
       },
       "required": ["id", "projectId", "title", "x", "y"]
     },
@@ -106,7 +110,7 @@
         "sourcePort": { "type": "string", "enum": ["top", "bottom", "left", "right"] },
         "target": { "type": "string" },
         "targetPort": { "type": "string", "enum": ["top", "bottom", "left", "right"] },
-        "type": { "type": "string", "enum": ["curve", "straight"] },
+        "type": { "type": "string", "enum": ["curve", "angle", "straight"] },
         "style": { "type": "string", "enum": ["solid", "dotted"] },
         "color": { "type": "string" },
         "label": { "type": "string", "maxLength": 100 },
@@ -149,12 +153,53 @@
         "date": { "type": "string" }
       },
       "required": ["id", "name"]
+    },
+    "UserGeminiConfig": {
+      "title": "UserGeminiConfig",
+      "description": "Private per-user Gemini API key configuration isolated to the owning user",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "maxLength": 128 },
+        "apiKey": { "type": "string", "minLength": 10, "maxLength": 256 },
+        "updatedAt": { "type": "string", "maxLength": 64 }
+      },
+      "required": ["userId", "apiKey", "updatedAt"]
+    },
+    "ActorItem": {
+      "title": "ActorItem",
+      "description": "Configurable 3D actor or scene element with thumbnail, possible states, and reusable project tags",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "projectId": { "type": "string" },
+        "name": { "type": "string", "maxLength": 150 },
+        "category": { "type": "string", "maxLength": 80 },
+        "description": { "type": "string", "maxLength": 2000 },
+        "thumbnailUrl": { "type": "string", "maxLength": 2048 },
+        "thumbnailPath": { "type": "string", "maxLength": 512 },
+        "states": {
+          "type": "array",
+          "description": "Configurable scene states defined for this actor"
+        },
+        "tags": {
+          "type": "array",
+          "description": "Reusable tags for global project reporting and filtering"
+        },
+        "author": { "type": "string", "maxLength": 120 },
+        "createdAt": { "type": "string", "maxLength": 64 },
+        "updatedAt": { "type": "string", "maxLength": 64 }
+      },
+      "required": ["id", "projectId", "name", "states", "tags"]
     }
   },
   "firestore": {
     "/users/{userId}": {
       "schema": { "$ref": "#/entities/User" },
       "description": "User profiles"
+    },
+    "/users/{userId}/private/{configId}": {
+      "schema": { "$ref": "#/entities/UserGeminiConfig" },
+      "description": "Private user settings such as personal Gemini API key"
     },
     "/admins/{userId}": {
       "schema": { "$ref": "#/entities/Admin" },
@@ -191,6 +236,10 @@
     "/projects/{projectId}/videos/{videoId}": {
       "schema": { "$ref": "#/entities/GlobalVideo" },
       "description": "YouTube video references scoped to a specific project"
+    },
+    "/projects/{projectId}/actors/{actorId}": {
+      "schema": { "$ref": "#/entities/ActorItem" },
+      "description": "Configurable actors and 3D elements scoped to a specific project"
     },
     "/globalVideos/{videoId}": {
       "schema": { "$ref": "#/entities/GlobalVideo" },

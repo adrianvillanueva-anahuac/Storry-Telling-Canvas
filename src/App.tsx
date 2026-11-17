@@ -1,9 +1,13 @@
-import React, { useEffect, useRef, useState, useCallback } from 'react';
+import React, { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import {
+  ActorItem,
   AppState,
+  CanvasStyleSettings,
   Connection,
+  DEFAULT_CANVAS_STYLE,
   GlobalVideo,
   ImageResource,
+  NodeActorAssignment,
   Project,
   TextElement,
   UserProfile,
@@ -33,6 +37,9 @@ import {
   deleteConnectionFromFirestore,
   saveTextToFirestore,
   deleteTextFromFirestore,
+  saveCanvasPositionsBatch,
+  deleteCanvasItemsBatch,
+  archiveNodesBatch,
   subscribeUsers,
   subscribeUserProfile,
   updateUserRole,
@@ -48,20 +55,40 @@ import {
   subscribeProjectVideos,
   addProjectVideoDoc,
   deleteProjectVideoDoc,
+  subscribeProjectActors,
+  saveProjectActor,
+  deleteProjectActor,
+  subscribeUserGeminiApiKey,
+  saveUserGeminiApiKey,
+  deleteUserGeminiApiKey,
+  syncCanvasSnapshotDiffToFirestore,
+  CanvasSnapshotData,
 } from './services/firestoreService';
 import { uploadImageToStorage } from './services/storageService';
+import {
+  MousePointer2,
+  Hand,
+  Trash2,
+  Archive,
+  X,
+  Undo2,
+  Redo2,
+  AlignHorizontalDistributeCenter,
+  AlignVerticalDistributeCenter,
+} from 'lucide-react';
 import { Header } from './components/Header';
 import { WorkflowNodeCard } from './components/WorkflowNodeCard';
 import { CanvasTextCard } from './components/CanvasTextCard';
 import { ConnectionLines } from './components/ConnectionLines';
 import { LinePropertiesMenu } from './components/popovers/LinePropertiesMenu';
 import { TextPropertiesMenu } from './components/popovers/TextPropertiesMenu';
-import { AddTextModal } from './components/modals/AddTextModal';
 import { LabelManagerModal } from './components/modals/LabelManagerModal';
 import { DeleteWarningModal } from './components/modals/DeleteWarningModal';
 import { ArchiveModal } from './components/modals/ArchiveModal';
 import { GalleryModal } from './components/modals/GalleryModal';
 import { GlobalVideoModal } from './components/modals/GlobalVideoModal';
+import { ActorLibraryModal } from './components/modals/ActorLibraryModal';
+import { ActorDetailModal } from './components/modals/ActorDetailModal';
 import { VideoSelectionModal } from './components/modals/VideoSelectionModal';
 import { VideoPlayerModal } from './components/modals/VideoPlayerModal';
 import { NodeDashboardModal } from './components/modals/NodeDashboardModal';
@@ -69,9 +96,38 @@ import { PinningModal } from './components/modals/PinningModal';
 import { MapViewerModal } from './components/modals/MapViewerModal';
 import { ReplaceImageWarningModal } from './components/modals/ReplaceImageWarningModal';
 import { AdminConsoleModal } from './components/modals/AdminConsoleModal';
-import { DeploymentGuideModal } from './components/modals/DeploymentGuideModal';
+import { ExportModal } from './components/modals/ExportModal';
+import { ApiKeyConfigModal } from './components/modals/ApiKeyConfigModal';
+import { AiImagePromptModal } from './components/modals/AiImagePromptModal';
+import { SketchStudioModal } from './components/modals/SketchStudioModal';
+import {
+  SearchTarget,
+  doesNodeMatchQuery,
+  doesTextMatchQuery,
+} from './components/HeaderSearch';
+import { ViewportCanvasRect } from './utils/canvasExport';
+import { computeNodeSnap, SnapGuideLine } from './utils/snapGuides';
+import { getNodePortCoords } from './utils/connectionPath';
+import { ReactiveDotGrid } from './components/ReactiveDotGrid';
+import { useLanguage } from './hooks/useLanguage';
+
+const MAX_HISTORY_STEPS = 10;
+
+interface CanvasSnapshot extends CanvasSnapshotData {
+  labels: Record<string, { name: string; color: string }>;
+}
+
+const cloneCanvasSnapshot = (snap: CanvasSnapshot): CanvasSnapshot =>
+  JSON.parse(JSON.stringify(snap)) as CanvasSnapshot;
+
+const areCanvasSnapshotsEqual = (a: CanvasSnapshot, b: CanvasSnapshot): boolean =>
+  JSON.stringify(a) === JSON.stringify(b);
 
 export default function App() {
+  const { language, setLanguage, locale, t } = useLanguage();
+  const tRef = useRef(t);
+  tRef.current = t;
+
   // Authentication & Role
   const [authReady, setAuthReady] = useState(false);
   const [firebaseUser, setFirebaseUser] = useState<FirebaseUser | null>(null);
@@ -80,14 +136,71 @@ export default function App() {
   const [isUploadingMedia, setIsUploadingMedia] = useState(false);
   const [currentUser, setCurrentUser] = useState<UserProfile>({
     uid: '',
-    name: 'Team Member',
+    name: t('app.defaultMemberName'),
     role: 'Viewer',
     email: '',
     isRegistered: false,
   });
 
-  // Theme state
-  const [isDark, setIsDark] = useState(true);
+  // Canvas & Theme style state (persisted + synced to <html>)
+  const [canvasStyle, setCanvasStyle] = useState<CanvasStyleSettings>(() => {
+    try {
+      const legacyDark = localStorage.getItem('vwc-theme') !== 'light';
+      const raw = localStorage.getItem('vwc-canvas-style');
+      if (raw) {
+        const parsed = JSON.parse(raw) as Partial<CanvasStyleSettings>;
+        return {
+          ...DEFAULT_CANVAS_STYLE,
+          ...parsed,
+          isDark: typeof parsed.isDark === 'boolean' ? parsed.isDark : legacyDark,
+          themeColors: {
+            dark: {
+              ...DEFAULT_CANVAS_STYLE.themeColors.dark,
+              ...(parsed.themeColors?.dark || {}),
+            },
+            light: {
+              ...DEFAULT_CANVAS_STYLE.themeColors.light,
+              ...(parsed.themeColors?.light || {}),
+            },
+          },
+        };
+      }
+      return {
+        ...DEFAULT_CANVAS_STYLE,
+        isDark: legacyDark,
+      };
+    } catch {
+      return DEFAULT_CANVAS_STYLE;
+    }
+  });
+
+  const isDark = canvasStyle.isDark;
+
+  useEffect(() => {
+    const root = document.documentElement;
+    root.classList.toggle('dark', isDark);
+    root.classList.toggle('light', !isDark);
+    try {
+      localStorage.setItem('vwc-theme', isDark ? 'dark' : 'light');
+      localStorage.setItem('vwc-canvas-style', JSON.stringify(canvasStyle));
+    } catch {
+      // ignore storage quota errors
+    }
+  }, [isDark, canvasStyle]);
+
+  const handleResetCanvasStyle = useCallback(() => {
+    setCanvasStyle((prev) => {
+      const activeKey = prev.isDark ? 'dark' : 'light';
+      return {
+        ...DEFAULT_CANVAS_STYLE,
+        isDark: prev.isDark,
+        themeColors: {
+          ...prev.themeColors,
+          [activeKey]: { ...DEFAULT_CANVAS_STYLE.themeColors[activeKey] },
+        },
+      };
+    });
+  }, []);
 
   // Projects State
   const [projects, setProjects] = useState<Project[]>([]);
@@ -99,12 +212,13 @@ export default function App() {
     connections: [],
     texts: {},
     labels: {
-      'lbl-1': { name: 'Act I - Sequence', color: '#0052cc' },
-      'lbl-2': { name: 'Needs Review', color: '#ff5630' },
-      'lbl-3': { name: 'Final Polish', color: '#36b37e' },
+      'lbl-1': { name: t('app.seedLabelAct1'), color: '#0052cc' },
+      'lbl-2': { name: t('app.seedLabelReview'), color: '#ff5630' },
+      'lbl-3': { name: t('app.seedLabelPolish'), color: '#36b37e' },
     },
     storedNodes: {},
     globalVideos: [],
+    actors: [],
   });
 
   // Users & Web Image DB from Firestore
@@ -117,10 +231,14 @@ export default function App() {
   const [zoom, setZoom] = useState(1);
   const currentZoomRef = useRef(1);
   const targetZoomRef = useRef(1);
-  const zoomVelocityRef = useRef(0);
+  const targetLogZoomRef = useRef(0);
+  const logZoomVelocityRef = useRef(0);
+  const isZoomingOutRef = useRef(false);
   const zoomRafRef = useRef<number | null>(null);
   const lastZoomFrameTimeRef = useRef<number>(0);
   const lastStateSyncTimeRef = useRef<number>(0);
+  const cameraPosRef = useRef<{ x: number; y: number }>({ x: 1850, y: 2050 });
+  const dotGridRenderRef = useRef<(() => void) | null>(null);
   const zoomAnchorRef = useRef<{
     mouseX: number;
     mouseY: number;
@@ -129,11 +247,23 @@ export default function App() {
   } | null>(null);
   const viewportRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLDivElement>(null);
+  const workspaceItemsRef = useRef({ nodes: appState.nodes, texts: appState.texts });
+  workspaceItemsRef.current = { nodes: appState.nodes, texts: appState.texts };
 
   // Modals & Panels
   const [adminConsoleOpen, setAdminConsoleOpen] = useState(false);
-  const [deploymentGuideOpen, setDeploymentGuideOpen] = useState(false);
   const [architectureModalOpen, setArchitectureModalOpen] = useState(false);
+  const [exportModalOpen, setExportModalOpen] = useState(false);
+  const [exportViewportRect, setExportViewportRect] = useState<ViewportCanvasRect>({
+    x: 2000,
+    y: 2000,
+    width: 1280,
+    height: 800,
+    zoom: 1,
+  });
+  const [highlightedElementId, setHighlightedElementId] = useState<string | null>(null);
+  const highlightTimerRef = useRef<number | null>(null);
+  const [searchQuery, setSearchQuery] = useState('');
   const [activeEditNodeId, setActiveEditNodeId] = useState<string | null>(null);
   const [pinningNodeId, setPinningNodeId] = useState<string | null>(null);
   const [mapViewerNodeId, setMapViewerNodeId] = useState<string | null>(null);
@@ -143,19 +273,36 @@ export default function App() {
   }>({ open: false, mode: 'images-manage' });
 
   const [globalVideoModalOpen, setGlobalVideoModalOpen] = useState(false);
+  const [actorLibraryState, setActorLibraryState] = useState<{
+    open: boolean;
+    editActorId?: string | null;
+    pickForNodeId?: string | null;
+  }>({ open: false });
+  const [inspectedActor, setInspectedActor] = useState<ActorItem | null>(null);
   const [videoSelectCol, setVideoSelectCol] = useState<'enfoque' | 'accion' | 'descripcion' | null>(null);
   const [videoPlayerCol, setVideoPlayerCol] = useState<'enfoque' | 'accion' | 'descripcion' | null>(null);
 
   const [archiveModalOpen, setArchiveModalOpen] = useState(false);
-  const [addTextModalState, setAddTextModalState] = useState<{
-    open: boolean;
-    type: 'floating' | 'container' | 'annotation';
-  }>({ open: false, type: 'floating' });
   const [labelManagerOpen, setLabelManagerOpen] = useState(false);
   const [deleteWarningNodeId, setDeleteWarningNodeId] = useState<string | null>(null);
   const [replaceWarningTarget, setReplaceWarningTarget] = useState<{
     nodeId: string;
     pendingUrl: string | null;
+  } | null>(null);
+  const [userGeminiApiKey, setUserGeminiApiKey] = useState<string | null>(null);
+  const [apiKeyModalOpen, setApiKeyModalOpen] = useState(false);
+  const [aiImageModalState, setAiImageModalState] = useState<{
+    mode: 'create' | 'edit';
+    targetKind: 'image' | 'map';
+    targetScope: 'node' | 'library';
+    nodeId?: string;
+    sourceImageUrl?: string | null;
+    defaultTitle?: string;
+    applyToPickerNode?: boolean;
+  } | null>(null);
+  const [sketchStudioState, setSketchStudioState] = useState<{
+    nodeId: string;
+    targetKind: 'image' | 'map';
   } | null>(null);
 
   // Popovers
@@ -171,6 +318,20 @@ export default function App() {
     y: number;
   } | null>(null);
 
+  // Canvas Tool Mode, Multi-Selection & Marquee Box
+  const [canvasToolMode, setCanvasToolMode] = useState<'select' | 'pan'>('select');
+  const [isSpacePressed, setIsSpacePressed] = useState(false);
+  const [selectedItems, setSelectedItems] = useState<Record<string, 'node' | 'text'>>({});
+  const [batchDeleteOpen, setBatchDeleteOpen] = useState(false);
+  const [selectionBox, setSelectionBox] = useState<{
+    startX: number;
+    startY: number;
+    currentX: number;
+    currentY: number;
+    additive: boolean;
+    baseSelection: Record<string, 'node' | 'text'>;
+  } | null>(null);
+
   // Active Dragging & Port Connection
   const [isPanningCanvas, setIsPanningCanvas] = useState(false);
   const [panStart, setPanStart] = useState<{ x: number; y: number; scrollLeft: number; scrollTop: number }>({
@@ -179,6 +340,13 @@ export default function App() {
     scrollLeft: 0,
     scrollTop: 0,
   });
+  const activeTouchPointsRef = useRef<Map<number, { clientX: number; clientY: number }>>(new Map());
+  const pinchStateRef = useRef<{
+    initialDist: number;
+    initialZoom: number;
+    canvasX: number;
+    canvasY: number;
+  } | null>(null);
 
   const [hoveredDropContainerId, setHoveredDropContainerId] = useState<string | null>(null);
   const pendingExitContainerRef = useRef<Record<string, string>>({});
@@ -197,8 +365,12 @@ export default function App() {
     startY: number;
     initialMouseX: number;
     initialMouseY: number;
+    isMultiDrag: boolean;
+    pendingShiftDeselect?: { id: string; type: 'node' | 'text' } | null;
+    movingIds: string[];
     childrenOffsets: { id: string; type: 'node' | 'text'; startX: number; startY: number }[];
   } | null>(null);
+  const [snapGuides, setSnapGuides] = useState<SnapGuideLine[]>([]);
 
   const [tempConnection, setTempConnection] = useState<{
     sourceId: string;
@@ -207,7 +379,38 @@ export default function App() {
     startY: number;
     currentX: number;
     currentY: number;
+    hoverTarget?: {
+      nodeId: string;
+      port: 'top' | 'bottom' | 'left' | 'right';
+      proximity: number;
+      isReady: boolean;
+      snapX: number;
+      snapY: number;
+    } | null;
   } | null>(null);
+
+  // Undo / Redo History (10 Undo steps, 10 Redo steps)
+  const appStateRef = useRef<AppState>(appState);
+  appStateRef.current = appState;
+  const undoStackRef = useRef<CanvasSnapshot[]>([]);
+  const redoStackRef = useRef<CanvasSnapshot[]>([]);
+  const [undoCount, setUndoCount] = useState(0);
+  const [redoCount, setRedoCount] = useState(0);
+  const dragPreActionSnapshotRef = useRef<CanvasSnapshot | null>(null);
+  const lastCoalesceRef = useRef<{ key: string; timestamp: number } | null>(null);
+
+  // Clear selection and undo/redo history when switching projects
+  useEffect(() => {
+    setSelectedItems({});
+    setSelectionBox(null);
+    setBatchDeleteOpen(false);
+    undoStackRef.current = [];
+    redoStackRef.current = [];
+    dragPreActionSnapshotRef.current = null;
+    lastCoalesceRef.current = null;
+    setUndoCount(0);
+    setRedoCount(0);
+  }, [activeProjectId]);
 
   // Test Firestore Connection on Boot
   useEffect(() => {
@@ -217,11 +420,16 @@ export default function App() {
   // Firebase Auth Listener & Live Role Sync
   useEffect(() => {
     let unsubProfile: (() => void) | null = null;
+    let unsubApiKey: (() => void) | null = null;
 
     const unsubAuth = onAuthStateChanged(auth, (fbUser) => {
       if (unsubProfile) {
         unsubProfile();
         unsubProfile = null;
+      }
+      if (unsubApiKey) {
+        unsubApiKey();
+        unsubApiKey = null;
       }
 
       setFirebaseUser(fbUser);
@@ -232,7 +440,7 @@ export default function App() {
         const isSuperAdmin = normalizedEmail === 'adrian.byakko@gmail.com';
         setCurrentUser({
           uid: fbUser.uid,
-          name: fbUser.displayName || 'Team Member',
+          name: fbUser.displayName || tRef.current('app.defaultMemberName'),
           email: normalizedEmail,
           photoURL: fbUser.photoURL || '',
           role: isSuperAdmin ? 'Admin' : 'Viewer',
@@ -250,14 +458,21 @@ export default function App() {
             isRegistered: profile.isRegistered ?? true,
           }));
         });
+
+        unsubApiKey = subscribeUserGeminiApiKey(fbUser.uid, (apiKey) => {
+          setUserGeminiApiKey(apiKey);
+        });
       } else {
         setCurrentUser({
           uid: '',
-          name: 'Team Member',
+          name: tRef.current('app.defaultMemberName'),
           role: 'Viewer',
           email: '',
           isRegistered: false,
         });
+        setUserGeminiApiKey(null);
+        setApiKeyModalOpen(false);
+        setAiImageModalState(null);
         setProjects([]);
         setActiveProjectId('');
         setUsersList([]);
@@ -268,6 +483,7 @@ export default function App() {
 
     return () => {
       if (unsubProfile) unsubProfile();
+      if (unsubApiKey) unsubApiKey();
       unsubAuth();
     };
   }, []);
@@ -292,6 +508,120 @@ export default function App() {
     : activeProject?.participants?.[normalizedUserEmail]?.role || currentUser.role;
   const isReadOnly = effectiveRole === 'Viewer';
 
+  const captureCanvasSnapshot = useCallback((state: AppState = appStateRef.current): CanvasSnapshot => {
+    return cloneCanvasSnapshot({
+      nodes: state.nodes,
+      connections: state.connections,
+      texts: state.texts,
+      storedNodes: state.storedNodes,
+      labels: state.labels,
+    });
+  }, []);
+
+  const pushUndoSnapshot = useCallback(
+    (snapshot?: CanvasSnapshot, coalesceKey?: string) => {
+      if (isReadOnly) return;
+      const now = Date.now();
+      if (coalesceKey) {
+        const last = lastCoalesceRef.current;
+        if (last && last.key === coalesceKey && now - last.timestamp < 700) {
+          lastCoalesceRef.current = { key: coalesceKey, timestamp: now };
+          return;
+        }
+        lastCoalesceRef.current = { key: coalesceKey, timestamp: now };
+      } else {
+        lastCoalesceRef.current = null;
+      }
+
+      const entry = cloneCanvasSnapshot(snapshot ?? captureCanvasSnapshot(appStateRef.current));
+      const nextUndo = [...undoStackRef.current, entry].slice(-MAX_HISTORY_STEPS);
+      undoStackRef.current = nextUndo;
+      redoStackRef.current = [];
+      setUndoCount(nextUndo.length);
+      setRedoCount(0);
+    },
+    [isReadOnly, captureCanvasSnapshot]
+  );
+
+  const applyRestoredSnapshot = useCallback(
+    (targetSnap: CanvasSnapshot, currentSnap: CanvasSnapshot) => {
+      const clonedTarget = cloneCanvasSnapshot(targetSnap);
+      const nextAppState: AppState = {
+        ...appStateRef.current,
+        nodes: clonedTarget.nodes,
+        connections: clonedTarget.connections,
+        texts: clonedTarget.texts,
+        storedNodes: clonedTarget.storedNodes,
+        labels: clonedTarget.labels,
+      };
+      appStateRef.current = nextAppState;
+      setAppState(nextAppState);
+
+      setSelectedItems((prev) => {
+        const cleaned: Record<string, 'node' | 'text'> = {};
+        let changed = false;
+        Object.entries(prev).forEach(([id, t]) => {
+          if ((t === 'node' && clonedTarget.nodes[id]) || (t === 'text' && clonedTarget.texts[id])) {
+            cleaned[id] = t;
+          } else {
+            changed = true;
+          }
+        });
+        return changed ? cleaned : prev;
+      });
+
+      setActiveLinePopover((prev) =>
+        prev && !clonedTarget.connections.some((c) => c.id === prev.connectionId) ? null : prev
+      );
+      setActiveTextPopover((prev) => (prev && !clonedTarget.texts[prev.elementId] ? null : prev));
+
+      if (activeProjectId) {
+        syncCanvasSnapshotDiffToFirestore(activeProjectId, currentSnap, clonedTarget);
+      }
+    },
+    [activeProjectId]
+  );
+
+  const handleUndo = useCallback(() => {
+    if (!activeProjectId || isReadOnly) return;
+    if (undoStackRef.current.length === 0) return;
+
+    const prevUndo = undoStackRef.current;
+    const targetSnap = prevUndo[prevUndo.length - 1];
+    const nextUndo = prevUndo.slice(0, -1);
+
+    const currentSnap = captureCanvasSnapshot(appStateRef.current);
+    const nextRedo = [...redoStackRef.current, currentSnap].slice(-MAX_HISTORY_STEPS);
+
+    undoStackRef.current = nextUndo;
+    redoStackRef.current = nextRedo;
+    lastCoalesceRef.current = null;
+    setUndoCount(nextUndo.length);
+    setRedoCount(nextRedo.length);
+
+    applyRestoredSnapshot(targetSnap, currentSnap);
+  }, [activeProjectId, isReadOnly, captureCanvasSnapshot, applyRestoredSnapshot]);
+
+  const handleRedo = useCallback(() => {
+    if (!activeProjectId || isReadOnly) return;
+    if (redoStackRef.current.length === 0) return;
+
+    const prevRedo = redoStackRef.current;
+    const targetSnap = prevRedo[prevRedo.length - 1];
+    const nextRedo = prevRedo.slice(0, -1);
+
+    const currentSnap = captureCanvasSnapshot(appStateRef.current);
+    const nextUndo = [...undoStackRef.current, currentSnap].slice(-MAX_HISTORY_STEPS);
+
+    undoStackRef.current = nextUndo;
+    redoStackRef.current = nextRedo;
+    lastCoalesceRef.current = null;
+    setUndoCount(nextUndo.length);
+    setRedoCount(nextRedo.length);
+
+    applyRestoredSnapshot(targetSnap, currentSnap);
+  }, [activeProjectId, isReadOnly, captureCanvasSnapshot, applyRestoredSnapshot]);
+
   // Subscribe to Projects Collection in Firestore (Authenticated only)
   useEffect(() => {
     if (!authReady || !firebaseUser) return;
@@ -314,8 +644,8 @@ export default function App() {
       if (projList.length === 0 && (currentUser.role === 'Admin' || currentUser.role === 'Editor')) {
         // Automatically seed first project if database is empty
         createProject(
-          'Act I: The Citadel Sequence',
-          'Cinematic arrival sequence and initial council assembly.',
+          tRef.current('app.seedProjectTitle'),
+          tRef.current('app.seedProjectDesc'),
           firebaseUser.uid,
           fbEmail,
           firebaseUser.displayName || currentUser.name
@@ -378,6 +708,19 @@ export default function App() {
       setAppState((prev) => ({ ...prev, globalVideos: vids }));
     });
     return () => unsubVideos();
+  }, [authReady, firebaseUser, activeProjectId]);
+
+  // Subscribe to Project-Scoped Actors & 3D Elements Library
+  useEffect(() => {
+    if (!authReady || !firebaseUser || !activeProjectId) {
+      setAppState((prev) => ({ ...prev, actors: [] }));
+      return;
+    }
+
+    const unsubActors = subscribeProjectActors(activeProjectId, (actors) => {
+      setAppState((prev) => ({ ...prev, actors }));
+    });
+    return () => unsubActors();
   }, [authReady, firebaseUser, activeProjectId]);
 
   // Reconcile any node whose managed image URL was already removed from Image DB
@@ -600,32 +943,81 @@ export default function App() {
     [activeProjectId]
   );
 
+  const applyCameraTransform = useCallback((nextZoom: number, nextCamX: number, nextCamY: number) => {
+    currentZoomRef.current = nextZoom;
+    cameraPosRef.current.x = nextCamX;
+    cameraPosRef.current.y = nextCamY;
+    if (canvasRef.current) {
+      canvasRef.current.style.transform = `translate3d(${-nextCamX}px, ${-nextCamY}px, 0) scale(${nextZoom})`;
+      canvasRef.current.style.setProperty('--canvas-zoom', `${nextZoom}`);
+    }
+    dotGridRenderRef.current?.();
+  }, []);
+
+  const registerDotGridRender = useCallback((fn: (() => void) | null) => {
+    dotGridRenderRef.current = fn;
+  }, []);
+
+  const getWorkspaceContentCenter = useCallback(() => {
+    const { nodes, texts } = workspaceItemsRef.current;
+    let minX = Infinity;
+    let minY = Infinity;
+    let maxX = -Infinity;
+    let maxY = -Infinity;
+
+    Object.values(nodes).forEach((n) => {
+      const x = parseFloat(n.x) || 0;
+      const y = parseFloat(n.y) || 0;
+      if (x < minX) minX = x;
+      if (y < minY) minY = y;
+      if (x + 220 > maxX) maxX = x + 220;
+      if (y + 180 > maxY) maxY = y + 180;
+    });
+
+    Object.values(texts).forEach((t) => {
+      const x = parseFloat(t.x) || 0;
+      const y = parseFloat(t.y) || 0;
+      const w = t.width || (t.mode === 'container' ? 360 : 180);
+      const h = t.height || (t.mode === 'container' ? 240 : 60);
+      if (x < minX) minX = x;
+      if (y < minY) minY = y;
+      if (x + w > maxX) maxX = x + w;
+      if (y + h > maxY) maxY = y + h;
+    });
+
+    if (!Number.isFinite(minX)) {
+      return { x: 2500, y: 2500 };
+    }
+    return {
+      x: (minX + maxX) / 2,
+      y: (minY + maxY) / 2,
+    };
+  }, []);
+
   const stopZoomAnimation = useCallback(() => {
     if (zoomRafRef.current !== null) {
       cancelAnimationFrame(zoomRafRef.current);
       zoomRafRef.current = null;
     }
-    zoomVelocityRef.current = 0;
+    logZoomVelocityRef.current = 0;
     zoomAnchorRef.current = null;
     targetZoomRef.current = currentZoomRef.current;
+    targetLogZoomRef.current = Math.log(currentZoomRef.current);
   }, []);
 
   const applyZoomImmediate = useCallback(
-    (newZoom: number, nextScrollLeft?: number, nextScrollTop?: number) => {
+    (newZoom: number, nextCamX?: number, nextCamY?: number) => {
       stopZoomAnimation();
       const clamped = Math.max(0.2, Math.min(newZoom, 3.0));
-      currentZoomRef.current = clamped;
       targetZoomRef.current = clamped;
-      if (canvasRef.current) {
-        canvasRef.current.style.transform = `scale(${clamped})`;
-      }
-      if (viewportRef.current) {
-        if (typeof nextScrollLeft === 'number') viewportRef.current.scrollLeft = nextScrollLeft;
-        if (typeof nextScrollTop === 'number') viewportRef.current.scrollTop = nextScrollTop;
-      }
+      targetLogZoomRef.current = Math.log(clamped);
+      const camX = typeof nextCamX === 'number' ? nextCamX : cameraPosRef.current.x;
+      const camY = typeof nextCamY === 'number' ? nextCamY : cameraPosRef.current.y;
+      applyCameraTransform(clamped, camX, camY);
+      window.dispatchEvent(new CustomEvent('canvas-zoom-live', { detail: clamped }));
       setZoom(clamped);
     },
-    [stopZoomAnimation]
+    [stopZoomAnimation, applyCameraTransform]
   );
 
   // Viewport helper functions
@@ -686,101 +1078,182 @@ export default function App() {
     }
   };
 
-  // Smooth spring-damped zoom animation loop (acceleration & deceleration)
-  const stepZoomAnimation = useCallback((now: number) => {
-    const dt = lastZoomFrameTimeRef.current
-      ? Math.max(0.001, Math.min((now - lastZoomFrameTimeRef.current) / 1000, 0.05))
-      : 1 / 60;
-    lastZoomFrameTimeRef.current = now;
+  const handleFocusSearchTarget = useCallback(
+    (target: SearchTarget) => {
+      const vp = viewportRef.current;
+      const targetCenterX = target.x + target.width / 2;
+      const targetCenterY = target.y + target.height / 2;
+      const targetZoom = Math.max(0.2, Math.min(Math.max(currentZoomRef.current, 0.9), 3.0));
 
-    const prevZoom = currentZoomRef.current;
-    const target = targetZoomRef.current;
+      if (vp) {
+        applyZoomImmediate(
+          targetZoom,
+          targetCenterX * targetZoom - vp.clientWidth / 2,
+          targetCenterY * targetZoom - vp.clientHeight / 2
+        );
+      } else {
+        applyZoomImmediate(targetZoom);
+      }
 
-    // Second-order critically damped spring for progressive acceleration & smooth deceleration
-    const stiffness = 170;
-    const damping = 26;
-    const force = (target - prevZoom) * stiffness;
-    let vel = (zoomVelocityRef.current + force * dt) * Math.exp(-damping * dt);
-    let nextZoom = prevZoom + vel * dt;
+      if (highlightTimerRef.current !== null) {
+        window.clearTimeout(highlightTimerRef.current);
+      }
+      setHighlightedElementId(target.id);
+      highlightTimerRef.current = window.setTimeout(() => {
+        setHighlightedElementId(null);
+        highlightTimerRef.current = null;
+      }, 2200);
+    },
+    [applyZoomImmediate]
+  );
 
-    if (nextZoom <= 0.2) {
-      nextZoom = 0.2;
-      if (vel < 0) vel = 0;
-    } else if (nextZoom >= 3.0) {
-      nextZoom = 3.0;
-      if (vel > 0) vel = 0;
-    }
+  // Smooth critically-damped log-space zoom animation with gradual centering at max zoom-out
+  const stepZoomAnimation = useCallback(
+    (now: number) => {
+      const dt = lastZoomFrameTimeRef.current
+        ? Math.max(0.001, Math.min((now - lastZoomFrameTimeRef.current) / 1000, 0.033))
+        : 1 / 60;
+      lastZoomFrameTimeRef.current = now;
 
-    const settled = Math.abs(target - nextZoom) < 0.0005 && Math.abs(vel) < 0.0005;
-    if (settled) {
-      nextZoom = target;
-      vel = 0;
-    }
+      const minLog = Math.log(0.2);
+      const maxLog = Math.log(3.0);
+      const prevZoom = currentZoomRef.current;
+      const prevLog = Math.log(prevZoom);
+      const targetLog = targetLogZoomRef.current;
 
-    currentZoomRef.current = nextZoom;
-    zoomVelocityRef.current = vel;
+      // Critically damped spring in logarithmic space for constant perceptual speed & silky tail
+      const stiffness = 95;
+      const damping = 19.5;
+      const force = (targetLog - prevLog) * stiffness;
+      let logVel = (logZoomVelocityRef.current + force * dt) * Math.exp(-damping * dt);
+      let nextLog = prevLog + logVel * dt;
 
-    const vp = viewportRef.current;
-    const canvas = canvasRef.current;
-    const anchor = zoomAnchorRef.current;
+      if (nextLog <= minLog) {
+        nextLog = minLog;
+        if (logVel < 0) logVel = 0;
+      } else if (nextLog >= maxLog) {
+        nextLog = maxLog;
+        if (logVel > 0) logVel = 0;
+      }
 
-    if (canvas) {
-      canvas.style.transform = `scale(${nextZoom})`;
-    }
-    if (vp && anchor) {
-      vp.scrollLeft = anchor.canvasX * nextZoom - anchor.mouseX;
-      vp.scrollTop = anchor.canvasY * nextZoom - anchor.mouseY;
-    }
+      const zoomSettled = Math.abs(targetLog - nextLog) < 0.0006 && Math.abs(logVel) < 0.0006;
+      if (zoomSettled) {
+        nextLog = targetLog;
+        logVel = 0;
+      }
 
-    if (settled || now - lastStateSyncTimeRef.current >= 60) {
-      lastStateSyncTimeRef.current = now;
-      setZoom(nextZoom);
-    }
+      const nextZoom = Math.exp(nextLog);
+      logZoomVelocityRef.current = logVel;
+      targetZoomRef.current = Math.exp(targetLog);
 
-    if (settled) {
-      zoomRafRef.current = null;
-      zoomAnchorRef.current = null;
-    } else {
-      zoomRafRef.current = requestAnimationFrame(stepZoomAnimation);
-    }
-  }, []);
+      const vp = viewportRef.current;
+      const anchor = zoomAnchorRef.current;
+      let nextCamX = cameraPosRef.current.x;
+      let nextCamY = cameraPosRef.current.y;
+      let camSettled = true;
 
-  // Non-passive wheel listener so preventDefault works cleanly without scroll jumps
+      if (vp && anchor) {
+        const anchorCamX = anchor.canvasX * nextZoom - anchor.mouseX;
+        const anchorCamY = anchor.canvasY * nextZoom - anchor.mouseY;
+
+        // Gradually center nodes & workspace when approaching or reaching max zoom-out (20%)
+        if (isZoomingOutRef.current && nextZoom < 0.36) {
+          const center = getWorkspaceContentCenter();
+          const centeredCamX = center.x * nextZoom - vp.clientWidth / 2;
+          const centeredCamY = center.y * nextZoom - vp.clientHeight / 2;
+
+          const rawT = Math.max(0, Math.min(1, (0.36 - nextZoom) / (0.36 - 0.2)));
+          const centerBlend = rawT * rawT * (3 - 2 * rawT);
+
+          const desiredCamX = anchorCamX + (centeredCamX - anchorCamX) * centerBlend;
+          const desiredCamY = anchorCamY + (centeredCamY - anchorCamY) * centerBlend;
+
+          const followRate = nextZoom <= 0.205 ? 6.2 : 11.5;
+          const followAlpha = 1 - Math.exp(-dt * followRate);
+          nextCamX = cameraPosRef.current.x + (desiredCamX - cameraPosRef.current.x) * followAlpha;
+          nextCamY = cameraPosRef.current.y + (desiredCamY - cameraPosRef.current.y) * followAlpha;
+
+          const remaining = Math.hypot(desiredCamX - nextCamX, desiredCamY - nextCamY);
+          if (remaining >= 0.35) {
+            camSettled = false;
+          } else if (zoomSettled) {
+            nextCamX = desiredCamX;
+            nextCamY = desiredCamY;
+          }
+        } else {
+          nextCamX = anchorCamX;
+          nextCamY = anchorCamY;
+        }
+      }
+
+      applyCameraTransform(nextZoom, nextCamX, nextCamY);
+
+      if (now - lastStateSyncTimeRef.current >= 32) {
+        lastStateSyncTimeRef.current = now;
+        window.dispatchEvent(new CustomEvent('canvas-zoom-live', { detail: nextZoom }));
+      }
+
+      const settled = zoomSettled && camSettled;
+      if (settled) {
+        zoomRafRef.current = null;
+        zoomAnchorRef.current = null;
+        window.dispatchEvent(new CustomEvent('canvas-zoom-live', { detail: nextZoom }));
+        setZoom(nextZoom);
+      } else {
+        zoomRafRef.current = requestAnimationFrame(stepZoomAnimation);
+      }
+    },
+    [applyCameraTransform, getWorkspaceContentCenter]
+  );
+
+  // Non-passive wheel listener for smooth logarithmic zoom without scroll jumps
   useEffect(() => {
     const vp = viewportRef.current;
     if (!vp) return;
+
+    const minLog = Math.log(0.2);
+    const maxLog = Math.log(3.0);
 
     const onWheel = (e: WheelEvent) => {
       if (e.ctrlKey || e.metaKey) return;
       e.preventDefault();
 
+      let normalizedDelta = e.deltaY;
+      if (e.deltaMode === 1) normalizedDelta *= 16;
+      else if (e.deltaMode === 2) normalizedDelta *= 320;
+      normalizedDelta = Math.max(-180, Math.min(180, normalizedDelta));
+      if (Math.abs(normalizedDelta) < 0.01) return;
+
       const rect = vp.getBoundingClientRect();
       const mouseX = e.clientX - rect.left;
       const mouseY = e.clientY - rect.top;
 
+      const zoomingOut = normalizedDelta > 0;
+      const directionChanged = isZoomingOutRef.current !== zoomingOut;
+      isZoomingOutRef.current = zoomingOut;
+
       const prevAnchor = zoomAnchorRef.current;
       if (
         zoomRafRef.current === null ||
+        directionChanged ||
         !prevAnchor ||
-        Math.abs(mouseX - prevAnchor.mouseX) > 0.5 ||
-        Math.abs(mouseY - prevAnchor.mouseY) > 0.5
+        Math.abs(mouseX - prevAnchor.mouseX) > 2 ||
+        Math.abs(mouseY - prevAnchor.mouseY) > 2
       ) {
         const z = currentZoomRef.current;
         zoomAnchorRef.current = {
           mouseX,
           mouseY,
-          canvasX: (vp.scrollLeft + mouseX) / z,
-          canvasY: (vp.scrollTop + mouseY) / z,
+          canvasX: (cameraPosRef.current.x + mouseX) / z,
+          canvasY: (cameraPosRef.current.y + mouseY) / z,
         };
       }
 
-      let normalizedDelta = e.deltaY;
-      if (e.deltaMode === 1) normalizedDelta *= 16;
-      else if (e.deltaMode === 2) normalizedDelta *= 400;
-      normalizedDelta = Math.max(-240, Math.min(240, normalizedDelta));
-
-      const zoomFactor = Math.exp(-normalizedDelta * 0.0015);
-      targetZoomRef.current = Math.max(0.2, Math.min(targetZoomRef.current * zoomFactor, 3.0));
+      targetLogZoomRef.current = Math.max(
+        minLog,
+        Math.min(targetLogZoomRef.current - normalizedDelta * 0.0011, maxLog)
+      );
+      targetZoomRef.current = Math.exp(targetLogZoomRef.current);
 
       setActiveLinePopover(null);
 
@@ -801,40 +1274,149 @@ export default function App() {
     };
   }, [stepZoomAnimation, authReady, firebaseUser]);
 
-  // Background Canvas Panning
-  const handleCanvasMouseDown = (e: React.MouseEvent) => {
-    if ((e.target as HTMLElement).closest('.workflow-node')) return;
-    if ((e.target as HTMLElement).closest('.canvas-text-node')) return;
-    if ((e.target as HTMLElement).closest('.port')) return;
-    if (e.button !== 0 && e.button !== 1) return;
+  // Background Canvas Panning, Multi-Touch Pinch-Zoom & Marquee Selection Box
+  const handleCanvasPointerDown = (e: React.PointerEvent) => {
+    if ((e.target as HTMLElement).closest('[data-canvas-ui]')) return;
+
+    if (e.pointerType === 'touch') {
+      activeTouchPointsRef.current.set(e.pointerId, { clientX: e.clientX, clientY: e.clientY });
+      if (activeTouchPointsRef.current.size === 2 && viewportRef.current) {
+        // Two fingers down -> enter 2-finger pinch-zoom + pan and cancel any 1-finger drag/selection/port drag
+        setSelectionBox(null);
+        setActiveDragElement(null);
+        setTempConnection(null);
+        setIsPanningCanvas(false);
+        setSnapGuides([]);
+        setHoveredDropContainerId(null);
+        dragPreActionSnapshotRef.current = null;
+        dragStartContainerBoundsRef.current = null;
+        stopZoomAnimation();
+
+        const pts = Array.from(activeTouchPointsRef.current.values());
+        const dist = Math.hypot(pts[1].clientX - pts[0].clientX, pts[1].clientY - pts[0].clientY);
+        const midX = (pts[0].clientX + pts[1].clientX) / 2;
+        const midY = (pts[0].clientY + pts[1].clientY) / 2;
+        const vp = viewportRef.current;
+        const rect = vp.getBoundingClientRect();
+        const vpMidX = midX - rect.left;
+        const vpMidY = midY - rect.top;
+        const initialZoom = currentZoomRef.current;
+
+        pinchStateRef.current = {
+          initialDist: Math.max(10, dist),
+          initialZoom,
+          canvasX: (cameraPosRef.current.x + vpMidX) / initialZoom,
+          canvasY: (cameraPosRef.current.y + vpMidY) / initialZoom,
+        };
+        return;
+      }
+      if (activeTouchPointsRef.current.size > 2) return;
+    }
+
+    if (e.pointerType === 'mouse' && e.button !== 0 && e.button !== 1) return;
+
+    const isMiddlePan = e.button === 1;
+    const shouldPan =
+      isMiddlePan ||
+      isSpacePressed ||
+      canvasToolMode === 'pan';
+
+    if (!shouldPan) {
+      if ((e.target as HTMLElement).closest('.workflow-node')) return;
+      if ((e.target as HTMLElement).closest('.canvas-text-node')) return;
+      if ((e.target as HTMLElement).closest('.port')) return;
+    }
 
     if (!viewportRef.current) return;
+    if (isMiddlePan) {
+      e.preventDefault();
+    }
     stopZoomAnimation();
-    setIsPanningCanvas(true);
-    setPanStart({
-      x: e.pageX - viewportRef.current.offsetLeft,
-      y: e.pageY - viewportRef.current.offsetTop,
-      scrollLeft: viewportRef.current.scrollLeft,
-      scrollTop: viewportRef.current.scrollTop,
-    });
-
     setActiveLinePopover(null);
     setActiveTextPopover(null);
+
+    if (shouldPan) {
+      setIsPanningCanvas(true);
+      setPanStart({
+        x: e.pageX - viewportRef.current.offsetLeft,
+        y: e.pageY - viewportRef.current.offsetTop,
+        scrollLeft: cameraPosRef.current.x,
+        scrollTop: cameraPosRef.current.y,
+      });
+      return;
+    }
+
+    if ((e.pointerType !== 'mouse' || e.button === 0) && canvasRef.current) {
+      const cRect = canvasRef.current.getBoundingClientRect();
+      const liveZoom = currentZoomRef.current;
+      const sx = (e.clientX - cRect.left) / liveZoom;
+      const sy = (e.clientY - cRect.top) / liveZoom;
+      const additive = e.shiftKey;
+      const baseSelection = additive ? { ...selectedItems } : {};
+
+      if (!additive) {
+        setSelectedItems({});
+      }
+
+      setSelectionBox({
+        startX: sx,
+        startY: sy,
+        currentX: sx,
+        currentY: sy,
+        additive,
+        baseSelection,
+      });
+    }
   };
 
-  // Node & Text Dragging Mouse Events
-  const handleNodeOrTextMouseDown = (
+  useEffect(() => {
+    if (!isPanningCanvas) return;
+    const stopPan = () => setIsPanningCanvas(false);
+    window.addEventListener('pointerup', stopPan);
+    window.addEventListener('pointercancel', stopPan);
+    window.addEventListener('blur', stopPan);
+    return () => {
+      window.removeEventListener('pointerup', stopPan);
+      window.removeEventListener('pointercancel', stopPan);
+      window.removeEventListener('blur', stopPan);
+    };
+  }, [isPanningCanvas]);
+
+  // Node & Text Dragging Pointer Events (with Shift-Click & Multi-Select Group Drag)
+  const handleNodeOrTextPointerDown = (
     id: string,
     type: 'node' | 'text',
-    e: React.MouseEvent
+    e: React.PointerEvent
   ) => {
-    if (isReadOnly) return;
+    if (e.pointerType === 'touch' && activeTouchPointsRef.current.size >= 1) return;
+    if (e.button === 1 || isSpacePressed || canvasToolMode === 'pan') return;
     if ((e.target as HTMLElement).closest('.port')) return;
     if ((e.target as HTMLElement).closest('button')) return;
     if ((e.target as HTMLElement).closest('input')) return;
     if ((e.target as HTMLElement).closest('textarea')) return;
+    if (e.pointerType === 'mouse' && e.button !== 0) return;
 
+    let effectiveSelection: Record<string, 'node' | 'text'>;
+    let pendingShiftDeselect: { id: string; type: 'node' | 'text' } | null = null;
+
+    if (e.shiftKey) {
+      if (selectedItems[id]) {
+        effectiveSelection = selectedItems;
+        pendingShiftDeselect = { id, type };
+      } else {
+        effectiveSelection = { ...selectedItems, [id]: type };
+        setSelectedItems(effectiveSelection);
+      }
+    } else if (selectedItems[id]) {
+      effectiveSelection = selectedItems;
+    } else {
+      effectiveSelection = { [id]: type };
+      setSelectedItems(effectiveSelection);
+    }
+
+    if (isReadOnly) return;
     if (!canvasRef.current) return;
+    dragPreActionSnapshotRef.current = captureCanvasSnapshot(appStateRef.current);
     const canvasRect = canvasRef.current.getBoundingClientRect();
 
     const currentX =
@@ -846,33 +1428,62 @@ export default function App() {
         ? parseFloat(appState.nodes[id]?.y || '0')
         : parseFloat(appState.texts[id]?.y || '0');
 
-    let childrenOffsets: { id: string; type: 'node' | 'text'; startX: number; startY: number }[] = [];
-    if (type === 'text' && appState.texts[id]?.mode === 'container') {
-      Object.values(appState.nodes).forEach((n) => {
-        if (n.containerId === id) {
-          childrenOffsets.push({
-            id: n.id,
-            type: 'node',
-            startX: parseFloat(n.x) || 0,
-            startY: parseFloat(n.y) || 0,
-          });
-        }
-      });
-      Object.values(appState.texts).forEach((t) => {
-        if (t.containerId === id && t.id !== id) {
-          childrenOffsets.push({
-            id: t.id,
-            type: 'text',
-            startX: parseFloat(t.x) || 0,
-            startY: parseFloat(t.y) || 0,
-          });
-        }
-      });
-    }
+    const movingMap = new Map<
+      string,
+      { id: string; type: 'node' | 'text'; startX: number; startY: number }
+    >();
+
+    const addMovingItem = (itemId: string, itemType: 'node' | 'text') => {
+      if (movingMap.has(itemId)) return;
+      if (itemType === 'node') {
+        const n = appState.nodes[itemId];
+        if (!n) return;
+        movingMap.set(itemId, {
+          id: itemId,
+          type: 'node',
+          startX: parseFloat(n.x) || 0,
+          startY: parseFloat(n.y) || 0,
+        });
+      } else {
+        const t = appState.texts[itemId];
+        if (!t) return;
+        movingMap.set(itemId, {
+          id: itemId,
+          type: 'text',
+          startX: parseFloat(t.x) || 0,
+          startY: parseFloat(t.y) || 0,
+        });
+      }
+    };
+
+    const selectedKeys = Object.entries(effectiveSelection) as [string, 'node' | 'text'][];
+    selectedKeys.forEach(([selId, selType]) => {
+      addMovingItem(selId, selType);
+      if (selType === 'text' && appState.texts[selId]?.mode === 'container') {
+        Object.values(appState.nodes).forEach((n) => {
+          if (n.containerId === selId) {
+            addMovingItem(n.id, 'node');
+          }
+        });
+        Object.values(appState.texts).forEach((t) => {
+          if (t.containerId === selId && t.id !== selId) {
+            addMovingItem(t.id, 'text');
+          }
+        });
+      }
+    });
+
+    const isMultiDrag = selectedKeys.length > 1;
+    const childrenOffsets: { id: string; type: 'node' | 'text'; startX: number; startY: number }[] = [];
+    movingMap.forEach((entry, key) => {
+      if (key !== id) {
+        childrenOffsets.push(entry);
+      }
+    });
 
     const parentCid =
       type === 'node' ? appState.nodes[id]?.containerId : appState.texts[id]?.containerId;
-    if (parentCid && appState.texts[parentCid]) {
+    if (!isMultiDrag && parentCid && appState.texts[parentCid]) {
       const c = appState.texts[parentCid];
       const cx = parseFloat(c.x) || 0;
       const cy = parseFloat(c.y) || 0;
@@ -894,29 +1505,176 @@ export default function App() {
       startY: currentY,
       initialMouseX: (e.clientX - canvasRect.left) / currentZoomRef.current,
       initialMouseY: (e.clientY - canvasRect.top) / currentZoomRef.current,
+      isMultiDrag,
+      pendingShiftDeselect,
+      movingIds: Array.from(movingMap.keys()),
       childrenOffsets,
     });
 
     setActiveLinePopover(null);
   };
 
-  // Global Mouse Move
-  const handleGlobalMouseMove = (e: React.MouseEvent) => {
+  // Global Pointer Move
+  const handleGlobalPointerMove = (e: React.PointerEvent) => {
+    if (e.pointerType === 'touch' && activeTouchPointsRef.current.has(e.pointerId)) {
+      activeTouchPointsRef.current.set(e.pointerId, { clientX: e.clientX, clientY: e.clientY });
+      if (activeTouchPointsRef.current.size >= 2 && pinchStateRef.current && viewportRef.current) {
+        const pts = Array.from(activeTouchPointsRef.current.values());
+        const dist = Math.hypot(pts[1].clientX - pts[0].clientX, pts[1].clientY - pts[0].clientY);
+        const midX = (pts[0].clientX + pts[1].clientX) / 2;
+        const midY = (pts[0].clientY + pts[1].clientY) / 2;
+        const vp = viewportRef.current;
+        const rect = vp.getBoundingClientRect();
+        const vpMidX = midX - rect.left;
+        const vpMidY = midY - rect.top;
+        const p = pinchStateRef.current;
+        const nextZoom = Math.max(0.2, Math.min(3.0, p.initialZoom * (dist / p.initialDist)));
+
+        targetZoomRef.current = nextZoom;
+        targetLogZoomRef.current = Math.log(nextZoom);
+        applyCameraTransform(
+          nextZoom,
+          p.canvasX * nextZoom - vpMidX,
+          p.canvasY * nextZoom - vpMidY
+        );
+
+        const now = performance.now();
+        if (now - lastStateSyncTimeRef.current >= 60) {
+          lastStateSyncTimeRef.current = now;
+          window.dispatchEvent(new CustomEvent('canvas-zoom-live', { detail: nextZoom }));
+        }
+        return;
+      }
+    }
+
     if (isPanningCanvas && viewportRef.current) {
       const x = e.pageX - viewportRef.current.offsetLeft;
       const y = e.pageY - viewportRef.current.offsetTop;
-      viewportRef.current.scrollLeft = panStart.scrollLeft - (x - panStart.x) * 1.3;
-      viewportRef.current.scrollTop = panStart.scrollTop - (y - panStart.y) * 1.3;
+      const nextCamX = panStart.scrollLeft - (x - panStart.x) * 1.3;
+      const nextCamY = panStart.scrollTop - (y - panStart.y) * 1.3;
+      applyCameraTransform(currentZoomRef.current, nextCamX, nextCamY);
+      return;
+    }
+
+    if (selectionBox && canvasRef.current) {
+      const cRect = canvasRef.current.getBoundingClientRect();
+      const liveZoom = currentZoomRef.current;
+      const curX = (e.clientX - cRect.left) / liveZoom;
+      const curY = (e.clientY - cRect.top) / liveZoom;
+
+      const minX = Math.min(selectionBox.startX, curX);
+      const maxX = Math.max(selectionBox.startX, curX);
+      const minY = Math.min(selectionBox.startY, curY);
+      const maxY = Math.max(selectionBox.startY, curY);
+
+      setSelectionBox((prev) => (prev ? { ...prev, currentX: curX, currentY: curY } : null));
+
+      if (maxX - minX > 3 || maxY - minY > 3) {
+        const nextSelection: Record<string, 'node' | 'text'> = { ...selectionBox.baseSelection };
+
+        Object.values(appState.nodes).forEach((n) => {
+          const nx = parseFloat(n.x) || 0;
+          const ny = parseFloat(n.y) || 0;
+          const nw = 220;
+          const nh = 171;
+          if (nx < maxX && nx + nw > minX && ny < maxY && ny + nh > minY) {
+            nextSelection[n.id] = 'node';
+          }
+        });
+
+        Object.values(appState.texts).forEach((t) => {
+          const tx = parseFloat(t.x) || 0;
+          const ty = parseFloat(t.y) || 0;
+
+          if (t.mode === 'container') {
+            const tw = t.width || 340;
+            const th = t.height || 240;
+            const enclosesContainer =
+              minX <= tx + 16 && maxX >= tx + tw - 16 && minY <= ty + 16 && maxY >= ty + th - 16;
+            const hitsTitleTag =
+              minX < tx + Math.min(tw, 200) &&
+              maxX > tx + 12 &&
+              minY < ty + 12 &&
+              maxY > ty - 28 &&
+              !(minX > tx && maxX < tx + tw && minY > ty && maxY < ty + th);
+            if (enclosesContainer || hitsTitleTag) {
+              nextSelection[t.id] = 'text';
+            }
+          } else if (t.mode === 'annotation') {
+            const tw = 220;
+            const th = t.height || 120;
+            if (tx < maxX && tx + tw > minX && ty < maxY && ty + th > minY) {
+              nextSelection[t.id] = 'text';
+            }
+          } else {
+            const estW = t.width || Math.max(100, (t.text?.length || 4) * ((t.size || 16) * 0.62));
+            const estH = t.height || Math.max(32, (t.size || 16) * 1.6);
+            if (tx < maxX && tx + estW > minX && ty < maxY && ty + estH > minY) {
+              nextSelection[t.id] = 'text';
+            }
+          }
+        });
+
+        setSelectedItems(nextSelection);
+      }
       return;
     }
 
     if (tempConnection && canvasRef.current) {
       const cRect = canvasRef.current.getBoundingClientRect();
       const liveZoom = currentZoomRef.current;
+      const curX = (e.clientX - cRect.left) / liveZoom;
+      const curY = (e.clientY - cRect.top) / liveZoom;
+
+      const APPROACH_RADIUS = 110;
+      const READY_RADIUS = e.pointerType === 'touch' ? 28 : 18;
+      const PORTS: ('top' | 'bottom' | 'left' | 'right')[] = ['top', 'bottom', 'left', 'right'];
+
+      let bestTarget: {
+        nodeId: string;
+        port: 'top' | 'bottom' | 'left' | 'right';
+        dist: number;
+        snapX: number;
+        snapY: number;
+      } | null = null;
+
+      for (const candidateNode of Object.values(appState.nodes)) {
+        if (candidateNode.id === tempConnection.sourceId) continue;
+        for (const candidatePort of PORTS) {
+          const coords = getNodePortCoords(appState.nodes, candidateNode.id, candidatePort);
+          if (!coords) continue;
+          const dist = Math.hypot(curX - coords.x, curY - coords.y);
+          if (dist <= APPROACH_RADIUS && (!bestTarget || dist < bestTarget.dist)) {
+            bestTarget = {
+              nodeId: candidateNode.id,
+              port: candidatePort,
+              dist,
+              snapX: coords.x,
+              snapY: coords.y,
+            };
+          }
+        }
+      }
+
+      const hoverTarget = bestTarget
+        ? {
+            nodeId: bestTarget.nodeId,
+            port: bestTarget.port,
+            proximity:
+              bestTarget.dist <= READY_RADIUS
+                ? 1
+                : Math.max(0, Math.min(1, (APPROACH_RADIUS - bestTarget.dist) / (APPROACH_RADIUS - READY_RADIUS))),
+            isReady: bestTarget.dist <= READY_RADIUS,
+            snapX: bestTarget.snapX,
+            snapY: bestTarget.snapY,
+          }
+        : null;
+
       setTempConnection({
         ...tempConnection,
-        currentX: (e.clientX - cRect.left) / liveZoom,
-        currentY: (e.clientY - cRect.top) / liveZoom,
+        currentX: curX,
+        currentY: curY,
+        hoverTarget,
       });
       return;
     }
@@ -932,6 +1690,8 @@ export default function App() {
 
       let finalX = activeDragElement.startX + deltaX;
       let finalY = activeDragElement.startY + deltaY;
+      let appliedDeltaX = deltaX;
+      let appliedDeltaY = deltaY;
 
       let nextState: AppState = {
         ...appState,
@@ -946,19 +1706,42 @@ export default function App() {
         if (node) {
           const elW = 220;
           const elH = 171;
-          if (node.containerId) {
-            // Node stays attached to its container and extends container bounds dynamically as dragged
-            shouldExtendContainer = true;
-          } else {
-            nextHoveredContainer = findOverlappingContainer(
+
+          if (!e.altKey) {
+            const snapResult = computeNodeSnap(
               finalX,
               finalY,
-              elW,
-              elH,
-              nextState.texts,
               node.id,
-              pendingExitContainerRef.current[node.id]
+              node.containerId,
+              nextState.nodes,
+              nextState.texts,
+              undefined,
+              activeDragElement.isMultiDrag ? new Set(activeDragElement.movingIds) : undefined
             );
+            finalX = snapResult.x;
+            finalY = snapResult.y;
+            appliedDeltaX = finalX - activeDragElement.startX;
+            appliedDeltaY = finalY - activeDragElement.startY;
+            setSnapGuides(snapResult.guides);
+          } else if (snapGuides.length > 0) {
+            setSnapGuides([]);
+          }
+
+          if (!activeDragElement.isMultiDrag) {
+            if (node.containerId) {
+              // Node stays attached to its container and extends container bounds dynamically as dragged
+              shouldExtendContainer = true;
+            } else {
+              nextHoveredContainer = findOverlappingContainer(
+                finalX,
+                finalY,
+                elW,
+                elH,
+                nextState.texts,
+                node.id,
+                pendingExitContainerRef.current[node.id]
+              );
+            }
           }
 
           nextState.nodes[activeDragElement.id] = {
@@ -968,24 +1751,29 @@ export default function App() {
           };
         }
       } else {
+        if (snapGuides.length > 0) {
+          setSnapGuides([]);
+        }
         const textEl = nextState.texts[activeDragElement.id];
         if (textEl) {
           const isContainerSelf = textEl.mode === 'container';
           const elW = textEl.width || 220;
           const elH = textEl.height || 100;
 
-          if (!isContainerSelf && textEl.containerId) {
-            shouldExtendContainer = true;
-          } else if (!isContainerSelf) {
-            nextHoveredContainer = findOverlappingContainer(
-              finalX,
-              finalY,
-              elW,
-              elH,
-              nextState.texts,
-              textEl.id,
-              pendingExitContainerRef.current[textEl.id]
-            );
+          if (!activeDragElement.isMultiDrag) {
+            if (!isContainerSelf && textEl.containerId) {
+              shouldExtendContainer = true;
+            } else if (!isContainerSelf) {
+              nextHoveredContainer = findOverlappingContainer(
+                finalX,
+                finalY,
+                elW,
+                elH,
+                nextState.texts,
+                textEl.id,
+                pendingExitContainerRef.current[textEl.id]
+              );
+            }
           }
 
           nextState.texts[activeDragElement.id] = {
@@ -1000,16 +1788,35 @@ export default function App() {
         setHoveredDropContainerId(nextHoveredContainer);
       }
 
+      const movingIdSet = new Set(activeDragElement.movingIds);
       if (activeDragElement.childrenOffsets.length > 0) {
         activeDragElement.childrenOffsets.forEach((child) => {
-          const childX = `${child.startX + deltaX}px`;
-          const childY = `${child.startY + deltaY}px`;
+          const childX = `${child.startX + appliedDeltaX}px`;
+          const childY = `${child.startY + appliedDeltaY}px`;
           if (child.type === 'node' && nextState.nodes[child.id]) {
-            nextState.nodes[child.id] = { ...nextState.nodes[child.id], x: childX, y: childY };
+            const updatedN = { ...nextState.nodes[child.id], x: childX, y: childY };
+            nextState.nodes[child.id] = updatedN;
+            if (updatedN.containerId && !movingIdSet.has(updatedN.containerId)) {
+              shouldExtendContainer = true;
+            }
           } else if (child.type === 'text' && nextState.texts[child.id]) {
-            nextState.texts[child.id] = { ...nextState.texts[child.id], x: childX, y: childY };
+            const updatedT = { ...nextState.texts[child.id], x: childX, y: childY };
+            nextState.texts[child.id] = updatedT;
+            if (updatedT.containerId && !movingIdSet.has(updatedT.containerId)) {
+              shouldExtendContainer = true;
+            }
           }
         });
+      }
+
+      if (activeDragElement.isMultiDrag) {
+        const primaryContainerId =
+          activeDragElement.type === 'node'
+            ? nextState.nodes[activeDragElement.id]?.containerId
+            : nextState.texts[activeDragElement.id]?.containerId;
+        if (primaryContainerId && !movingIdSet.has(primaryContainerId)) {
+          shouldExtendContainer = true;
+        }
       }
 
       if (shouldExtendContainer) {
@@ -1023,41 +1830,165 @@ export default function App() {
     }
   };
 
-  // Global Mouse Up & Firestore Sync
-  const handleGlobalMouseUp = (e: React.MouseEvent) => {
+  // Global Pointer Up & Firestore Sync
+  const handleGlobalPointerUp = (e: React.PointerEvent) => {
+    if (e.pointerType === 'touch') {
+      activeTouchPointsRef.current.delete(e.pointerId);
+      if (pinchStateRef.current) {
+        if (activeTouchPointsRef.current.size < 2) {
+          pinchStateRef.current = null;
+          setZoom(currentZoomRef.current);
+        }
+        return;
+      }
+    }
+
     if (isPanningCanvas) {
       setIsPanningCanvas(false);
     }
 
+    if (selectionBox) {
+      setSelectionBox(null);
+    }
+
     if (tempConnection && activeProjectId) {
-      const targetPortEl = ((e.target as HTMLElement).closest('.port') || (e.target as HTMLElement).closest('[data-port]')) as HTMLElement | null;
-      if (targetPortEl) {
-        const targetNodeId = targetPortEl.getAttribute('data-node');
-        const targetPort = targetPortEl.getAttribute('data-port') as 'top' | 'bottom' | 'left' | 'right';
+      const pointedEl =
+        typeof document !== 'undefined'
+          ? (document.elementFromPoint(e.clientX, e.clientY) as HTMLElement | null)
+          : (e.target as HTMLElement | null);
+      const rawTargetEl = pointedEl || (e.target as HTMLElement | null);
+      const targetPortEl = (rawTargetEl?.closest('.port') || rawTargetEl?.closest('[data-port]')) as HTMLElement | null;
+      const domNodeId = targetPortEl?.getAttribute('data-node') || null;
+      const domPort = (targetPortEl?.getAttribute('data-port') as 'top' | 'bottom' | 'left' | 'right' | null) || null;
 
-        if (targetNodeId && targetPort && targetNodeId !== tempConnection.sourceId) {
-          const newConn: Connection = {
-            id: `conn-${Date.now()}`,
-            projectId: activeProjectId,
-            source: tempConnection.sourceId,
-            sourcePort: tempConnection.sourcePort,
-            target: targetNodeId,
-            targetPort: targetPort,
-            type: 'curve',
-            style: 'solid',
-            color: '#0052cc',
-            label: '',
-            arrows: 'end',
+      const targetNodeId =
+        domNodeId && domNodeId !== tempConnection.sourceId
+          ? domNodeId
+          : tempConnection.hoverTarget?.isReady
+          ? tempConnection.hoverTarget.nodeId
+          : null;
+      const targetPort =
+        domNodeId && domNodeId !== tempConnection.sourceId && domPort
+          ? domPort
+          : tempConnection.hoverTarget?.isReady
+          ? tempConnection.hoverTarget.port
+          : null;
+
+      if (targetNodeId && targetPort && targetNodeId !== tempConnection.sourceId) {
+        pushUndoSnapshot();
+        const newConn: Connection = {
+          id: `conn-${Date.now()}`,
+          projectId: activeProjectId,
+          source: tempConnection.sourceId,
+          sourcePort: tempConnection.sourcePort,
+          target: targetNodeId,
+          targetPort: targetPort,
+          type: 'angle',
+          style: 'solid',
+          color: '#0052cc',
+          label: '',
+          arrows: 'end',
+        };
+
+        setAppState((prev) => {
+          const next = {
+            ...prev,
+            connections: [...prev.connections, newConn],
           };
-
-          saveConnectionToFirestore(activeProjectId, newConn);
-        }
+          appStateRef.current = next;
+          return next;
+        });
+        saveConnectionToFirestore(activeProjectId, newConn);
       }
       setTempConnection(null);
     }
 
     if (activeDragElement && activeProjectId) {
       const el = activeDragElement;
+      const currentPrimaryX =
+        el.type === 'node'
+          ? parseFloat(appState.nodes[el.id]?.x || '0')
+          : parseFloat(appState.texts[el.id]?.x || '0');
+      const currentPrimaryY =
+        el.type === 'node'
+          ? parseFloat(appState.nodes[el.id]?.y || '0')
+          : parseFloat(appState.texts[el.id]?.y || '0');
+      const movedDist = Math.hypot(currentPrimaryX - el.startX, currentPrimaryY - el.startY);
+
+      if (el.pendingShiftDeselect && movedDist < 2) {
+        const deselectId = el.pendingShiftDeselect.id;
+        setSelectedItems((prev) => {
+          const copy = { ...prev };
+          delete copy[deselectId];
+          return copy;
+        });
+        dragPreActionSnapshotRef.current = null;
+        dragStartContainerBoundsRef.current = null;
+        setHoveredDropContainerId(null);
+        setActiveDragElement(null);
+        setSnapGuides([]);
+        return;
+      }
+
+      if (el.isMultiDrag) {
+        if (movedDist >= 0.5) {
+          if (dragPreActionSnapshotRef.current) {
+            pushUndoSnapshot(dragPreActionSnapshotRef.current);
+          }
+          const boundedState = updateContainerBounds(appState, {
+            syncToFirestore: false,
+            extendOnly: true,
+          });
+          appStateRef.current = boundedState;
+          setAppState(boundedState);
+
+          const nodesToSave: WorkflowNode[] = [];
+          const textsToSave: TextElement[] = [];
+          const savedTextIds = new Set<string>();
+
+          if (el.type === 'node' && boundedState.nodes[el.id]) {
+            nodesToSave.push(boundedState.nodes[el.id]);
+          } else if (el.type === 'text' && boundedState.texts[el.id]) {
+            textsToSave.push(boundedState.texts[el.id]);
+            savedTextIds.add(el.id);
+          }
+
+          el.childrenOffsets.forEach((child) => {
+            if (child.type === 'node' && boundedState.nodes[child.id]) {
+              nodesToSave.push(boundedState.nodes[child.id]);
+            } else if (child.type === 'text' && boundedState.texts[child.id]) {
+              textsToSave.push(boundedState.texts[child.id]);
+              savedTextIds.add(child.id);
+            }
+          });
+
+          Object.values(boundedState.texts).forEach((t) => {
+            if (
+              t.mode === 'container' &&
+              !savedTextIds.has(t.id) &&
+              appState.texts[t.id] &&
+              (t.x !== appState.texts[t.id].x ||
+                t.y !== appState.texts[t.id].y ||
+                t.width !== appState.texts[t.id].width ||
+                t.height !== appState.texts[t.id].height)
+            ) {
+              textsToSave.push(t);
+            }
+          });
+
+          saveCanvasPositionsBatch(activeProjectId, nodesToSave, textsToSave);
+        } else if (!e.shiftKey) {
+          setSelectedItems({ [el.id]: el.type });
+        }
+
+        dragPreActionSnapshotRef.current = null;
+        dragStartContainerBoundsRef.current = null;
+        setHoveredDropContainerId(null);
+        setActiveDragElement(null);
+        setSnapGuides([]);
+        return;
+      }
+
       const nextState: AppState = {
         ...appState,
         nodes: { ...appState.nodes },
@@ -1176,24 +2107,34 @@ export default function App() {
         extendOnly: true,
         forceSyncIds,
       });
+      if (dragPreActionSnapshotRef.current) {
+        const postSnap = captureCanvasSnapshot(boundedState);
+        if (!areCanvasSnapshotsEqual(dragPreActionSnapshotRef.current, postSnap)) {
+          pushUndoSnapshot(dragPreActionSnapshotRef.current);
+        }
+        dragPreActionSnapshotRef.current = null;
+      }
       dragStartContainerBoundsRef.current = null;
+      appStateRef.current = boundedState;
       setAppState(boundedState);
       setHoveredDropContainerId(null);
       setActiveDragElement(null);
+      setSnapGuides([]);
     }
   };
 
   // Node CRUD in Firestore
   const handleAddNode = () => {
-    if (!activeProjectId) return;
+    if (!activeProjectId || isReadOnly) return;
+    pushUndoSnapshot();
     const nextNum = Object.keys(appState.nodes).length + 1;
     const nodeId = `node-${Date.now()}`;
 
     const centerX = viewportRef.current
-      ? (viewportRef.current.scrollLeft + viewportRef.current.clientWidth / 2) / currentZoomRef.current - 110
+      ? (cameraPosRef.current.x + viewportRef.current.clientWidth / 2) / currentZoomRef.current - 110
       : 2400;
     const centerY = viewportRef.current
-      ? (viewportRef.current.scrollTop + viewportRef.current.clientHeight / 2) / currentZoomRef.current - 80
+      ? (cameraPosRef.current.y + viewportRef.current.clientHeight / 2) / currentZoomRef.current - 80
       : 2400;
 
     const newNode: WorkflowNode = {
@@ -1201,7 +2142,7 @@ export default function App() {
       projectId: activeProjectId,
       x: `${centerX}px`,
       y: `${centerY}px`,
-      title: `Scene ${nextNum}: New Beat`,
+      title: t('app.defaultNodeTitle', { num: nextNum }),
       image: null,
       mapImage: null,
       mapName: '',
@@ -1218,13 +2159,26 @@ export default function App() {
       containerId: null,
     };
 
+    setAppState((prev) => {
+      const next = {
+        ...prev,
+        nodes: {
+          ...prev.nodes,
+          [nodeId]: newNode,
+        },
+      };
+      appStateRef.current = next;
+      return next;
+    });
     saveNodeToFirestore(activeProjectId, newNode);
   };
 
   const handleUpdateNode = (nodeId: string, updates: Partial<WorkflowNode>) => {
     if (!activeProjectId) return;
-    const curr = appState.nodes[nodeId];
+    const curr = appStateRef.current.nodes[nodeId];
     if (!curr) return;
+
+    pushUndoSnapshot();
 
     const normalizedUpdates: Partial<WorkflowNode> = { ...updates };
     if ('image' in updates && updates.image) {
@@ -1235,23 +2189,46 @@ export default function App() {
     }
 
     const updatedNode = { ...curr, ...normalizedUpdates };
-    setAppState((prev) => ({
-      ...prev,
-      nodes: {
-        ...prev.nodes,
-        [nodeId]: updatedNode,
-      },
-    }));
+    setAppState((prev) => {
+      const next = {
+        ...prev,
+        nodes: {
+          ...prev.nodes,
+          [nodeId]: updatedNode,
+        },
+      };
+      appStateRef.current = next;
+      return next;
+    });
     saveNodeToFirestore(activeProjectId, updatedNode);
   };
 
   const handleDeleteNode = (nodeId: string) => {
     if (!activeProjectId) return;
-    deleteNodeFromFirestore(activeProjectId, nodeId);
-    appState.connections
+    pushUndoSnapshot();
+    const removedConnIds = appStateRef.current.connections
       .filter((c) => c.source === nodeId || c.target === nodeId)
-      .forEach((c) => deleteConnectionFromFirestore(activeProjectId, c.id));
+      .map((c) => c.id);
+    setAppState((prev) => {
+      const nextNodes = { ...prev.nodes };
+      delete nextNodes[nodeId];
+      const next = {
+        ...prev,
+        nodes: nextNodes,
+        connections: prev.connections.filter((c) => c.source !== nodeId && c.target !== nodeId),
+      };
+      appStateRef.current = next;
+      return next;
+    });
+    deleteNodeFromFirestore(activeProjectId, nodeId);
+    removedConnIds.forEach((cid) => deleteConnectionFromFirestore(activeProjectId, cid));
     setDeleteWarningNodeId(null);
+    setSelectedItems((prev) => {
+      if (!prev[nodeId]) return prev;
+      const copy = { ...prev };
+      delete copy[nodeId];
+      return copy;
+    });
     if (activeEditNodeId === nodeId) {
       setActiveEditNodeId(null);
     }
@@ -1259,19 +2236,272 @@ export default function App() {
 
   const handleArchiveNode = (nodeId: string) => {
     if (!activeProjectId) return;
-    const node = appState.nodes[nodeId];
+    const node = appStateRef.current.nodes[nodeId];
     if (!node) return;
 
-    archiveNodeInFirestore(activeProjectId, {
+    pushUndoSnapshot();
+
+    const archivedNode: WorkflowNode = {
       ...node,
-      storedAt: new Date().toLocaleString(),
+      storedAt: new Date().toLocaleString(locale),
       storedBy: currentUser.name,
       storeNote: '',
+    };
+
+    setAppState((prev) => {
+      const nextNodes = { ...prev.nodes };
+      delete nextNodes[nodeId];
+      const next = {
+        ...prev,
+        nodes: nextNodes,
+        storedNodes: {
+          ...prev.storedNodes,
+          [nodeId]: archivedNode,
+        },
+      };
+      appStateRef.current = next;
+      return next;
     });
+
+    archiveNodeInFirestore(activeProjectId, archivedNode);
     setDeleteWarningNodeId(null);
+    setSelectedItems((prev) => {
+      if (!prev[nodeId]) return prev;
+      const copy = { ...prev };
+      delete copy[nodeId];
+      return copy;
+    });
     if (activeEditNodeId === nodeId) {
       setActiveEditNodeId(null);
     }
+  };
+
+  const handleBatchDeleteSelected = () => {
+    if (!activeProjectId || isReadOnly) return;
+    const nodeIdSet = new Set(
+      Object.entries(selectedItems)
+        .filter(([id, t]) => t === 'node' && Boolean(appState.nodes[id]))
+        .map(([id]) => id)
+    );
+    const textIdSet = new Set(
+      Object.entries(selectedItems)
+        .filter(([id, t]) => t === 'text' && Boolean(appState.texts[id]))
+        .map(([id]) => id)
+    );
+    if (nodeIdSet.size === 0 && textIdSet.size === 0) {
+      setBatchDeleteOpen(false);
+      return;
+    }
+
+    const connIdsToDelete = appState.connections
+      .filter((c) => nodeIdSet.has(c.source) || nodeIdSet.has(c.target))
+      .map((c) => c.id);
+
+    const unlinkedNodes: WorkflowNode[] = [];
+    const unlinkedTexts: TextElement[] = [];
+
+    Object.values(appState.nodes).forEach((n) => {
+      if (!nodeIdSet.has(n.id) && n.containerId && textIdSet.has(n.containerId)) {
+        unlinkedNodes.push({ ...n, containerId: null });
+      }
+    });
+    Object.values(appState.texts).forEach((t) => {
+      if (!textIdSet.has(t.id) && t.containerId && textIdSet.has(t.containerId)) {
+        unlinkedTexts.push({ ...t, containerId: null });
+      }
+    });
+
+    pushUndoSnapshot();
+
+    setAppState((prev) => {
+      const nextNodes = { ...prev.nodes };
+      const nextTexts = { ...prev.texts };
+      nodeIdSet.forEach((id) => delete nextNodes[id]);
+      textIdSet.forEach((id) => delete nextTexts[id]);
+      unlinkedNodes.forEach((n) => {
+        nextNodes[n.id] = n;
+      });
+      unlinkedTexts.forEach((t) => {
+        nextTexts[t.id] = t;
+      });
+      const next = {
+        ...prev,
+        nodes: nextNodes,
+        texts: nextTexts,
+        connections: prev.connections.filter((c) => !nodeIdSet.has(c.source) && !nodeIdSet.has(c.target)),
+      };
+      appStateRef.current = next;
+      return next;
+    });
+
+    deleteCanvasItemsBatch(
+      activeProjectId,
+      Array.from(nodeIdSet),
+      Array.from(textIdSet),
+      connIdsToDelete,
+      { nodes: unlinkedNodes, texts: unlinkedTexts }
+    );
+
+    if (activeEditNodeId && nodeIdSet.has(activeEditNodeId)) setActiveEditNodeId(null);
+    if (activeTextPopover && textIdSet.has(activeTextPopover.elementId)) setActiveTextPopover(null);
+    if (activeLinePopover && connIdsToDelete.includes(activeLinePopover.connectionId)) setActiveLinePopover(null);
+
+    setSelectedItems({});
+    setBatchDeleteOpen(false);
+  };
+
+  const handleBatchArchiveSelectedNodes = () => {
+    if (!activeProjectId || isReadOnly) return;
+    const nowStr = new Date().toLocaleString(locale);
+    const nodesToArchive = Object.entries(selectedItems)
+      .filter(([id, t]) => t === 'node' && Boolean(appState.nodes[id]))
+      .map(([id]) => ({
+        ...appState.nodes[id],
+        storedAt: nowStr,
+        storedBy: currentUser.name,
+        storeNote: '',
+      }));
+
+    if (nodesToArchive.length === 0) {
+      setBatchDeleteOpen(false);
+      return;
+    }
+
+    pushUndoSnapshot();
+
+    const archivedIdSet = new Set(nodesToArchive.map((n) => n.id));
+    setAppState((prev) => {
+      const nextNodes = { ...prev.nodes };
+      const nextStored = { ...prev.storedNodes };
+      nodesToArchive.forEach((n) => {
+        delete nextNodes[n.id];
+        nextStored[n.id] = n;
+      });
+      const next = {
+        ...prev,
+        nodes: nextNodes,
+        storedNodes: nextStored,
+      };
+      appStateRef.current = next;
+      return next;
+    });
+
+    archiveNodesBatch(activeProjectId, nodesToArchive);
+
+    if (activeEditNodeId && archivedIdSet.has(activeEditNodeId)) {
+      setActiveEditNodeId(null);
+    }
+    setSelectedItems((prev) => {
+      const remaining: Record<string, 'node' | 'text'> = {};
+      Object.entries(prev).forEach(([id, t]) => {
+        if (!(t === 'node' && archivedIdSet.has(id))) {
+          remaining[id] = t;
+        }
+      });
+      return remaining;
+    });
+    setBatchDeleteOpen(false);
+  };
+
+  const handleDistributeNodes = (axis: 'horizontal' | 'vertical') => {
+    if (!activeProjectId || isReadOnly) return;
+    const currentSnapshot = captureCanvasSnapshot(appStateRef.current);
+    const nodesToDistribute = Object.entries(selectedItems)
+      .filter(([id, t]) => t === 'node' && Boolean(appStateRef.current.nodes[id]))
+      .map(([id]) => appStateRef.current.nodes[id]);
+
+    if (nodesToDistribute.length < 3) return;
+
+    const NODE_W = 220;
+    const NODE_H = 171;
+    const MIN_GAP_X = 60;
+    const MIN_GAP_Y = 50;
+
+    const sorted = [...nodesToDistribute].sort((a, b) => {
+      const ax = parseFloat(a.x) || 0;
+      const bx = parseFloat(b.x) || 0;
+      const ay = parseFloat(a.y) || 0;
+      const by = parseFloat(b.y) || 0;
+      if (axis === 'horizontal') {
+        if (Math.abs(ax - bx) > 0.5) return ax - bx;
+        if (Math.abs(ay - by) > 0.5) return ay - by;
+      } else {
+        if (Math.abs(ay - by) > 0.5) return ay - by;
+        if (Math.abs(ax - bx) > 0.5) return ax - bx;
+      }
+      return a.id.localeCompare(b.id);
+    });
+
+    const count = sorted.length;
+    const nextPositions = new Map<string, { x: string; y: string }>();
+
+    if (axis === 'horizontal') {
+      const minX = parseFloat(sorted[0].x) || 0;
+      const maxX = parseFloat(sorted[count - 1].x) || 0;
+      const avgY = Math.round(
+        sorted.reduce((sum, n) => sum + (parseFloat(n.y) || 0), 0) / count
+      );
+      const minSpan = (count - 1) * (NODE_W + MIN_GAP_X);
+      const effectiveSpan = Math.max(maxX - minX, minSpan);
+      const step = effectiveSpan / (count - 1);
+      const alignedY = `${Math.max(0, avgY)}px`;
+
+      sorted.forEach((n, index) => {
+        const nextX = Math.max(0, Math.round(minX + index * step));
+        nextPositions.set(n.id, { x: `${nextX}px`, y: alignedY });
+      });
+    } else {
+      const minY = parseFloat(sorted[0].y) || 0;
+      const maxY = parseFloat(sorted[count - 1].y) || 0;
+      const avgX = Math.round(
+        sorted.reduce((sum, n) => sum + (parseFloat(n.x) || 0), 0) / count
+      );
+      const minSpan = (count - 1) * (NODE_H + MIN_GAP_Y);
+      const effectiveSpan = Math.max(maxY - minY, minSpan);
+      const step = effectiveSpan / (count - 1);
+      const alignedX = `${Math.max(0, avgX)}px`;
+
+      sorted.forEach((n, index) => {
+        const nextY = Math.max(0, Math.round(minY + index * step));
+        nextPositions.set(n.id, { x: alignedX, y: `${nextY}px` });
+      });
+    }
+
+    const movedNodes: WorkflowNode[] = [];
+    const nextNodes = { ...appStateRef.current.nodes };
+    const forceSyncSet = new Set<string>();
+
+    sorted.forEach((n) => {
+      const coords = nextPositions.get(n.id);
+      if (!coords) return;
+      if (n.x !== coords.x || n.y !== coords.y) {
+        const updatedNode: WorkflowNode = { ...n, x: coords.x, y: coords.y };
+        nextNodes[n.id] = updatedNode;
+        movedNodes.push(updatedNode);
+        if (updatedNode.containerId) {
+          forceSyncSet.add(updatedNode.containerId);
+        }
+      }
+    });
+
+    if (movedNodes.length === 0) return;
+
+    pushUndoSnapshot(currentSnapshot);
+
+    const nextState: AppState = {
+      ...appStateRef.current,
+      nodes: nextNodes,
+    };
+
+    const boundedState = updateContainerBounds(nextState, {
+      syncToFirestore: true,
+      extendOnly: true,
+      forceSyncIds: Array.from(forceSyncSet),
+    });
+
+    appStateRef.current = boundedState;
+    setAppState(boundedState);
+    saveCanvasPositionsBatch(activeProjectId, movedNodes, []);
   };
 
   const handleDeleteImageRecords = async (imgIds: string[]) => {
@@ -1320,22 +2550,33 @@ export default function App() {
   };
 
   // Text Elements CRUD in Firestore
-  const handleAddText = (type: 'floating' | 'container' | 'annotation', text: string) => {
-    if (!activeProjectId) return;
+  const handleAddText = (type: 'floating' | 'container' | 'annotation', text?: string) => {
+    if (!activeProjectId || isReadOnly) return;
+    pushUndoSnapshot();
     const textId = `text-${Date.now()}`;
     const centerX = viewportRef.current
-      ? (viewportRef.current.scrollLeft + viewportRef.current.clientWidth / 2) / currentZoomRef.current - 100
+      ? (cameraPosRef.current.x + viewportRef.current.clientWidth / 2) / currentZoomRef.current -
+        (type === 'container' ? 200 : 100)
       : 2400;
     const centerY = viewportRef.current
-      ? (viewportRef.current.scrollTop + viewportRef.current.clientHeight / 2) / currentZoomRef.current - 50
+      ? (cameraPosRef.current.y + viewportRef.current.clientHeight / 2) / currentZoomRef.current -
+        (type === 'container' ? 130 : 50)
       : 2400;
+
+    const defaultText =
+      text?.trim() ||
+      (type === 'container'
+        ? t('app.defaultContainerText')
+        : type === 'annotation'
+        ? t('app.defaultAnnotationText')
+        : t('app.defaultFloatingText'));
 
     const newElement: TextElement = {
       id: textId,
       projectId: activeProjectId,
       x: `${centerX}px`,
       y: `${centerY}px`,
-      text,
+      text: defaultText,
       mode: type,
       color: type === 'floating' ? '#e2e8f0' : '#0052cc',
       size: type === 'floating' ? 24 : 14,
@@ -1346,23 +2587,133 @@ export default function App() {
       height: type === 'container' ? 260 : undefined,
     };
 
+    setAppState((prev) => {
+      const next = {
+        ...prev,
+        texts: {
+          ...prev.texts,
+          [textId]: newElement,
+        },
+      };
+      appStateRef.current = next;
+      return next;
+    });
     saveTextToFirestore(activeProjectId, newElement);
-    setAddTextModalState({ open: false, type: 'floating' });
   };
 
   const handleUpdateText = (textId: string, updates: Partial<TextElement>) => {
     if (!activeProjectId) return;
-    const curr = appState.texts[textId];
+    const curr = appStateRef.current.texts[textId];
     if (!curr) return;
 
+    const isContinuousStyleEdit =
+      Object.keys(updates).length === 1 && ('size' in updates || 'color' in updates);
+    pushUndoSnapshot(
+      undefined,
+      isContinuousStyleEdit ? `text:${textId}:${'size' in updates ? 'size' : 'color'}` : undefined
+    );
+
     const updatedText = { ...curr, ...updates };
+    setAppState((prev) => {
+      const next = {
+        ...prev,
+        texts: {
+          ...prev.texts,
+          [textId]: updatedText,
+        },
+      };
+      appStateRef.current = next;
+      return next;
+    });
     saveTextToFirestore(activeProjectId, updatedText);
   };
 
+  const handleFitContainerToNodes = useCallback(
+    (containerId: string) => {
+      if (!activeProjectId || isReadOnly) return;
+      const container = appState.texts[containerId];
+      if (!container || container.mode !== 'container') return;
+
+      let minX = Infinity;
+      let minY = Infinity;
+      let maxX = -Infinity;
+      let maxY = -Infinity;
+      let hasChildren = false;
+
+      Object.values(appState.nodes).forEach((n) => {
+        if (n.containerId === containerId) {
+          hasChildren = true;
+          const nx = parseFloat(n.x) || 0;
+          const ny = parseFloat(n.y) || 0;
+          if (nx < minX) minX = nx;
+          if (ny < minY) minY = ny;
+          if (nx + 220 > maxX) maxX = nx + 220;
+          if (ny + 171 > maxY) maxY = ny + 171;
+        }
+      });
+
+      Object.values(appState.texts).forEach((childText) => {
+        if (childText.containerId === containerId && childText.id !== containerId) {
+          hasChildren = true;
+          const cx = parseFloat(childText.x) || 0;
+          const cy = parseFloat(childText.y) || 0;
+          const cw = childText.width || 220;
+          const ch = childText.height || 100;
+          if (cx < minX) minX = cx;
+          if (cy < minY) minY = cy;
+          if (cx + cw > maxX) maxX = cx + cw;
+          if (cy + ch > maxY) maxY = cy + ch;
+        }
+      });
+
+      if (!hasChildren || minX === Infinity) return;
+
+      const targetLeft = minX - 35;
+      const targetTop = minY - 50;
+      const targetWidth = maxX - minX + 70;
+      const targetHeight = maxY - minY + 85;
+
+      if (
+        container.x === `${targetLeft}px` &&
+        container.y === `${targetTop}px` &&
+        container.width === targetWidth &&
+        container.height === targetHeight
+      ) {
+        return;
+      }
+
+      pushUndoSnapshot();
+
+      const updatedContainer: TextElement = {
+        ...container,
+        x: `${targetLeft}px`,
+        y: `${targetTop}px`,
+        width: targetWidth,
+        height: targetHeight,
+      };
+
+      setAppState((prev) => {
+        const next = {
+          ...prev,
+          texts: {
+            ...prev.texts,
+            [containerId]: updatedContainer,
+          },
+        };
+        appStateRef.current = next;
+        return next;
+      });
+      saveTextToFirestore(activeProjectId, updatedContainer);
+    },
+    [activeProjectId, isReadOnly, appState.nodes, appState.texts, pushUndoSnapshot]
+  );
+
   const handleUnlinkNode = (nodeId: string) => {
     if (!activeProjectId) return;
-    const curr = appState.nodes[nodeId];
+    const curr = appStateRef.current.nodes[nodeId];
     if (!curr) return;
+
+    pushUndoSnapshot();
 
     if (curr.containerId) {
       pendingExitContainerRef.current[nodeId] = curr.containerId;
@@ -1370,21 +2721,24 @@ export default function App() {
 
     const updatedNode = { ...curr, containerId: null };
     const nextState: AppState = {
-      ...appState,
+      ...appStateRef.current,
       nodes: {
-        ...appState.nodes,
+        ...appStateRef.current.nodes,
         [nodeId]: updatedNode,
       },
     };
     saveNodeToFirestore(activeProjectId, updatedNode);
     const boundedState = updateContainerBounds(nextState);
+    appStateRef.current = boundedState;
     setAppState(boundedState);
   };
 
   const handleUnlinkText = (textId: string) => {
     if (!activeProjectId) return;
-    const curr = appState.texts[textId];
+    const curr = appStateRef.current.texts[textId];
     if (!curr) return;
+
+    pushUndoSnapshot();
 
     if (curr.containerId) {
       pendingExitContainerRef.current[textId] = curr.containerId;
@@ -1392,24 +2746,41 @@ export default function App() {
 
     const updatedText = { ...curr, containerId: null };
     const nextState: AppState = {
-      ...appState,
+      ...appStateRef.current,
       texts: {
-        ...appState.texts,
+        ...appStateRef.current.texts,
         [textId]: updatedText,
       },
     };
     saveTextToFirestore(activeProjectId, updatedText);
     const boundedState = updateContainerBounds(nextState);
+    appStateRef.current = boundedState;
     setAppState(boundedState);
   };
 
   const handleDeleteText = (textId: string) => {
     if (!activeProjectId) return;
+    pushUndoSnapshot();
+    setAppState((prev) => {
+      const nextTexts = { ...prev.texts };
+      delete nextTexts[textId];
+      const next = {
+        ...prev,
+        texts: nextTexts,
+      };
+      appStateRef.current = next;
+      return next;
+    });
     deleteTextFromFirestore(activeProjectId, textId);
   };
 
   // Vercel Blob Upload & Registry in Firestore (No Base64 in documents)
-  const handleUploadNodeImage = async (nodeId: string, file: File, isMap = false) => {
+  const handleUploadNodeImage = async (
+    nodeId: string,
+    file: File,
+    isMap = false,
+    skipReplaceIfNoAnnotations = false
+  ) => {
     if (!activeProjectId) return;
     const folder = isMap ? 'maps' : 'images';
     setUploadError(null);
@@ -1442,14 +2813,67 @@ export default function App() {
         });
       } else {
         const curr = appState.nodes[nodeId];
-        if (curr?.image) {
+        const hasAnnotations = Boolean(curr?.pins?.length || curr?.drawings?.length);
+        if (curr?.image && (!skipReplaceIfNoAnnotations || hasAnnotations)) {
           setReplaceWarningTarget({ nodeId, pendingUrl: res.url });
         } else {
           handleUpdateNode(nodeId, { image: res.url });
         }
       }
     } catch (err) {
-      setUploadError(err instanceof Error ? err.message : 'Failed to upload image.');
+      const msg = err instanceof Error ? err.message : t('app.errUploadImage');
+      setUploadError(msg);
+      throw err instanceof Error ? err : new Error(msg);
+    } finally {
+      setIsUploadingMedia(false);
+    }
+  };
+
+  // Upload a single AI-generated/edited asset directly into the project library (and optionally attach to active node)
+  const handleUploadLibraryImageFile = async (
+    file: File,
+    folder: 'images' | 'maps',
+    attachToNodeId?: string
+  ) => {
+    if (!activeProjectId) return;
+    setUploadError(null);
+    setIsUploadingMedia(true);
+    try {
+      const res = await uploadImageToStorage(file, folder);
+      const normUrl = res.url.split('?')[0].trim();
+      recentlyUploadedUrlsRef.current.add(normUrl);
+
+      await registerImageInDb({
+        id: `img-${Date.now()}`,
+        projectId: activeProjectId,
+        name: file.name,
+        url: res.url,
+        storagePath: res.storagePath,
+        folder,
+        sizeBytes: file.size,
+        uploadedBy: currentUser.name,
+        uploadedAt: new Date().toISOString(),
+      });
+
+      if (attachToNodeId) {
+        if (folder === 'maps') {
+          handleUpdateNode(attachToNodeId, {
+            mapImage: res.url,
+            mapName: file.name.replace(/\.[^/.]+$/, ''),
+          });
+        } else {
+          const curr = appState.nodes[attachToNodeId];
+          if (curr?.image && (curr.pins?.length || curr.drawings?.length)) {
+            setReplaceWarningTarget({ nodeId: attachToNodeId, pendingUrl: res.url });
+          } else {
+            handleUpdateNode(attachToNodeId, { image: res.url });
+          }
+        }
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : t('app.errUploadLibrary');
+      setUploadError(msg);
+      throw err instanceof Error ? err : new Error(msg);
     } finally {
       setIsUploadingMedia(false);
     }
@@ -1478,7 +2902,7 @@ export default function App() {
         });
       }
     } catch (err) {
-      setUploadError(err instanceof Error ? err.message : 'Failed to upload gallery assets.');
+      setUploadError(err instanceof Error ? err.message : t('app.errUploadGallery'));
     } finally {
       setIsUploadingMedia(false);
     }
@@ -1489,12 +2913,164 @@ export default function App() {
     : null;
   const pinningNode = pinningNodeId ? appState.nodes[pinningNodeId] : null;
   const mapViewerNode = mapViewerNodeId ? appState.nodes[mapViewerNodeId] : null;
+  const sketchStudioNode = sketchStudioState
+    ? appState.nodes[sketchStudioState.nodeId] || appState.storedNodes[sketchStudioState.nodeId]
+    : null;
   const activeConn = activeLinePopover
     ? appState.connections.find((c) => c.id === activeLinePopover.connectionId)
     : null;
   const activeTextEl = activeTextPopover
     ? appState.texts[activeTextPopover.elementId]
     : null;
+
+  const selectedEntries = Object.entries(selectedItems) as [string, 'node' | 'text'][];
+  const selectedNodeIds = selectedEntries
+    .filter(([id, t]) => t === 'node' && Boolean(appState.nodes[id]))
+    .map(([id]) => id);
+  const selectedTextIds = selectedEntries
+    .filter(([id, t]) => t === 'text' && Boolean(appState.texts[id]))
+    .map(([id]) => id);
+  const totalSelectedCount = selectedNodeIds.length + selectedTextIds.length;
+
+  // Canvas keyboard shortcuts: Space to pan, Escape to clear selection, Delete/Backspace to remove selected
+  useEffect(() => {
+    const isInputTarget = (target: EventTarget | null) => {
+      const el = target as HTMLElement | null;
+      if (!el) return false;
+      const tag = el.tagName;
+      return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || el.isContentEditable;
+    };
+
+    const hasOpenModal = Boolean(
+      activeEditNodeId ||
+        pinningNodeId ||
+        mapViewerNodeId ||
+        adminConsoleOpen ||
+        archiveModalOpen ||
+        exportModalOpen ||
+        galleryModalState.open ||
+        globalVideoModalOpen ||
+        actorLibraryState.open ||
+        Boolean(inspectedActor) ||
+        deleteWarningNodeId ||
+        batchDeleteOpen ||
+        labelManagerOpen ||
+        replaceWarningTarget ||
+        apiKeyModalOpen ||
+        aiImageModalState ||
+        sketchStudioState
+    );
+
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (isInputTarget(e.target) || hasOpenModal) return;
+
+      if ((e.ctrlKey || e.metaKey) && !e.altKey) {
+        const keyLower = e.key.toLowerCase();
+        if (keyLower === 'z' && !e.shiftKey) {
+          e.preventDefault();
+          handleUndo();
+          return;
+        }
+        if (keyLower === 'y' || (keyLower === 'z' && e.shiftKey)) {
+          e.preventDefault();
+          handleRedo();
+          return;
+        }
+      }
+
+      if (e.code === 'Space') {
+        e.preventDefault();
+        setIsSpacePressed(true);
+        return;
+      }
+
+      if (e.key === 'Escape') {
+        setSelectedItems({});
+        setSelectionBox(null);
+        setActiveLinePopover(null);
+        setActiveTextPopover(null);
+        setSearchQuery('');
+        return;
+      }
+
+      if ((e.key === 'Delete' || e.key === 'Backspace') && !isReadOnly && totalSelectedCount > 0) {
+        e.preventDefault();
+        setBatchDeleteOpen(true);
+        return;
+      }
+
+      if (!e.ctrlKey && !e.metaKey && !e.altKey) {
+        if (e.key.toLowerCase() === 'v') {
+          setCanvasToolMode('select');
+        } else if (e.key.toLowerCase() === 'h') {
+          setCanvasToolMode('pan');
+        }
+      }
+    };
+
+    const onKeyUp = (e: KeyboardEvent) => {
+      if (e.code === 'Space') {
+        setIsSpacePressed(false);
+      }
+    };
+
+    const onWindowBlur = () => {
+      setIsSpacePressed(false);
+    };
+
+    window.addEventListener('keydown', onKeyDown);
+    window.addEventListener('keyup', onKeyUp);
+    window.addEventListener('blur', onWindowBlur);
+    return () => {
+      window.removeEventListener('keydown', onKeyDown);
+      window.removeEventListener('keyup', onKeyUp);
+      window.removeEventListener('blur', onWindowBlur);
+    };
+  }, [
+    activeEditNodeId,
+    pinningNodeId,
+    mapViewerNodeId,
+    adminConsoleOpen,
+    archiveModalOpen,
+    exportModalOpen,
+    galleryModalState.open,
+    globalVideoModalOpen,
+    deleteWarningNodeId,
+    batchDeleteOpen,
+    labelManagerOpen,
+    replaceWarningTarget,
+    apiKeyModalOpen,
+    aiImageModalState,
+    sketchStudioState,
+    isReadOnly,
+    totalSelectedCount,
+    handleUndo,
+    handleRedo,
+  ]);
+
+  const hasApiKey = Boolean(userGeminiApiKey && userGeminiApiKey.trim());
+  const isSearchActive = searchQuery.trim().length > 0;
+  const matchedNodeIds = useMemo(() => {
+    const ids = new Set<string>();
+    if (!isSearchActive) return ids;
+    Object.values(appState.nodes).forEach((node) => {
+      if (doesNodeMatchQuery(node, searchQuery)) {
+        ids.add(node.id);
+      }
+    });
+    return ids;
+  }, [isSearchActive, searchQuery, appState.nodes]);
+
+  const matchedTextIds = useMemo(() => {
+    const ids = new Set<string>();
+    if (!isSearchActive) return ids;
+    Object.values(appState.texts).forEach((el) => {
+      if (doesTextMatchQuery(el, appState.labels, searchQuery)) {
+        ids.add(el.id);
+      }
+    });
+    return ids;
+  }, [isSearchActive, searchQuery, appState.texts, appState.labels]);
 
   const activeGalleryFolder = galleryModalState.mode.includes('maps') ? 'maps' : 'images';
   const filteredGalleryImages = imagesDbList.filter(
@@ -1509,17 +3085,17 @@ export default function App() {
       setAuthError(
         err instanceof Error
           ? err.message
-          : 'Google sign-in failed. Verify this domain is authorized in Firebase Authentication.'
+          : t('app.googleSignInError')
       );
     }
   };
 
   if (!authReady) {
     return (
-      <div className="w-screen h-screen bg-neutral-950 text-neutral-200 flex items-center justify-center">
+      <div className="w-screen h-screen bg-[#c9c6bd] dark:bg-neutral-950 text-[#2b2924] dark:text-neutral-200 flex items-center justify-center">
         <div className="flex flex-col items-center gap-3">
-          <div className="w-8 h-8 rounded-full border-2 border-blue-500 border-t-transparent animate-spin" />
-          <p className="text-xs text-neutral-400">Connecting to workspace...</p>
+          <div className="w-8 h-8 rounded-full border-2 border-blue-600 dark:border-blue-500 border-t-transparent animate-spin" />
+          <p className="text-xs text-[#5c584e] dark:text-neutral-400">{t('app.connectingWorkspace')}</p>
         </div>
       </div>
     );
@@ -1527,31 +3103,59 @@ export default function App() {
 
   if (!firebaseUser) {
     return (
-      <div className="w-screen h-screen bg-neutral-950 text-neutral-100 flex items-center justify-center p-4">
-        <div className="w-full max-w-sm rounded-2xl bg-neutral-900 border border-neutral-800 p-7 shadow-2xl text-center space-y-5">
-          <div className="w-12 h-12 rounded-2xl bg-blue-600/20 border border-blue-500/30 text-blue-400 mx-auto flex items-center justify-center font-bold text-lg">
+      <div className="w-screen h-screen relative bg-[#c9c6bd] dark:bg-neutral-950 text-[#2b2924] dark:text-neutral-100 flex items-center justify-center p-4">
+        <div
+          className="absolute top-4 right-4 z-10 inline-flex items-center gap-0.5 rounded-lg bg-[#ebe7de] dark:bg-neutral-900 border border-[#c3beb1] dark:border-neutral-800 p-0.5 shadow-md text-[11px]"
+          role="group"
+          aria-label={t('common.language')}
+        >
+          <button
+            type="button"
+            onClick={() => setLanguage('en')}
+            className={`px-2 py-1 rounded-md font-bold transition-colors cursor-pointer ${
+              language === 'en'
+                ? 'bg-blue-600 text-white shadow-sm'
+                : 'text-[#5c584e] hover:text-[#1f1d18] dark:text-neutral-400 dark:hover:text-neutral-200'
+            }`}
+          >
+            EN
+          </button>
+          <button
+            type="button"
+            onClick={() => setLanguage('es')}
+            className={`px-2 py-1 rounded-md font-bold transition-colors cursor-pointer ${
+              language === 'es'
+                ? 'bg-blue-600 text-white shadow-sm'
+                : 'text-[#5c584e] hover:text-[#1f1d18] dark:text-neutral-400 dark:hover:text-neutral-200'
+            }`}
+          >
+            ES
+          </button>
+        </div>
+        <div className="w-full max-w-sm rounded-2xl bg-[#ebe7de] dark:bg-neutral-900 border border-[#c3beb1] dark:border-neutral-800 p-7 shadow-2xl text-center space-y-5">
+          <div className="w-12 h-12 rounded-2xl bg-blue-600/15 dark:bg-blue-600/20 border border-blue-600/30 dark:border-blue-500/30 text-blue-700 dark:text-blue-400 mx-auto flex items-center justify-center font-bold text-lg">
             VW
           </div>
           <div className="space-y-1.5">
-            <h1 className="text-lg font-bold tracking-tight text-neutral-100">
-              Visual Workflow Canvas
+            <h1 className="text-lg font-bold tracking-tight text-[#2b2924] dark:text-neutral-100">
+              {t('auth.title')}
             </h1>
-            <p className="text-xs text-neutral-400 leading-relaxed">
-              Sign in with your Google account to access shared storyboard projects, real-time nodes, and cloud media assets.
+            <p className="text-xs text-[#5c584e] dark:text-neutral-400 leading-relaxed">
+              {t('auth.subtitle')}
             </p>
           </div>
 
           {authError && (
-            <div className="p-3 rounded-xl bg-red-950/50 border border-red-800/60 text-xs text-red-300 text-left break-words">
+            <div className="p-3 rounded-xl bg-red-600/12 dark:bg-red-950/50 border border-red-600/35 dark:border-red-800/60 text-xs text-red-800 dark:text-red-300 text-left break-words">
               {authError}
             </div>
           )}
 
           <button
             onClick={handleGoogleLogin}
-            className="w-full py-2.5 px-4 rounded-xl bg-blue-600 hover:bg-blue-500 active:bg-blue-700 text-white text-xs font-semibold shadow-lg shadow-blue-900/30 transition-colors cursor-pointer"
+            className="w-full py-2.5 px-4 rounded-xl bg-blue-600 hover:bg-blue-500 active:bg-blue-700 text-white text-xs font-semibold shadow-lg shadow-blue-900/20 dark:shadow-blue-900/30 transition-colors cursor-pointer"
           >
-            Sign in with Google
+            {t('auth.signInWithGoogle')}
           </button>
         </div>
       </div>
@@ -1561,7 +3165,7 @@ export default function App() {
   return (
     <div
       className={`w-screen h-screen overflow-hidden flex flex-col ${
-        isDark ? 'dark bg-neutral-950 text-neutral-100' : 'light bg-neutral-100 text-neutral-900'
+        isDark ? 'dark bg-[#121212] text-neutral-100' : 'light bg-[#c9c6bd] text-[#2b2924]'
       }`}
     >
       {/* Top Application Header */}
@@ -1572,20 +3176,43 @@ export default function App() {
         activeProject={activeProject}
         storedCount={Object.keys(appState.storedNodes).length}
         zoom={zoom}
-        isDark={isDark}
-        onToggleDark={() => setIsDark(!isDark)}
+        styleSettings={canvasStyle}
+        nodes={appState.nodes}
+        texts={appState.texts}
+        labels={appState.labels}
+        searchQuery={searchQuery}
+        onSearchQueryChange={setSearchQuery}
+        searchMatchCount={matchedNodeIds.size}
+        onFocusSearchTarget={handleFocusSearchTarget}
+        onChangeStyleSettings={setCanvasStyle}
+        onResetStyleSettings={handleResetCanvasStyle}
         onSelectProject={(pId) => {
           setActiveProjectId(pId);
+          setSearchQuery('');
           setTimeout(() => centerCanvas(), 150);
         }}
         onOpenAdminConsole={() => setAdminConsoleOpen(true)}
-        onOpenDeploymentGuide={() => setDeploymentGuideOpen(true)}
         onOpenArchitecture={() => setArchitectureModalOpen(true)}
         onOpenGallery={(mode) => setGalleryModalState({ open: true, mode })}
         onOpenVideoLib={() => setGlobalVideoModalOpen(true)}
+        onOpenActorLib={() => setActorLibraryState({ open: true })}
         onOpenArchive={() => setArchiveModalOpen(true)}
+        onOpenExport={() => {
+          const vp = viewportRef.current;
+          const z = currentZoomRef.current || 1;
+          if (vp) {
+            setExportViewportRect({
+              x: cameraPosRef.current.x / z,
+              y: cameraPosRef.current.y / z,
+              width: vp.clientWidth / z,
+              height: vp.clientHeight / z,
+              zoom: z,
+            });
+          }
+          setExportModalOpen(true);
+        }}
         onAddNode={handleAddNode}
-        onOpenAddText={(type) => setAddTextModalState({ open: true, type })}
+        onAddTextDirect={(type) => handleAddText(type)}
         onZoomChange={(type) => {
           if (type === '100') {
             if (viewportRef.current) {
@@ -1593,8 +3220,8 @@ export default function App() {
               const cx = vp.clientWidth / 2;
               const cy = vp.clientHeight / 2;
               const prevZ = currentZoomRef.current;
-              const canvasX = (vp.scrollLeft + cx) / prevZ;
-              const canvasY = (vp.scrollTop + cy) / prevZ;
+              const canvasX = (cameraPosRef.current.x + cx) / prevZ;
+              const canvasY = (cameraPosRef.current.y + cy) / prevZ;
               applyZoomImmediate(1, canvasX - cx, canvasY - cy);
             } else {
               applyZoomImmediate(1);
@@ -1603,56 +3230,166 @@ export default function App() {
           if (type === 'center') centerCanvas();
           if (type === 'fit') fitAllNodes();
         }}
+        hasApiKey={hasApiKey}
+        onOpenApiKeyConfig={() => setApiKeyModalOpen(true)}
         onSignInGoogle={handleGoogleLogin}
         onSignOut={() => logOut()}
       />
 
       {/* Infinite Canvas Viewport */}
-      <div
-        ref={viewportRef}
-        onMouseDown={handleCanvasMouseDown}
-        onMouseMove={handleGlobalMouseMove}
-        onMouseUp={handleGlobalMouseUp}
-        className="flex-1 w-full h-full overflow-hidden relative cursor-default select-none"
-      >
+      <div className="flex-1 w-full h-full relative overflow-hidden">
+        <ReactiveDotGrid
+          viewportRef={viewportRef}
+          panRef={cameraPosRef}
+          zoomRef={currentZoomRef}
+          zoomTrigger={zoom}
+          onRegisterRender={registerDotGridRender}
+          styleSettings={canvasStyle}
+        />
+        <div
+          ref={viewportRef}
+          onPointerDown={handleCanvasPointerDown}
+          onMouseDown={(e) => {
+            if (e.button === 1) e.preventDefault();
+          }}
+          onAuxClick={(e) => {
+            if (e.button === 1) e.preventDefault();
+          }}
+          onPointerMove={handleGlobalPointerMove}
+          onPointerUp={handleGlobalPointerUp}
+          onPointerCancel={handleGlobalPointerUp}
+          className={`w-full h-full overflow-hidden relative z-10 select-none touch-canvas ${
+            isPanningCanvas
+              ? 'cursor-grabbing'
+              : isSpacePressed || canvasToolMode === 'pan'
+              ? 'cursor-grab'
+              : 'cursor-default'
+          }`}
+        >
         <div
           ref={canvasRef}
+          data-pan-mode={isSpacePressed || canvasToolMode === 'pan' ? 'true' : 'false'}
           style={{
             width: 5000,
             height: 5000,
-            transform: `scale(${currentZoomRef.current})`,
+            transform: `translate3d(${-cameraPosRef.current.x}px, ${-cameraPosRef.current.y}px, 0) scale(${currentZoomRef.current})`,
             transformOrigin: '0 0',
             willChange: 'transform',
+            ['--canvas-zoom' as string]: currentZoomRef.current,
           }}
-          className="absolute inset-0 canvas-grid"
+          className="absolute top-0 left-0 canvas-grid"
         >
           {/* SVG Connection Layer */}
           <ConnectionLines
             connections={appState.connections}
             nodes={appState.nodes}
             tempConnection={tempConnection}
+            isPanMode={isSpacePressed || canvasToolMode === 'pan'}
+            isSearchActive={isSearchActive}
+            matchedNodeIds={matchedNodeIds}
             onClickConnection={(connectionId, x, y) => {
               setActiveLinePopover({ connectionId, x, y });
             }}
           />
 
+          {/* Smart Alignment Snap Guides */}
+          {snapGuides.length > 0 && (
+            <svg className="absolute inset-0 w-full h-full pointer-events-none z-[25] overflow-visible">
+              {snapGuides.map((guide, idx) => (
+                <g key={`${guide.axis}-${guide.coord}-${idx}`}>
+                  <line
+                    x1={guide.axis === 'x' ? guide.coord : guide.spanStart}
+                    y1={guide.axis === 'x' ? guide.spanStart : guide.coord}
+                    x2={guide.axis === 'x' ? guide.coord : guide.spanEnd}
+                    y2={guide.axis === 'x' ? guide.spanEnd : guide.coord}
+                    stroke="#38bdf8"
+                    strokeWidth="1.25"
+                    strokeDasharray="4 4"
+                    vectorEffect="non-scaling-stroke"
+                    opacity="0.92"
+                  />
+                  {guide.markers.map((pos, mIdx) =>
+                    guide.axis === 'x' ? (
+                      <line
+                        key={mIdx}
+                        x1={guide.coord - 4}
+                        y1={pos}
+                        x2={guide.coord + 4}
+                        y2={pos}
+                        stroke="#38bdf8"
+                        strokeWidth="1.5"
+                        vectorEffect="non-scaling-stroke"
+                        opacity="0.95"
+                      />
+                    ) : (
+                      <line
+                        key={mIdx}
+                        x1={pos}
+                        y1={guide.coord - 4}
+                        x2={pos}
+                        y2={guide.coord + 4}
+                        stroke="#38bdf8"
+                        strokeWidth="1.5"
+                        vectorEffect="non-scaling-stroke"
+                        opacity="0.95"
+                      />
+                    )
+                  )}
+                </g>
+              ))}
+            </svg>
+          )}
+
+          {/* Marquee Selection Box */}
+          {selectionBox && (
+            <div
+              style={{
+                left: Math.min(selectionBox.startX, selectionBox.currentX),
+                top: Math.min(selectionBox.startY, selectionBox.currentY),
+                width: Math.abs(selectionBox.currentX - selectionBox.startX),
+                height: Math.abs(selectionBox.currentY - selectionBox.startY),
+                borderWidth: 'calc(1.5px / var(--canvas-zoom, 1))',
+              }}
+              className="absolute border-sky-400 bg-sky-400/12 pointer-events-none z-40 rounded-sm"
+            />
+          )}
+
           {/* Grouping Containers and Text Elements */}
           {Object.values(appState.texts).map((element) => (
             <div
               key={element.id}
-              onMouseDown={(e) => handleNodeOrTextMouseDown(element.id, 'text', e)}
+              onPointerDown={(e) => handleNodeOrTextPointerDown(element.id, 'text', e)}
             >
               <CanvasTextCard
                 element={element}
                 label={element.labelId ? appState.labels[element.labelId] : undefined}
                 isReadOnly={isReadOnly}
                 isDropTarget={element.mode === 'container' && hoveredDropContainerId === element.id}
+                isSelected={
+                  activeTextPopover?.elementId === element.id ||
+                  highlightedElementId === element.id ||
+                  Boolean(selectedItems[element.id])
+                }
+                searchMatchState={
+                  !isSearchActive
+                    ? 'none'
+                    : matchedTextIds.has(element.id)
+                    ? 'match'
+                    : 'dimmed'
+                }
                 onOpenSettings={(id, e) => {
                   setActiveTextPopover({ elementId: id, x: e.clientX, y: e.clientY });
                 }}
-                onDelete={handleDeleteText}
+                onDelete={(id) => {
+                  if (selectedItems[id] && totalSelectedCount > 1) {
+                    setBatchDeleteOpen(true);
+                  } else {
+                    handleDeleteText(id);
+                  }
+                }}
                 onUnlink={handleUnlinkText}
                 onUpdateText={handleUpdateText}
+                onFitContainer={handleFitContainerToNodes}
               />
             </div>
           ))}
@@ -1661,11 +3398,31 @@ export default function App() {
           {Object.values(appState.nodes).map((node) => (
             <div
               key={node.id}
-              onMouseDown={(e) => handleNodeOrTextMouseDown(node.id, 'node', e)}
+              onPointerDown={(e) => handleNodeOrTextPointerDown(node.id, 'node', e)}
             >
               <WorkflowNodeCard
                 node={node}
                 isReadOnly={isReadOnly}
+                isHighlighted={highlightedElementId === node.id}
+                isSelected={Boolean(selectedItems[node.id])}
+                searchMatchState={
+                  !isSearchActive
+                    ? 'none'
+                    : matchedNodeIds.has(node.id)
+                    ? 'match'
+                    : 'dimmed'
+                }
+                isConnectionDragging={Boolean(tempConnection)}
+                activeSourcePort={tempConnection?.sourceId === node.id ? tempConnection.sourcePort : null}
+                approachedPort={
+                  tempConnection?.hoverTarget?.nodeId === node.id
+                    ? {
+                        port: tempConnection.hoverTarget.port,
+                        proximity: tempConnection.hoverTarget.proximity,
+                        isReady: tempConnection.hoverTarget.isReady,
+                      }
+                    : null
+                }
                 isHoveringContainer={
                   activeDragElement?.type === 'node' &&
                   activeDragElement.id === node.id &&
@@ -1674,25 +3431,165 @@ export default function App() {
                 onStartPortDrag={(nodeId, port, e) => {
                   if (!canvasRef.current) return;
                   const cRect = canvasRef.current.getBoundingClientRect();
-                  const startX = (e.clientX - cRect.left) / currentZoomRef.current;
-                  const startY = (e.clientY - cRect.top) / currentZoomRef.current;
+                  const fallbackX = (e.clientX - cRect.left) / currentZoomRef.current;
+                  const fallbackY = (e.clientY - cRect.top) / currentZoomRef.current;
+                  const portCoords = getNodePortCoords(appState.nodes, nodeId, port);
+                  const startX = portCoords ? portCoords.x : fallbackX;
+                  const startY = portCoords ? portCoords.y : fallbackY;
                   setTempConnection({
                     sourceId: nodeId,
                     sourcePort: port,
                     startX,
                     startY,
-                    currentX: startX,
-                    currentY: startY,
+                    currentX: fallbackX,
+                    currentY: fallbackY,
+                    hoverTarget: null,
                   });
                 }}
                 onOpenDashboard={(id) => setActiveEditNodeId(id)}
-                onDeleteRequest={(id) => setDeleteWarningNodeId(id)}
+                onDeleteRequest={(id) => {
+                  if (selectedItems[id] && totalSelectedCount > 1) {
+                    setBatchDeleteOpen(true);
+                  } else {
+                    setDeleteWarningNodeId(id);
+                  }
+                }}
                 onUnlinkContainer={handleUnlinkNode}
                 onUpdateTitle={(id, title) => handleUpdateNode(id, { title })}
                 onImagePaste={(id, file) => handleUploadNodeImage(id, file)}
               />
             </div>
           ))}
+        </div>
+
+        {/* Floating Canvas Interaction & Multi-Select Dock */}
+        <div
+          data-canvas-ui="true"
+          onMouseDown={(e) => e.stopPropagation()}
+          onPointerDown={(e) => e.stopPropagation()}
+          className="fixed bottom-4 left-1/2 -translate-x-1/2 z-30 flex items-center gap-2 max-w-[95vw] overflow-x-auto bg-[#ebe7de]/95 dark:bg-neutral-900/95 backdrop-blur-md border border-[#c3beb1] dark:border-neutral-700/80 rounded-xl shadow-2xl p-1.5 text-xs"
+        >
+          <div className="flex items-center gap-0.5 bg-[#dcd7cc]/90 dark:bg-neutral-950/70 rounded-lg p-0.5 border border-[#c6c0b3] dark:border-neutral-800 shrink-0">
+            <button
+              onClick={() => setCanvasToolMode('select')}
+              className={`touch-target flex items-center gap-1.5 px-2.5 py-1.5 rounded-md font-medium transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
+                canvasToolMode === 'select' && !isSpacePressed
+                  ? 'bg-blue-600 text-white shadow-sm'
+                  : 'text-[#433f37] hover:text-[#1f1d18] hover:bg-[#cfc9bc] dark:text-neutral-300 dark:hover:text-white dark:hover:bg-neutral-800'
+              }`}
+              title={t('app.selectToolTitle')}
+            >
+              <MousePointer2 className="w-3.5 h-3.5" />
+              <span>{t('app.selectTool')}</span>
+            </button>
+            <button
+              onClick={() => setCanvasToolMode('pan')}
+              className={`touch-target flex items-center gap-1.5 px-2.5 py-1.5 rounded-md font-medium transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
+                canvasToolMode === 'pan' || isSpacePressed
+                  ? 'bg-blue-600 text-white shadow-sm'
+                  : 'text-[#433f37] hover:text-[#1f1d18] hover:bg-[#cfc9bc] dark:text-neutral-300 dark:hover:text-white dark:hover:bg-neutral-800'
+              }`}
+              title={t('app.panToolTitle')}
+            >
+              <Hand className="w-3.5 h-3.5" />
+              <span>{t('app.panTool')}</span>
+            </button>
+          </div>
+
+          {!isReadOnly && (
+            <>
+              <div className="h-5 w-px bg-[#c3beb1] dark:bg-neutral-700/80" />
+              <div className="flex items-center gap-0.5 bg-[#dcd7cc]/90 dark:bg-neutral-950/70 rounded-lg p-0.5 border border-[#c6c0b3] dark:border-neutral-800">
+                <button
+                  onClick={handleUndo}
+                  disabled={undoCount === 0}
+                  className={`flex items-center gap-1 px-2 py-1.5 rounded-md font-medium transition-colors whitespace-nowrap shrink-0 ${
+                    undoCount > 0
+                      ? 'text-[#433f37] hover:text-[#1f1d18] hover:bg-[#cfc9bc] dark:text-neutral-200 dark:hover:text-white dark:hover:bg-neutral-800 cursor-pointer'
+                      : 'text-[#9b9588] dark:text-neutral-600 cursor-not-allowed'
+                  }`}
+                  title={t('app.undoTitle', { count: undoCount })}
+                >
+                  <Undo2 className="w-3.5 h-3.5" />
+                  <span className="tabular-nums text-[10px] opacity-80">{undoCount}</span>
+                </button>
+                <button
+                  onClick={handleRedo}
+                  disabled={redoCount === 0}
+                  className={`flex items-center gap-1 px-2 py-1.5 rounded-md font-medium transition-colors whitespace-nowrap shrink-0 ${
+                    redoCount > 0
+                      ? 'text-[#433f37] hover:text-[#1f1d18] hover:bg-[#cfc9bc] dark:text-neutral-200 dark:hover:text-white dark:hover:bg-neutral-800 cursor-pointer'
+                      : 'text-[#9b9588] dark:text-neutral-600 cursor-not-allowed'
+                  }`}
+                  title={t('app.redoTitle', { count: redoCount })}
+                >
+                  <Redo2 className="w-3.5 h-3.5" />
+                  <span className="tabular-nums text-[10px] opacity-80">{redoCount}</span>
+                </button>
+              </div>
+            </>
+          )}
+
+          {totalSelectedCount >= 2 && (
+            <>
+              <div className="h-5 w-px bg-[#c3beb1] dark:bg-neutral-700/80" />
+              <span className="px-2 font-medium text-blue-700 dark:text-sky-300 tabular-nums whitespace-nowrap shrink-0">
+                {t('app.selectedCount', { count: totalSelectedCount })}
+              </span>
+              {!isReadOnly && (
+                <div className="flex items-center gap-1">
+                  {selectedNodeIds.length >= 3 && (
+                    <div className="flex items-center gap-0.5 bg-[#dcd7cc]/90 dark:bg-neutral-950/70 rounded-lg p-0.5 border border-[#c6c0b3] dark:border-neutral-800 shrink-0">
+                      <button
+                        type="button"
+                        onClick={() => handleDistributeNodes('horizontal')}
+                        className="touch-target flex items-center gap-1.5 px-2.5 py-1.5 rounded-md font-medium text-[#433f37] hover:text-[#1f1d18] hover:bg-[#cfc9bc] dark:text-neutral-200 dark:hover:text-white dark:hover:bg-neutral-800 transition-colors whitespace-nowrap shrink-0 cursor-pointer"
+                        title={t('app.distributeHTitle', { count: selectedNodeIds.length })}
+                      >
+                        <AlignHorizontalDistributeCenter className="w-3.5 h-3.5 text-blue-600 dark:text-sky-400" />
+                        <span className="hidden sm:inline">{t('app.distributeH')}</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleDistributeNodes('vertical')}
+                        className="touch-target flex items-center gap-1.5 px-2.5 py-1.5 rounded-md font-medium text-[#433f37] hover:text-[#1f1d18] hover:bg-[#cfc9bc] dark:text-neutral-200 dark:hover:text-white dark:hover:bg-neutral-800 transition-colors whitespace-nowrap shrink-0 cursor-pointer"
+                        title={t('app.distributeVTitle', { count: selectedNodeIds.length })}
+                      >
+                        <AlignVerticalDistributeCenter className="w-3.5 h-3.5 text-blue-600 dark:text-sky-400" />
+                        <span className="hidden sm:inline">{t('app.distributeV')}</span>
+                      </button>
+                    </div>
+                  )}
+                  {selectedNodeIds.length > 0 && (
+                    <button
+                      onClick={handleBatchArchiveSelectedNodes}
+                      className="touch-target flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-[#ded9cd] hover:bg-[#d2ccbf] dark:bg-neutral-800 dark:hover:bg-neutral-700 text-amber-800 dark:text-amber-300 border border-[#c3beb1] dark:border-neutral-700 font-medium transition-colors whitespace-nowrap shrink-0 cursor-pointer"
+                      title={t('app.archiveSelectedTitle')}
+                    >
+                      <Archive className="w-3.5 h-3.5" />
+                      <span>{t('app.archiveSelected', { count: selectedNodeIds.length })}</span>
+                    </button>
+                  )}
+                  <button
+                    onClick={() => setBatchDeleteOpen(true)}
+                    className="touch-target flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-red-600/90 hover:bg-red-500 text-white font-semibold transition-colors whitespace-nowrap shrink-0 cursor-pointer"
+                    title={t('app.deleteSelectedTitle')}
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                    <span>{t('app.deleteSelected', { count: totalSelectedCount })}</span>
+                  </button>
+                </div>
+              )}
+              <button
+                onClick={() => setSelectedItems({})}
+                className="p-1.5 text-[#5a554b] hover:text-[#1f1d18] hover:bg-[#d6d0c3] dark:text-neutral-400 dark:hover:text-white dark:hover:bg-neutral-800 rounded-lg transition-colors cursor-pointer shrink-0"
+                title={t('app.clearSelectionTitle')}
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            </>
+          )}
+        </div>
         </div>
       </div>
 
@@ -1704,11 +3601,43 @@ export default function App() {
           onClose={() => setActiveLinePopover(null)}
           onUpdate={(updates) => {
             if (activeProjectId) {
-              saveConnectionToFirestore(activeProjectId, { ...activeConn, ...updates });
+              const coalesceField =
+                'label' in updates
+                  ? 'label'
+                  : 'parallelLabels' in updates
+                  ? 'parallelLabels'
+                  : 'color' in updates
+                  ? 'color'
+                  : null;
+              pushUndoSnapshot(
+                undefined,
+                coalesceField ? `line:${activeConn.id}:${coalesceField}` : undefined
+              );
+              const updatedConn = { ...activeConn, ...updates };
+              setAppState((prev) => {
+                const next = {
+                  ...prev,
+                  connections: prev.connections.map((c) =>
+                    c.id === activeConn.id ? updatedConn : c
+                  ),
+                };
+                appStateRef.current = next;
+                return next;
+              });
+              saveConnectionToFirestore(activeProjectId, updatedConn);
             }
           }}
           onDelete={() => {
             if (activeProjectId) {
+              pushUndoSnapshot();
+              setAppState((prev) => {
+                const next = {
+                  ...prev,
+                  connections: prev.connections.filter((c) => c.id !== activeConn.id),
+                };
+                appStateRef.current = next;
+                return next;
+              });
               deleteConnectionFromFirestore(activeProjectId, activeConn.id);
             }
             setActiveLinePopover(null);
@@ -1741,6 +3670,7 @@ export default function App() {
           onClose={() => setAdminConsoleOpen(false)}
           onSelectProject={(pId) => {
             setActiveProjectId(pId);
+            setSearchQuery('');
             setTimeout(() => centerCanvas(), 150);
           }}
           onCreateProject={async (title, desc) => {
@@ -1788,11 +3718,14 @@ export default function App() {
         />
       )}
 
-      {/* Deployment to Firebase Hosting Guide Modal */}
-      {deploymentGuideOpen && (
-        <DeploymentGuideModal
-          projectId="massive-artwork-d07pf"
-          onClose={() => setDeploymentGuideOpen(false)}
+      {/* Export PNG / SVG Modal */}
+      {exportModalOpen && (
+        <ExportModal
+          appState={appState}
+          projectTitle={activeProject?.title || t('app.defaultStoryboardTitle')}
+          isDark={isDark}
+          viewportRect={exportViewportRect}
+          onClose={() => setExportModalOpen(false)}
         />
       )}
 
@@ -1801,8 +3734,10 @@ export default function App() {
         <NodeDashboardModal
           node={activeNode}
           globalVideos={appState.globalVideos}
+          actors={appState.actors}
           isReadOnly={isReadOnly}
           isArchived={Boolean(activeEditNodeId && appState.storedNodes[activeEditNodeId])}
+          hasApiKey={hasApiKey}
           currentUserName={currentUser.name}
           onClose={() => setActiveEditNodeId(null)}
           onUpdateNode={handleUpdateNode}
@@ -1818,10 +3753,40 @@ export default function App() {
           }}
           onOpenGalleryPicker={() => setGalleryModalState({ open: true, mode: 'images-picker' })}
           onOpenMapGalleryPicker={() => setGalleryModalState({ open: true, mode: 'maps-picker' })}
+          onOpenActorLibrary={() =>
+            setActorLibraryState({ open: true, pickForNodeId: activeNode.id })
+          }
+          onInspectActor={(actor) => setInspectedActor(actor)}
+          onOpenAiImage={(mode, targetKind) => {
+            if (!hasApiKey) return;
+            setAiImageModalState({
+              mode,
+              targetKind,
+              targetScope: 'node',
+              nodeId: activeNode.id,
+              sourceImageUrl:
+                mode === 'edit'
+                  ? targetKind === 'map'
+                    ? activeNode.mapImage
+                    : activeNode.image
+                  : null,
+              defaultTitle:
+                targetKind === 'map'
+                  ? activeNode.mapName || `${activeNode.title || 'scene'}-map`
+                  : activeNode.title || 'scene',
+            });
+          }}
+          onOpenSketchStudio={(targetKind = 'image') =>
+            setSketchStudioState({ nodeId: activeNode.id, targetKind })
+          }
           onOpenAddVideoToColumn={(col) => setVideoSelectCol(col)}
           onOpenVideoPlayer={(col) => setVideoPlayerCol(col)}
-          onUploadMainImage={(file) => handleUploadNodeImage(activeNode.id, file, false)}
-          onUploadMapImage={(file) => handleUploadNodeImage(activeNode.id, file, true)}
+          onUploadMainImage={(file) => {
+            handleUploadNodeImage(activeNode.id, file, false).catch(() => {});
+          }}
+          onUploadMapImage={(file) => {
+            handleUploadNodeImage(activeNode.id, file, true).catch(() => {});
+          }}
           onRemoveMap={() => handleUpdateNode(activeNode.id, { mapImage: null, mapName: '', mapDrawings: [] })}
         />
       )}
@@ -1860,21 +3825,23 @@ export default function App() {
         />
       )}
 
-      {/* Add Text Dialog */}
-      {addTextModalState.open && (
-        <AddTextModal
-          initialType={addTextModalState.type}
-          onClose={() => setAddTextModalState({ open: false, type: 'floating' })}
-          onConfirm={handleAddText}
-        />
-      )}
-
       {/* Delete / Archive Choice Warning Modal */}
       {deleteWarningNodeId && (
         <DeleteWarningModal
           onClose={() => setDeleteWarningNodeId(null)}
           onConfirmDelete={() => handleDeleteNode(deleteWarningNodeId)}
           onConfirmStore={() => handleArchiveNode(deleteWarningNodeId)}
+        />
+      )}
+
+      {/* Batch Delete / Archive Warning Modal */}
+      {batchDeleteOpen && totalSelectedCount > 0 && (
+        <DeleteWarningModal
+          nodeCount={selectedNodeIds.length}
+          textCount={selectedTextIds.length}
+          onClose={() => setBatchDeleteOpen(false)}
+          onConfirmDelete={handleBatchDeleteSelected}
+          onConfirmStore={selectedNodeIds.length > 0 ? handleBatchArchiveSelectedNodes : undefined}
         />
       )}
 
@@ -1885,8 +3852,21 @@ export default function App() {
           onClose={() => setArchiveModalOpen(false)}
           onRestore={(id) => {
             if (!activeProjectId) return;
-            const restored = appState.storedNodes[id];
+            const restored = appStateRef.current.storedNodes[id];
             if (restored) {
+              pushUndoSnapshot();
+              const restoredNode = { ...restored, containerId: null };
+              setAppState((prev) => {
+                const nextStored = { ...prev.storedNodes };
+                delete nextStored[id];
+                const next = {
+                  ...prev,
+                  storedNodes: nextStored,
+                  nodes: { ...prev.nodes, [id]: restoredNode },
+                };
+                appStateRef.current = next;
+                return next;
+              });
               restoreNodeInFirestore(activeProjectId, restored);
             }
           }}
@@ -1896,20 +3876,49 @@ export default function App() {
           }}
           onDeleteSingle={(id) => {
             if (activeProjectId) {
+              pushUndoSnapshot();
+              setAppState((prev) => {
+                const nextStored = { ...prev.storedNodes };
+                delete nextStored[id];
+                const next = { ...prev, storedNodes: nextStored };
+                appStateRef.current = next;
+                return next;
+              });
               deleteStoredNodeFromFirestore(activeProjectId, id);
             }
           }}
           onDeleteAll={() => {
-            if (confirm('Permanently delete all archived scenes in this project?')) {
-              Object.keys(appState.storedNodes).forEach((id) => {
-                if (activeProjectId) {
+            if (confirm(t('app.confirmDeleteAllArchived'))) {
+              const ids = Object.keys(appStateRef.current.storedNodes);
+              if (activeProjectId && ids.length > 0) {
+                pushUndoSnapshot();
+                setAppState((prev) => {
+                  const next = { ...prev, storedNodes: {} };
+                  appStateRef.current = next;
+                  return next;
+                });
+                ids.forEach((id) => {
                   deleteStoredNodeFromFirestore(activeProjectId, id);
-                }
-              });
+                });
+              }
             }
           }}
           onUpdateNote={(id, note) => {
             if (!activeProjectId) return;
+            pushUndoSnapshot(undefined, `stored:${id}:note`);
+            setAppState((prev) => {
+              const curr = prev.storedNodes[id];
+              if (!curr) return prev;
+              const next = {
+                ...prev,
+                storedNodes: {
+                  ...prev.storedNodes,
+                  [id]: { ...curr, storeNote: note },
+                },
+              };
+              appStateRef.current = next;
+              return next;
+            });
             updateStoredNodeNoteInFirestore(activeProjectId, id, note);
           }}
         />
@@ -1921,17 +3930,25 @@ export default function App() {
           labels={appState.labels}
           onClose={() => setLabelManagerOpen(false)}
           onAddLabel={(name, color) => {
+            pushUndoSnapshot();
             const id = `lbl-${Date.now()}`;
-            setAppState((prev) => ({
-              ...prev,
-              labels: { ...prev.labels, [id]: { name, color } },
-            }));
+            setAppState((prev) => {
+              const next = {
+                ...prev,
+                labels: { ...prev.labels, [id]: { name, color } },
+              };
+              appStateRef.current = next;
+              return next;
+            });
           }}
           onDeleteLabel={(id) => {
+            pushUndoSnapshot();
             setAppState((prev) => {
               const nextLabels = { ...prev.labels };
               delete nextLabels[id];
-              return { ...prev, labels: nextLabels };
+              const next = { ...prev, labels: nextLabels };
+              appStateRef.current = next;
+              return next;
             });
           }}
         />
@@ -1943,6 +3960,7 @@ export default function App() {
           mode={galleryModalState.mode}
           projectTitle={activeProject?.title}
           isReadOnly={isReadOnly}
+          hasApiKey={hasApiKey}
           images={filteredGalleryImages.map((img) => ({
             id: img.id,
             name: img.name,
@@ -1953,10 +3971,37 @@ export default function App() {
           isLoading={isUploadingMedia}
           onClose={() => setGalleryModalState({ open: false, mode: 'images-manage' })}
           onUploadFiles={handleUploadGalleryFiles}
+          onOpenAiCreate={() => {
+            if (!hasApiKey) return;
+            const targetKind = galleryModalState.mode.includes('maps') ? 'map' : 'image';
+            const isPicker = galleryModalState.mode.includes('picker');
+            setAiImageModalState({
+              mode: 'create',
+              targetKind,
+              targetScope: 'library',
+              nodeId: isPicker && activeEditNodeId ? activeEditNodeId : undefined,
+              applyToPickerNode: Boolean(isPicker && activeEditNodeId),
+              defaultTitle: activeProject?.title || targetKind,
+            });
+          }}
+          onOpenAiEdit={(img) => {
+            if (!hasApiKey) return;
+            const targetKind = galleryModalState.mode.includes('maps') ? 'map' : 'image';
+            const isPicker = galleryModalState.mode.includes('picker');
+            setAiImageModalState({
+              mode: 'edit',
+              targetKind,
+              targetScope: 'library',
+              nodeId: isPicker && activeEditNodeId ? activeEditNodeId : undefined,
+              applyToPickerNode: Boolean(isPicker && activeEditNodeId),
+              sourceImageUrl: img.url,
+              defaultTitle: img.name.replace(/\.[^/.]+$/, ''),
+            });
+          }}
           onSelectImage={(url) => {
             if (activeEditNodeId) {
               if (galleryModalState.mode === 'maps-picker') {
-                handleUpdateNode(activeEditNodeId, { mapImage: url, mapName: 'Picked Map' });
+                handleUpdateNode(activeEditNodeId, { mapImage: url, mapName: t('app.pickedMapName') });
               } else {
                 const curr = appState.nodes[activeEditNodeId];
                 if (curr?.image) {
@@ -1998,6 +4043,85 @@ export default function App() {
         />
       )}
 
+      {/* Project-Scoped Actor & 3D Element Library Modal */}
+      {actorLibraryState.open && activeProjectId && (
+        <ActorLibraryModal
+          actors={appState.actors}
+          nodes={appState.nodes}
+          projectId={activeProjectId}
+          projectTitle={activeProject?.title}
+          isReadOnly={isReadOnly}
+          author={currentUser.name}
+          initialEditActorId={actorLibraryState.editActorId ?? null}
+          pickNodeTitle={
+            actorLibraryState.pickForNodeId
+              ? appState.nodes[actorLibraryState.pickForNodeId]?.title ||
+                appState.storedNodes[actorLibraryState.pickForNodeId]?.title ||
+                null
+              : null
+          }
+          onClose={() => setActorLibraryState({ open: false })}
+          onSaveActor={async (actor) => {
+            await saveProjectActor(activeProjectId, actor);
+          }}
+          onDeleteActor={async (actor) => {
+            await deleteProjectActor(activeProjectId, actor.id);
+            if (inspectedActor?.id === actor.id) {
+              setInspectedActor(null);
+            }
+          }}
+          onInspectActor={(actor) => setInspectedActor(actor)}
+          onPickActorForNode={
+            actorLibraryState.pickForNodeId
+              ? (actor, stateOpt) => {
+                  const targetNodeId = actorLibraryState.pickForNodeId;
+                  if (!targetNodeId) return;
+                  const targetNode =
+                    appStateRef.current.nodes[targetNodeId] ||
+                    appStateRef.current.storedNodes[targetNodeId];
+                  if (!targetNode) return;
+                  const chosenState = stateOpt || actor.states?.[0] || null;
+                  const nextAssignment: NodeActorAssignment = {
+                    id: `assign-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+                    actorId: actor.id,
+                    stateId: chosenState?.id || '',
+                    stateLabel: chosenState?.label || t('dashboard.stateFallback'),
+                  };
+                  handleUpdateNode(targetNodeId, {
+                    actors: [...(targetNode.actors || []), nextAssignment],
+                  });
+                  setActorLibraryState({ open: false });
+                }
+              : undefined
+          }
+        />
+      )}
+
+      {/* Actor Thumbnail Detail Modal */}
+      {inspectedActor && (
+        <ActorDetailModal
+          actor={
+            appState.actors.find((a) => a.id === inspectedActor.id) || inspectedActor
+          }
+          nodes={appState.nodes}
+          isReadOnly={isReadOnly}
+          onClose={() => setInspectedActor(null)}
+          onEdit={(actor) => {
+            setInspectedActor(null);
+            setActorLibraryState({
+              open: true,
+              editActorId: actor.id,
+              pickForNodeId: activeEditNodeId,
+            });
+          }}
+          onOpenNode={(nodeId) => {
+            setInspectedActor(null);
+            setActorLibraryState({ open: false });
+            setActiveEditNodeId(nodeId);
+          }}
+        />
+      )}
+
       {/* Column Video Selector Modal */}
       {videoSelectCol && activeNode && (
         <VideoSelectionModal
@@ -2025,7 +4149,7 @@ export default function App() {
           videoRef={activeNode.videos[videoPlayerCol]!}
           videoTitle={
             appState.globalVideos.find((g) => g.id === activeNode.videos[videoPlayerCol]?.globalId)
-              ?.name || 'Video Reference'
+              ?.name || t('app.defaultVideoRef')
           }
           columnName={videoPlayerCol}
           onClose={() => setVideoPlayerCol(null)}
@@ -2068,14 +4192,14 @@ export default function App() {
         />
       )}
       {architectureModalOpen && (
-        <div className="fixed inset-0 z-[80] bg-black/85 backdrop-blur-sm flex flex-col p-3 sm:p-5">
-          <div className="flex-1 flex flex-col rounded-2xl overflow-hidden border border-neutral-700/80 bg-[#090b10] shadow-2xl">
-            <div className="h-11 px-4 bg-neutral-900 border-b border-neutral-800 flex items-center justify-between gap-3 shrink-0">
+        <div className="fixed inset-0 z-[80] bg-black/55 dark:bg-black/85 backdrop-blur-sm flex flex-col p-3 sm:p-5">
+          <div className="flex-1 flex flex-col rounded-2xl overflow-hidden border border-[#c3beb1] dark:border-neutral-700/80 bg-[#ebe7de] dark:bg-[#090b10] shadow-2xl">
+            <div className="h-11 px-4 bg-[#e0dbd0] dark:bg-neutral-900 border-b border-[#c3beb1] dark:border-neutral-800 flex items-center justify-between gap-3 shrink-0">
               <div className="flex items-center gap-2 min-w-0">
-                <span className="text-xs font-bold text-neutral-100 truncate">
-                  Application Architecture Diagram
+                <span className="text-xs font-bold text-[#2b2924] dark:text-neutral-100 truncate">
+                  {t('app.archDiagramTitle')}
                 </span>
-                <span className="hidden sm:inline text-[11px] font-mono text-cyan-400">
+                <span className="hidden sm:inline text-[11px] font-mono text-cyan-700 dark:text-cyan-400">
                   /architecture-diagram.html
                 </span>
               </div>
@@ -2084,32 +4208,108 @@ export default function App() {
                   href="/architecture-diagram.html"
                   target="_blank"
                   rel="noreferrer"
-                  className="px-2.5 py-1 rounded-lg bg-neutral-800 hover:bg-neutral-700 border border-neutral-700 text-[11px] font-semibold text-neutral-200 transition-colors"
+                  className="px-2.5 py-1 rounded-lg bg-[#dcd7cc] hover:bg-[#d2ccbf] dark:bg-neutral-800 dark:hover:bg-neutral-700 border border-[#c3beb1] dark:border-neutral-700 text-[11px] font-semibold text-[#2b2924] dark:text-neutral-200 transition-colors"
                 >
-                  Open Standalone Tab
+                  {t('app.openStandaloneTab')}
                 </a>
                 <button
                   onClick={() => setArchitectureModalOpen(false)}
-                  className="px-2.5 py-1 rounded-lg bg-neutral-800 hover:bg-neutral-700 border border-neutral-700 text-[11px] font-semibold text-neutral-300 hover:text-white transition-colors"
+                  className="px-2.5 py-1 rounded-lg bg-[#dcd7cc] hover:bg-[#d2ccbf] dark:bg-neutral-800 dark:hover:bg-neutral-700 border border-[#c3beb1] dark:border-neutral-700 text-[11px] font-semibold text-[#433f37] hover:text-[#1f1d18] dark:text-neutral-300 dark:hover:text-white transition-colors cursor-pointer"
                 >
-                  Close
+                  {t('common.close')}
                 </button>
               </div>
             </div>
             <iframe
               src="/architecture-diagram.html"
-              title="Visual Workflow Canvas Interactive Architecture Diagram"
+              title={t('app.archIframeTitle')}
               className="w-full flex-1 border-0 bg-[#090b10]"
             />
           </div>
         </div>
       )}
+      {apiKeyModalOpen && firebaseUser && (
+        <ApiKeyConfigModal
+          userName={currentUser.name}
+          userEmail={currentUser.email}
+          currentApiKey={userGeminiApiKey}
+          onSaveKey={async (key) => {
+            await saveUserGeminiApiKey(firebaseUser.uid, key);
+          }}
+          onDeleteKey={async () => {
+            await deleteUserGeminiApiKey(firebaseUser.uid);
+          }}
+          onClose={() => setApiKeyModalOpen(false)}
+        />
+      )}
+
+      {aiImageModalState && (
+        <AiImagePromptModal
+          mode={aiImageModalState.mode}
+          targetKind={aiImageModalState.targetKind}
+          sourceImageUrl={aiImageModalState.sourceImageUrl}
+          defaultTitle={aiImageModalState.defaultTitle}
+          userApiKey={userGeminiApiKey}
+          applyButtonLabel={
+            aiImageModalState.targetScope === 'library' && !aiImageModalState.applyToPickerNode
+              ? aiImageModalState.targetKind === 'map'
+                ? t('app.saveToMapLib')
+                : t('app.saveToGallery')
+              : aiImageModalState.targetKind === 'map'
+              ? t('app.applyMap')
+              : t('app.applyImage')
+          }
+          onApplyFile={async (file) => {
+            if (aiImageModalState.targetScope === 'node' && aiImageModalState.nodeId) {
+              await handleUploadNodeImage(
+                aiImageModalState.nodeId,
+                file,
+                aiImageModalState.targetKind === 'map',
+                true
+              );
+            } else {
+              const folder = aiImageModalState.targetKind === 'map' ? 'maps' : 'images';
+              await handleUploadLibraryImageFile(
+                file,
+                folder,
+                aiImageModalState.applyToPickerNode ? aiImageModalState.nodeId : undefined
+              );
+              if (aiImageModalState.applyToPickerNode) {
+                setGalleryModalState({ open: false, mode: 'images-manage' });
+              }
+            }
+          }}
+          onClose={() => setAiImageModalState(null)}
+        />
+      )}
+
+      {sketchStudioNode && sketchStudioState && (
+        <SketchStudioModal
+          nodeTitle={sketchStudioNode.title}
+          targetKind={sketchStudioState.targetKind}
+          existingImageUrl={
+            sketchStudioState.targetKind === 'map'
+              ? sketchStudioNode.mapImage
+              : sketchStudioNode.image
+          }
+          onClose={() => setSketchStudioState(null)}
+          onSaveSketch={async (file) => {
+            await handleUploadNodeImage(
+              sketchStudioNode.id,
+              file,
+              sketchStudioState.targetKind === 'map',
+              true
+            );
+          }}
+        />
+      )}
+
       {uploadError && (
-        <div className="fixed bottom-4 right-4 z-[90] max-w-sm rounded-xl bg-red-950/95 border border-red-700/70 px-4 py-3 text-xs text-red-200 shadow-2xl flex items-start justify-between gap-3">
+        <div className="fixed bottom-4 right-4 z-[90] max-w-sm rounded-xl bg-[#ebe7de] dark:bg-red-950/95 border border-red-600/50 dark:border-red-700/70 px-4 py-3 text-xs text-red-800 dark:text-red-200 shadow-2xl flex items-start justify-between gap-3">
           <span>{uploadError}</span>
           <button
             onClick={() => setUploadError(null)}
-            className="text-red-300 hover:text-white font-bold shrink-0"
+            className="text-red-700 hover:text-red-900 dark:text-red-300 dark:hover:text-white font-bold shrink-0 cursor-pointer"
           >
             ✕
           </button>

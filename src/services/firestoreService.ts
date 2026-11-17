@@ -15,6 +15,7 @@ import {
 import { db, handleFirestoreError, OperationType } from './firebase';
 import { deleteImageFromStorage } from './storageService';
 import {
+  ActorItem,
   Connection,
   GlobalVideo,
   ImageResource,
@@ -105,6 +106,7 @@ export async function createProject(
       drawings: [],
       mapDrawings: [],
       videos: { enfoque: null, accion: null, descripcion: null },
+      actors: [],
       pinCounter: 0,
       containerId: null,
     });
@@ -348,6 +350,222 @@ export async function deleteTextFromFirestore(
     await deleteDoc(doc(db, 'projects', projectId, 'texts', textId));
   } catch (error) {
     handleFirestoreError(error, OperationType.DELETE, path);
+  }
+}
+
+export async function saveCanvasPositionsBatch(
+  projectId: string,
+  nodes: WorkflowNode[],
+  texts: TextElement[]
+): Promise<void> {
+  if (nodes.length === 0 && texts.length === 0) return;
+  const path = `projects/${projectId}/nodes`;
+  try {
+    let batch = writeBatch(db);
+    let opCount = 0;
+
+    const flushIfNeeded = async (force = false) => {
+      if (opCount >= 400 || (force && opCount > 0)) {
+        await batch.commit();
+        batch = writeBatch(db);
+        opCount = 0;
+      }
+    };
+
+    for (const node of nodes) {
+      batch.set(doc(db, 'projects', projectId, 'nodes', node.id), node, { merge: true });
+      opCount += 1;
+      await flushIfNeeded(false);
+    }
+
+    for (const text of texts) {
+      batch.set(doc(db, 'projects', projectId, 'texts', text.id), text, { merge: true });
+      opCount += 1;
+      await flushIfNeeded(false);
+    }
+
+    await flushIfNeeded(true);
+  } catch (error) {
+    handleFirestoreError(error, OperationType.WRITE, path);
+  }
+}
+
+export async function deleteCanvasItemsBatch(
+  projectId: string,
+  nodeIds: string[],
+  textIds: string[],
+  connectionIds: string[],
+  unlinkedUpdates?: { nodes: WorkflowNode[]; texts: TextElement[] }
+): Promise<void> {
+  if (
+    nodeIds.length === 0 &&
+    textIds.length === 0 &&
+    connectionIds.length === 0 &&
+    !unlinkedUpdates?.nodes.length &&
+    !unlinkedUpdates?.texts.length
+  ) {
+    return;
+  }
+  const path = `projects/${projectId}/nodes`;
+  try {
+    let batch = writeBatch(db);
+    let opCount = 0;
+
+    const flushIfNeeded = async (force = false) => {
+      if (opCount >= 400 || (force && opCount > 0)) {
+        await batch.commit();
+        batch = writeBatch(db);
+        opCount = 0;
+      }
+    };
+
+    for (const nid of nodeIds) {
+      batch.delete(doc(db, 'projects', projectId, 'nodes', nid));
+      opCount += 1;
+      await flushIfNeeded(false);
+    }
+
+    for (const tid of textIds) {
+      batch.delete(doc(db, 'projects', projectId, 'texts', tid));
+      opCount += 1;
+      await flushIfNeeded(false);
+    }
+
+    for (const cid of connectionIds) {
+      batch.delete(doc(db, 'projects', projectId, 'connections', cid));
+      opCount += 1;
+      await flushIfNeeded(false);
+    }
+
+    if (unlinkedUpdates) {
+      for (const n of unlinkedUpdates.nodes) {
+        batch.set(doc(db, 'projects', projectId, 'nodes', n.id), n, { merge: true });
+        opCount += 1;
+        await flushIfNeeded(false);
+      }
+      for (const t of unlinkedUpdates.texts) {
+        batch.set(doc(db, 'projects', projectId, 'texts', t.id), t, { merge: true });
+        opCount += 1;
+        await flushIfNeeded(false);
+      }
+    }
+
+    await flushIfNeeded(true);
+  } catch (error) {
+    handleFirestoreError(error, OperationType.DELETE, path);
+  }
+}
+
+export async function archiveNodesBatch(
+  projectId: string,
+  nodesToArchive: WorkflowNode[]
+): Promise<void> {
+  if (nodesToArchive.length === 0) return;
+  const path = `projects/${projectId}/storedNodes`;
+  try {
+    let batch = writeBatch(db);
+    let opCount = 0;
+
+    const flushIfNeeded = async (force = false) => {
+      if (opCount >= 400 || (force && opCount > 0)) {
+        await batch.commit();
+        batch = writeBatch(db);
+        opCount = 0;
+      }
+    };
+
+    for (const node of nodesToArchive) {
+      batch.delete(doc(db, 'projects', projectId, 'nodes', node.id));
+      batch.set(doc(db, 'projects', projectId, 'storedNodes', node.id), node);
+      opCount += 2;
+      await flushIfNeeded(false);
+    }
+
+    await flushIfNeeded(true);
+  } catch (error) {
+    handleFirestoreError(error, OperationType.WRITE, path);
+  }
+}
+
+export interface CanvasSnapshotData {
+  nodes: Record<string, WorkflowNode>;
+  connections: Connection[];
+  texts: Record<string, TextElement>;
+  storedNodes: Record<string, WorkflowNode>;
+}
+
+export async function syncCanvasSnapshotDiffToFirestore(
+  projectId: string,
+  prevSnapshot: CanvasSnapshotData,
+  nextSnapshot: CanvasSnapshotData
+): Promise<void> {
+  const path = `projects/${projectId}`;
+  try {
+    let batch = writeBatch(db);
+    let opCount = 0;
+
+    const flushIfNeeded = async (force = false) => {
+      if (opCount >= 400 || (force && opCount > 0)) {
+        await batch.commit();
+        batch = writeBatch(db);
+        opCount = 0;
+      }
+    };
+
+    const syncRecordCollection = async <T extends { id: string }>(
+      subcollection: 'nodes' | 'texts' | 'storedNodes',
+      prevMap: Record<string, T>,
+      nextMap: Record<string, T>
+    ) => {
+      for (const id of Object.keys(prevMap)) {
+        if (!(id in nextMap)) {
+          batch.delete(doc(db, 'projects', projectId, subcollection, id));
+          opCount += 1;
+          await flushIfNeeded(false);
+        }
+      }
+      for (const [id, nextDoc] of Object.entries(nextMap)) {
+        const prevDoc = prevMap[id];
+        if (!prevDoc || JSON.stringify(prevDoc) !== JSON.stringify(nextDoc)) {
+          batch.set(doc(db, 'projects', projectId, subcollection, id), nextDoc);
+          opCount += 1;
+          await flushIfNeeded(false);
+        }
+      }
+    };
+
+    await syncRecordCollection('nodes', prevSnapshot.nodes, nextSnapshot.nodes);
+    await syncRecordCollection('texts', prevSnapshot.texts, nextSnapshot.texts);
+    await syncRecordCollection('storedNodes', prevSnapshot.storedNodes, nextSnapshot.storedNodes);
+
+    const prevConnsMap: Record<string, Connection> = {};
+    prevSnapshot.connections.forEach((c) => {
+      prevConnsMap[c.id] = c;
+    });
+    const nextConnsMap: Record<string, Connection> = {};
+    nextSnapshot.connections.forEach((c) => {
+      nextConnsMap[c.id] = c;
+    });
+
+    for (const id of Object.keys(prevConnsMap)) {
+      if (!(id in nextConnsMap)) {
+        batch.delete(doc(db, 'projects', projectId, 'connections', id));
+        opCount += 1;
+        await flushIfNeeded(false);
+      }
+    }
+    for (const [id, nextConn] of Object.entries(nextConnsMap)) {
+      const prevConn = prevConnsMap[id];
+      if (!prevConn || JSON.stringify(prevConn) !== JSON.stringify(nextConn)) {
+        batch.set(doc(db, 'projects', projectId, 'connections', id), nextConn);
+        opCount += 1;
+        await flushIfNeeded(false);
+      }
+    }
+
+    await flushIfNeeded(true);
+  } catch (error) {
+    handleFirestoreError(error, OperationType.WRITE, path);
   }
 }
 
@@ -835,3 +1053,130 @@ export async function deleteGlobalVideoDoc(videoId: string): Promise<void> {
     handleFirestoreError(error, OperationType.DELETE, path);
   }
 }
+
+// ==========================================
+// 6. Private Per-User Gemini API Key Config
+// ==========================================
+
+export function subscribeUserGeminiApiKey(
+  uid: string,
+  callback: (apiKey: string | null) => void
+) {
+  const path = `users/${uid}/private/geminiConfig`;
+  try {
+    return onSnapshot(
+      doc(db, 'users', uid, 'private', 'geminiConfig'),
+      (snap) => {
+        if (!snap.exists()) {
+          callback(null);
+          return;
+        }
+        const data = snap.data();
+        const key = typeof data?.apiKey === 'string' && data.apiKey.trim() ? data.apiKey.trim() : null;
+        callback(key);
+      },
+      (err) => handleFirestoreError(err, OperationType.GET, path)
+    );
+  } catch (error) {
+    handleFirestoreError(error, OperationType.GET, path);
+    return () => {};
+  }
+}
+
+export async function saveUserGeminiApiKey(uid: string, apiKey: string): Promise<void> {
+  const trimmed = apiKey.trim();
+  if (trimmed.length < 10 || trimmed.length > 256) {
+    throw new Error('Please enter a valid Gemini API key (10–256 characters).');
+  }
+  const path = `users/${uid}/private/geminiConfig`;
+  try {
+    await setDoc(doc(db, 'users', uid, 'private', 'geminiConfig'), {
+      userId: uid,
+      apiKey: trimmed,
+      updatedAt: new Date().toISOString(),
+    });
+  } catch (error) {
+    handleFirestoreError(error, OperationType.WRITE, path);
+  }
+}
+
+export async function deleteUserGeminiApiKey(uid: string): Promise<void> {
+  const path = `users/${uid}/private/geminiConfig`;
+  try {
+    await deleteDoc(doc(db, 'users', uid, 'private', 'geminiConfig'));
+  } catch (error) {
+    handleFirestoreError(error, OperationType.DELETE, path);
+  }
+}
+
+// ==========================================
+// 7. Project Actor / 3D Element Library
+// ==========================================
+
+export function subscribeProjectActors(
+  projectId: string,
+  callback: (actors: ActorItem[]) => void
+) {
+  const path = `projects/${projectId}/actors`;
+  try {
+    const q = query(collection(db, 'projects', projectId, 'actors'), orderBy('name', 'asc'));
+    return onSnapshot(
+      q,
+      (snap) => {
+        const list = snap.docs.map((d) => ({
+          ...d.data(),
+          id: d.id,
+          projectId,
+        })) as ActorItem[];
+        callback(list);
+      },
+      (err) => handleFirestoreError(err, OperationType.LIST, path)
+    );
+  } catch (error) {
+    handleFirestoreError(error, OperationType.LIST, path);
+    return () => {};
+  }
+}
+
+export async function saveProjectActor(
+  projectId: string,
+  actor: ActorItem
+): Promise<void> {
+  const path = `projects/${projectId}/actors/${actor.id}`;
+  try {
+    const sanitized: ActorItem = {
+      id: actor.id,
+      projectId,
+      name: (actor.name || 'Actor').trim().slice(0, 150),
+      category: (actor.category || '').trim().slice(0, 80),
+      description: (actor.description || '').trim().slice(0, 2000),
+      thumbnailUrl: actor.thumbnailUrl || null,
+      ...(actor.thumbnailPath ? { thumbnailPath: actor.thumbnailPath.slice(0, 512) } : {}),
+      states: (actor.states || []).slice(0, 50),
+      tags: Array.from(new Set((actor.tags || []).map((t) => t.trim()).filter(Boolean))).slice(0, 50),
+      author: (actor.author || '').trim().slice(0, 120),
+      createdAt: (actor.createdAt || new Date().toISOString()).slice(0, 64),
+      updatedAt: new Date().toISOString().slice(0, 64),
+    };
+    await setDoc(doc(db, 'projects', projectId, 'actors', actor.id), sanitized);
+  } catch (error) {
+    handleFirestoreError(error, OperationType.WRITE, path);
+  }
+}
+
+export async function deleteProjectActor(
+  projectId: string,
+  actorId: string,
+  thumbnailUrlOrPath?: string | null
+): Promise<void> {
+  const path = `projects/${projectId}/actors/${actorId}`;
+  try {
+    await deleteDoc(doc(db, 'projects', projectId, 'actors', actorId));
+    if (thumbnailUrlOrPath) {
+      await deleteImageFromStorage(thumbnailUrlOrPath).catch(() => {});
+    }
+  } catch (error) {
+    handleFirestoreError(error, OperationType.DELETE, path);
+  }
+}
+
