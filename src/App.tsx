@@ -339,11 +339,13 @@ export default function App() {
   });
   const activeTouchPointsRef = useRef<Map<number, { clientX: number; clientY: number }>>(new Map());
   const pinchStateRef = useRef<{
-    initialDist: number;
-    initialZoom: number;
-    canvasX: number;
-    canvasY: number;
+    pointerId1: number;
+    pointerId2: number;
+    prevDist: number;
+    prevMidX: number;
+    prevMidY: number;
   } | null>(null);
+  const suppressTouchUntilZeroRef = useRef(false);
 
   const [hoveredDropContainerId, setHoveredDropContainerId] = useState<string | null>(null);
   const pendingExitContainerRef = useRef<Record<string, string>>({});
@@ -1212,43 +1214,172 @@ export default function App() {
     };
   }, [stepZoomAnimation, authReady, firebaseUser]);
 
+  // Capture-phase touch tracking so 2-finger pinch works even over nodes, ports, lines, or handles
+  const handleCanvasPointerDownCapture = (e: React.PointerEvent) => {
+    if (e.pointerType !== 'touch') return;
+    if ((e.target as HTMLElement).closest('[data-canvas-ui]')) return;
+
+    activeTouchPointsRef.current.set(e.pointerId, { clientX: e.clientX, clientY: e.clientY });
+
+    if (activeTouchPointsRef.current.size === 2 && viewportRef.current) {
+      // Revert any micro-drag started by the 1st finger before the 2nd finger landed
+      const preSnap = dragPreActionSnapshotRef.current;
+      if (activeDragElement && preSnap) {
+        setAppState((prev) => {
+          const next = {
+            ...prev,
+            nodes: preSnap.nodes,
+            texts: preSnap.texts,
+          };
+          appStateRef.current = next;
+          return next;
+        });
+      }
+
+      setSelectionBox(null);
+      setActiveDragElement(null);
+      setTempConnection(null);
+      setIsPanningCanvas(false);
+      setSnapGuides([]);
+      setHoveredDropContainerId(null);
+      dragPreActionSnapshotRef.current = null;
+      dragStartContainerBoundsRef.current = null;
+      stopZoomAnimation();
+      suppressTouchUntilZeroRef.current = true;
+
+      const entries = Array.from(activeTouchPointsRef.current.entries());
+      const [id1, pt1] = entries[0];
+      const [id2, pt2] = entries[1];
+      const rect = viewportRef.current.getBoundingClientRect();
+      const vpMidX = (pt1.clientX + pt2.clientX) / 2 - rect.left;
+      const vpMidY = (pt1.clientY + pt2.clientY) / 2 - rect.top;
+      const dist = Math.hypot(pt2.clientX - pt1.clientX, pt2.clientY - pt1.clientY);
+
+      pinchStateRef.current = {
+        pointerId1: id1,
+        pointerId2: id2,
+        prevDist: Math.max(8, dist),
+        prevMidX: vpMidX,
+        prevMidY: vpMidY,
+      };
+    }
+  };
+
+  // Window-level touch pinch move/release & Safari gesture suppression for accurate midpoint zooming
+  useEffect(() => {
+    const vp = viewportRef.current;
+    if (!vp) return;
+
+    const handleWindowTouchPointerMove = (e: PointerEvent) => {
+      if (e.pointerType !== 'touch' || !activeTouchPointsRef.current.has(e.pointerId)) return;
+      activeTouchPointsRef.current.set(e.pointerId, { clientX: e.clientX, clientY: e.clientY });
+
+      const p = pinchStateRef.current;
+      const currentVp = viewportRef.current;
+      if (!p || !currentVp || activeTouchPointsRef.current.size < 2) return;
+
+      const pt1 = activeTouchPointsRef.current.get(p.pointerId1);
+      const pt2 = activeTouchPointsRef.current.get(p.pointerId2);
+      if (!pt1 || !pt2) return;
+
+      const dist = Math.hypot(pt2.clientX - pt1.clientX, pt2.clientY - pt1.clientY);
+      const rect = currentVp.getBoundingClientRect();
+      const vpMidX = (pt1.clientX + pt2.clientX) / 2 - rect.left;
+      const vpMidY = (pt1.clientY + pt2.clientY) / 2 - rect.top;
+
+      const prevZoom = currentZoomRef.current;
+      const prevDist = Math.max(8, p.prevDist);
+      const safeDist = Math.max(8, dist);
+      const scaleFactor = dist >= 8 && p.prevDist >= 8 ? safeDist / prevDist : 1;
+      const nextZoom = Math.max(0.2, Math.min(3.0, prevZoom * scaleFactor));
+
+      // Pin exact canvas coordinate under previous finger midpoint directly to current finger midpoint
+      const anchorCanvasX = (cameraPosRef.current.x + p.prevMidX) / prevZoom;
+      const anchorCanvasY = (cameraPosRef.current.y + p.prevMidY) / prevZoom;
+      const nextCamX = anchorCanvasX * nextZoom - vpMidX;
+      const nextCamY = anchorCanvasY * nextZoom - vpMidY;
+
+      p.prevDist = safeDist;
+      p.prevMidX = vpMidX;
+      p.prevMidY = vpMidY;
+
+      targetZoomRef.current = nextZoom;
+      targetLogZoomRef.current = Math.log(nextZoom);
+      applyCameraTransform(nextZoom, nextCamX, nextCamY);
+
+      const now = performance.now();
+      if (now - lastStateSyncTimeRef.current >= 32) {
+        lastStateSyncTimeRef.current = now;
+        window.dispatchEvent(new CustomEvent('canvas-zoom-live', { detail: nextZoom }));
+      }
+    };
+
+    const handleWindowTouchPointerEnd = (e: PointerEvent) => {
+      if (e.pointerType !== 'touch') return;
+      if (!activeTouchPointsRef.current.has(e.pointerId)) return;
+
+      activeTouchPointsRef.current.delete(e.pointerId);
+      if (pinchStateRef.current && activeTouchPointsRef.current.size < 2) {
+        pinchStateRef.current = null;
+        window.dispatchEvent(new CustomEvent('canvas-zoom-live', { detail: currentZoomRef.current }));
+        setZoom(currentZoomRef.current);
+      }
+      if (activeTouchPointsRef.current.size === 0) {
+        suppressTouchUntilZeroRef.current = false;
+      }
+    };
+
+    const handleWindowBlur = () => {
+      activeTouchPointsRef.current.clear();
+      if (pinchStateRef.current) {
+        pinchStateRef.current = null;
+        setZoom(currentZoomRef.current);
+      }
+      suppressTouchUntilZeroRef.current = false;
+    };
+
+    const preventMultiTouchNative = (e: TouchEvent) => {
+      if (e.touches.length >= 2) {
+        e.preventDefault();
+      }
+    };
+
+    const preventSafariGesture = (e: Event) => {
+      e.preventDefault();
+    };
+
+    window.addEventListener('pointermove', handleWindowTouchPointerMove);
+    window.addEventListener('pointerup', handleWindowTouchPointerEnd);
+    window.addEventListener('pointercancel', handleWindowTouchPointerEnd);
+    window.addEventListener('blur', handleWindowBlur);
+    vp.addEventListener('touchstart', preventMultiTouchNative, { passive: false });
+    vp.addEventListener('touchmove', preventMultiTouchNative, { passive: false });
+    vp.addEventListener('gesturestart', preventSafariGesture, { passive: false });
+    vp.addEventListener('gesturechange', preventSafariGesture, { passive: false });
+    vp.addEventListener('gestureend', preventSafariGesture, { passive: false });
+
+    return () => {
+      window.removeEventListener('pointermove', handleWindowTouchPointerMove);
+      window.removeEventListener('pointerup', handleWindowTouchPointerEnd);
+      window.removeEventListener('pointercancel', handleWindowTouchPointerEnd);
+      window.removeEventListener('blur', handleWindowBlur);
+      vp.removeEventListener('touchstart', preventMultiTouchNative);
+      vp.removeEventListener('touchmove', preventMultiTouchNative);
+      vp.removeEventListener('gesturestart', preventSafariGesture);
+      vp.removeEventListener('gesturechange', preventSafariGesture);
+      vp.removeEventListener('gestureend', preventSafariGesture);
+    };
+  }, [applyCameraTransform, authReady, firebaseUser]);
+
   // Background Canvas Panning, Multi-Touch Pinch-Zoom & Marquee Selection Box
   const handleCanvasPointerDown = (e: React.PointerEvent) => {
     if ((e.target as HTMLElement).closest('[data-canvas-ui]')) return;
 
-    if (e.pointerType === 'touch') {
-      activeTouchPointsRef.current.set(e.pointerId, { clientX: e.clientX, clientY: e.clientY });
-      if (activeTouchPointsRef.current.size === 2 && viewportRef.current) {
-        // Two fingers down -> enter 2-finger pinch-zoom + pan and cancel any 1-finger drag/selection/port drag
-        setSelectionBox(null);
-        setActiveDragElement(null);
-        setTempConnection(null);
-        setIsPanningCanvas(false);
-        setSnapGuides([]);
-        setHoveredDropContainerId(null);
-        dragPreActionSnapshotRef.current = null;
-        dragStartContainerBoundsRef.current = null;
-        stopZoomAnimation();
-
-        const pts = Array.from(activeTouchPointsRef.current.values());
-        const dist = Math.hypot(pts[1].clientX - pts[0].clientX, pts[1].clientY - pts[0].clientY);
-        const midX = (pts[0].clientX + pts[1].clientX) / 2;
-        const midY = (pts[0].clientY + pts[1].clientY) / 2;
-        const vp = viewportRef.current;
-        const rect = vp.getBoundingClientRect();
-        const vpMidX = midX - rect.left;
-        const vpMidY = midY - rect.top;
-        const initialZoom = currentZoomRef.current;
-
-        pinchStateRef.current = {
-          initialDist: Math.max(10, dist),
-          initialZoom,
-          canvasX: (cameraPosRef.current.x + vpMidX) / initialZoom,
-          canvasY: (cameraPosRef.current.y + vpMidY) / initialZoom,
-        };
-        return;
-      }
-      if (activeTouchPointsRef.current.size > 2) return;
+    if (
+      e.pointerType === 'touch' &&
+      (activeTouchPointsRef.current.size >= 2 || pinchStateRef.current || suppressTouchUntilZeroRef.current)
+    ) {
+      return;
     }
 
     if (e.pointerType === 'mouse' && e.button !== 0 && e.button !== 1) return;
@@ -1326,7 +1457,12 @@ export default function App() {
     type: 'node' | 'text',
     e: React.PointerEvent
   ) => {
-    if (e.pointerType === 'touch' && activeTouchPointsRef.current.size >= 1) return;
+    if (
+      e.pointerType === 'touch' &&
+      (activeTouchPointsRef.current.size >= 2 || pinchStateRef.current || suppressTouchUntilZeroRef.current)
+    ) {
+      return;
+    }
     if (e.button === 1 || isSpacePressed || canvasToolMode === 'pan') return;
     if ((e.target as HTMLElement).closest('.port')) return;
     if ((e.target as HTMLElement).closest('button')) return;
@@ -1454,35 +1590,11 @@ export default function App() {
 
   // Global Pointer Move
   const handleGlobalPointerMove = (e: React.PointerEvent) => {
-    if (e.pointerType === 'touch' && activeTouchPointsRef.current.has(e.pointerId)) {
-      activeTouchPointsRef.current.set(e.pointerId, { clientX: e.clientX, clientY: e.clientY });
-      if (activeTouchPointsRef.current.size >= 2 && pinchStateRef.current && viewportRef.current) {
-        const pts = Array.from(activeTouchPointsRef.current.values());
-        const dist = Math.hypot(pts[1].clientX - pts[0].clientX, pts[1].clientY - pts[0].clientY);
-        const midX = (pts[0].clientX + pts[1].clientX) / 2;
-        const midY = (pts[0].clientY + pts[1].clientY) / 2;
-        const vp = viewportRef.current;
-        const rect = vp.getBoundingClientRect();
-        const vpMidX = midX - rect.left;
-        const vpMidY = midY - rect.top;
-        const p = pinchStateRef.current;
-        const nextZoom = Math.max(0.2, Math.min(3.0, p.initialZoom * (dist / p.initialDist)));
-
-        targetZoomRef.current = nextZoom;
-        targetLogZoomRef.current = Math.log(nextZoom);
-        applyCameraTransform(
-          nextZoom,
-          p.canvasX * nextZoom - vpMidX,
-          p.canvasY * nextZoom - vpMidY
-        );
-
-        const now = performance.now();
-        if (now - lastStateSyncTimeRef.current >= 60) {
-          lastStateSyncTimeRef.current = now;
-          window.dispatchEvent(new CustomEvent('canvas-zoom-live', { detail: nextZoom }));
-        }
-        return;
-      }
+    if (
+      e.pointerType === 'touch' &&
+      (pinchStateRef.current || activeTouchPointsRef.current.size >= 2 || suppressTouchUntilZeroRef.current)
+    ) {
+      return;
     }
 
     if (isPanningCanvas && viewportRef.current) {
@@ -1770,15 +1882,11 @@ export default function App() {
 
   // Global Pointer Up & Firestore Sync
   const handleGlobalPointerUp = (e: React.PointerEvent) => {
-    if (e.pointerType === 'touch') {
-      activeTouchPointsRef.current.delete(e.pointerId);
-      if (pinchStateRef.current) {
-        if (activeTouchPointsRef.current.size < 2) {
-          pinchStateRef.current = null;
-          setZoom(currentZoomRef.current);
-        }
-        return;
-      }
+    if (
+      e.pointerType === 'touch' &&
+      (pinchStateRef.current || suppressTouchUntilZeroRef.current)
+    ) {
+      return;
     }
 
     if (isPanningCanvas) {
@@ -3301,6 +3409,7 @@ export default function App() {
         />
         <div
           ref={viewportRef}
+          onPointerDownCapture={handleCanvasPointerDownCapture}
           onPointerDown={handleCanvasPointerDown}
           onMouseDown={(e) => {
             if (e.button === 1) e.preventDefault();

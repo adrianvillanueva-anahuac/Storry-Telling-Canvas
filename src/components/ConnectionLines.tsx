@@ -243,7 +243,7 @@ export const ConnectionLines: React.FC<ConnectionLinesProps> = ({
   };
 
   return (
-    <svg className="absolute inset-0 w-full h-full pointer-events-none z-[5] overflow-visible">
+    <svg className="absolute inset-0 w-full h-full pointer-events-none touch-none z-[5] overflow-visible">
       <defs>
         {uniqueColors.map((color) => {
           const hex = color.replace('#', '');

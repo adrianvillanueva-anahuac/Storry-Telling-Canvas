@@ -172,12 +172,14 @@ export const SketchStudioModal: React.FC<SketchStudioModalProps> = ({
   const activePointerIdRef = useRef<number | null>(null);
   const touchPointsRef = useRef<Map<number, { clientX: number; clientY: number }>>(new Map());
   const pinchStateRef = useRef<{
-    initialDist: number;
-    initialZoom: number;
-    initialMidX: number;
-    initialMidY: number;
-    initialPanX: number;
-    initialPanY: number;
+    pointerId1: number;
+    pointerId2: number;
+    prevDist: number;
+    prevMidX: number;
+    prevMidY: number;
+    liveZoom: number;
+    livePanX: number;
+    livePanY: number;
   } | null>(null);
   const panStartRef = useRef<{ clientX: number; clientY: number; panX: number; panY: number } | null>(null);
   const strokePointsRef = useRef<{ x: number; y: number }[]>([]);
@@ -760,17 +762,21 @@ export const SketchStudioModal: React.FC<SketchStudioModalProps> = ({
       if (touchPointsRef.current.size === 2) {
         // Cancel accidental 1-finger stroke when 2nd finger lands for pinch/pan
         cancelActiveStrokeWithoutCommit();
-        const pts = Array.from(touchPointsRef.current.values());
-        const dist = Math.hypot(pts[1].clientX - pts[0].clientX, pts[1].clientY - pts[0].clientY);
-        const midX = (pts[0].clientX + pts[1].clientX) / 2;
-        const midY = (pts[0].clientY + pts[1].clientY) / 2;
+        const entries = Array.from(touchPointsRef.current.entries());
+        const [id1, pt1] = entries[0];
+        const [id2, pt2] = entries[1];
+        const dist = Math.hypot(pt2.clientX - pt1.clientX, pt2.clientY - pt1.clientY);
+        const midX = (pt1.clientX + pt2.clientX) / 2;
+        const midY = (pt1.clientY + pt2.clientY) / 2;
         pinchStateRef.current = {
-          initialDist: Math.max(10, dist),
-          initialZoom: zoom,
-          initialMidX: midX,
-          initialMidY: midY,
-          initialPanX: pan.x,
-          initialPanY: pan.y,
+          pointerId1: id1,
+          pointerId2: id2,
+          prevDist: Math.max(8, dist),
+          prevMidX: midX,
+          prevMidY: midY,
+          liveZoom: zoom,
+          livePanX: pan.x,
+          livePanY: pan.y,
         };
         return;
       }
@@ -847,28 +853,8 @@ export const SketchStudioModal: React.FC<SketchStudioModalProps> = ({
   };
 
   const handleStagePointerMove = (e: React.PointerEvent) => {
-    if (e.pointerType === 'touch' && touchPointsRef.current.has(e.pointerId)) {
-      touchPointsRef.current.set(e.pointerId, { clientX: e.clientX, clientY: e.clientY });
-      if (touchPointsRef.current.size >= 2 && pinchStateRef.current && stageContainerRef.current) {
-        const pts = Array.from(touchPointsRef.current.values());
-        const dist = Math.hypot(pts[1].clientX - pts[0].clientX, pts[1].clientY - pts[0].clientY);
-        const midX = (pts[0].clientX + pts[1].clientX) / 2;
-        const midY = (pts[0].clientY + pts[1].clientY) / 2;
-        const p = pinchStateRef.current;
-        const nextZoom = Math.max(0.15, Math.min(3.5, p.initialZoom * (dist / p.initialDist)));
-        const rect = stageContainerRef.current.getBoundingClientRect();
-        const centerX = rect.left + rect.width / 2;
-        const centerY = rect.top + rect.height / 2;
-        const relInitX = p.initialMidX - centerX;
-        const relInitY = p.initialMidY - centerY;
-        const relCurrX = midX - centerX;
-        const relCurrY = midY - centerY;
-        const nextPanX = relCurrX - ((relInitX - p.initialPanX) / p.initialZoom) * nextZoom;
-        const nextPanY = relCurrY - ((relInitY - p.initialPanY) / p.initialZoom) * nextZoom;
-        setZoom(nextZoom);
-        setPan({ x: nextPanX, y: nextPanY });
-        return;
-      }
+    if (e.pointerType === 'touch' && (touchPointsRef.current.size >= 2 || pinchStateRef.current)) {
+      return;
     }
 
     if (isPanningRef.current && panStartRef.current && activePointerIdRef.current === e.pointerId) {
@@ -970,13 +956,84 @@ export const SketchStudioModal: React.FC<SketchStudioModalProps> = ({
   );
 
   useEffect(() => {
+    const stage = stageContainerRef.current;
+
+    const onGlobalMove = (ev: PointerEvent) => {
+      if (ev.pointerType !== 'touch' || !touchPointsRef.current.has(ev.pointerId)) return;
+      touchPointsRef.current.set(ev.pointerId, { clientX: ev.clientX, clientY: ev.clientY });
+
+      const p = pinchStateRef.current;
+      const currentStage = stageContainerRef.current;
+      if (!p || !currentStage || touchPointsRef.current.size < 2) return;
+
+      const pt1 = touchPointsRef.current.get(p.pointerId1);
+      const pt2 = touchPointsRef.current.get(p.pointerId2);
+      if (!pt1 || !pt2) return;
+
+      const dist = Math.hypot(pt2.clientX - pt1.clientX, pt2.clientY - pt1.clientY);
+      const midX = (pt1.clientX + pt2.clientX) / 2;
+      const midY = (pt1.clientY + pt2.clientY) / 2;
+
+      const prevZoom = p.liveZoom;
+      const safeDist = Math.max(8, dist);
+      const scaleFactor = dist >= 8 && p.prevDist >= 8 ? safeDist / Math.max(8, p.prevDist) : 1;
+      const nextZoom = Math.max(0.15, Math.min(3.5, prevZoom * scaleFactor));
+
+      const rect = currentStage.getBoundingClientRect();
+      const centerX = rect.left + rect.width / 2;
+      const centerY = rect.top + rect.height / 2;
+      const relPrevX = p.prevMidX - centerX;
+      const relPrevY = p.prevMidY - centerY;
+      const relCurrX = midX - centerX;
+      const relCurrY = midY - centerY;
+      const nextPanX = relCurrX - ((relPrevX - p.livePanX) / prevZoom) * nextZoom;
+      const nextPanY = relCurrY - ((relPrevY - p.livePanY) / prevZoom) * nextZoom;
+
+      p.prevDist = safeDist;
+      p.prevMidX = midX;
+      p.prevMidY = midY;
+      p.liveZoom = nextZoom;
+      p.livePanX = nextPanX;
+      p.livePanY = nextPanY;
+
+      setZoom(nextZoom);
+      setPan({ x: nextPanX, y: nextPanY });
+    };
+
     const onGlobalUp = (ev: PointerEvent) => finishDrawingStroke(ev.shiftKey, ev.pointerId);
     const onGlobalCancel = (ev: PointerEvent) => finishDrawingStroke(ev.shiftKey, ev.pointerId);
+    const onWindowBlur = () => {
+      touchPointsRef.current.clear();
+      pinchStateRef.current = null;
+    };
+    const preventMultiTouchNative = (ev: TouchEvent) => {
+      if (ev.touches.length >= 2) {
+        ev.preventDefault();
+      }
+    };
+    const preventSafariGesture = (ev: Event) => {
+      ev.preventDefault();
+    };
+
+    window.addEventListener('pointermove', onGlobalMove);
     window.addEventListener('pointerup', onGlobalUp);
     window.addEventListener('pointercancel', onGlobalCancel);
+    window.addEventListener('blur', onWindowBlur);
+    stage?.addEventListener('touchstart', preventMultiTouchNative, { passive: false });
+    stage?.addEventListener('touchmove', preventMultiTouchNative, { passive: false });
+    stage?.addEventListener('gesturestart', preventSafariGesture, { passive: false });
+    stage?.addEventListener('gesturechange', preventSafariGesture, { passive: false });
+    stage?.addEventListener('gestureend', preventSafariGesture, { passive: false });
     return () => {
+      window.removeEventListener('pointermove', onGlobalMove);
       window.removeEventListener('pointerup', onGlobalUp);
       window.removeEventListener('pointercancel', onGlobalCancel);
+      window.removeEventListener('blur', onWindowBlur);
+      stage?.removeEventListener('touchstart', preventMultiTouchNative);
+      stage?.removeEventListener('touchmove', preventMultiTouchNative);
+      stage?.removeEventListener('gesturestart', preventSafariGesture);
+      stage?.removeEventListener('gesturechange', preventSafariGesture);
+      stage?.removeEventListener('gestureend', preventSafariGesture);
     };
   }, [finishDrawingStroke]);
 
