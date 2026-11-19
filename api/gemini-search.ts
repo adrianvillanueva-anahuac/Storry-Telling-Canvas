@@ -1,8 +1,13 @@
 import {
+  getRequestHeader,
   LibrarySearchKind,
+  readJsonBody,
   searchLibraryMediaWithGemini,
+  sendJson,
+  type ServerlessRequest,
+  type ServerlessResponse,
   verifyFirebaseBearerToken,
-} from '../lib/librarySearch';
+} from '../lib/librarySearch.js';
 
 const VALID_KINDS = new Set<LibrarySearchKind>(['images', 'maps', 'videos']);
 
@@ -29,65 +34,79 @@ function getErrorStatusAndMessage(err: unknown): { status: number; message: stri
   return { status, message: rawMessage };
 }
 
-export async function POST(request: Request): Promise<Response> {
-  const isAuthorized = await verifyFirebaseBearerToken(
-    request.headers.get('authorization'),
-    request.headers.get('origin') || request.headers.get('referer')
-  );
-  if (!isAuthorized) {
-    return Response.json(
-      { error: 'Authentication required to search web media.', code: 'UNAUTHORIZED' },
-      { status: 401 }
-    );
+export default async function handler(
+  req: ServerlessRequest,
+  res: ServerlessResponse
+): Promise<void> {
+  if (req.method === 'OPTIONS') {
+    res.statusCode = 204;
+    res.end();
+    return;
   }
-
-  let body: {
-    kind?: string;
-    query?: string;
-    language?: 'en' | 'es';
-    userApiKey?: string;
-  };
+  if (req.method !== 'POST') {
+    sendJson(res, 405, { error: 'Method not allowed.' });
+    return;
+  }
 
   try {
-    body = await request.json();
-  } catch {
-    return Response.json({ error: 'Invalid JSON request body.' }, { status: 400 });
-  }
+    const isAuthorized = await verifyFirebaseBearerToken(
+      getRequestHeader(req, 'authorization'),
+      getRequestHeader(req, 'origin') || getRequestHeader(req, 'referer')
+    );
+    if (!isAuthorized) {
+      sendJson(res, 401, {
+        error: 'Authentication required to search web media.',
+        code: 'UNAUTHORIZED',
+      });
+      return;
+    }
 
-  const resolvedApiKey =
-    (typeof body.userApiKey === 'string' && body.userApiKey.trim()) ||
-    process.env.GEMINI_API_KEY ||
-    '';
+    let body: {
+      kind?: string;
+      query?: string;
+      language?: 'en' | 'es';
+      userApiKey?: string;
+    };
 
-  if (!resolvedApiKey) {
-    return Response.json(
-      {
+    try {
+      body = await readJsonBody(req);
+    } catch {
+      sendJson(res, 400, { error: 'Invalid JSON request body.' });
+      return;
+    }
+
+    const resolvedApiKey =
+      (typeof body.userApiKey === 'string' && body.userApiKey.trim()) ||
+      process.env.GEMINI_API_KEY ||
+      '';
+
+    if (!resolvedApiKey) {
+      sendJson(res, 400, {
         error: 'Gemini API key is not configured on the server or in your user settings.',
         code: 'MISSING_API_KEY',
-      },
-      { status: 400 }
-    );
-  }
+      });
+      return;
+    }
 
-  const kind: LibrarySearchKind = VALID_KINDS.has(body.kind as LibrarySearchKind)
-    ? (body.kind as LibrarySearchKind)
-    : 'images';
+    const kind: LibrarySearchKind = VALID_KINDS.has(body.kind as LibrarySearchKind)
+      ? (body.kind as LibrarySearchKind)
+      : 'images';
 
-  const query = typeof body.query === 'string' ? body.query.trim() : '';
-  if (!query) {
-    return Response.json({ error: 'Please enter a search query.' }, { status: 400 });
-  }
+    const query = typeof body.query === 'string' ? body.query.trim() : '';
+    if (!query) {
+      sendJson(res, 400, { error: 'Please enter a search query.' });
+      return;
+    }
 
-  try {
     const result = await searchLibraryMediaWithGemini({
       kind,
       query,
       apiKey: resolvedApiKey,
       language: body.language === 'es' ? 'es' : 'en',
     });
-    return Response.json(result);
+    sendJson(res, 200, result);
   } catch (err) {
     const { status, message } = getErrorStatusAndMessage(err);
-    return Response.json({ error: message }, { status });
+    sendJson(res, status, { error: message });
   }
 }

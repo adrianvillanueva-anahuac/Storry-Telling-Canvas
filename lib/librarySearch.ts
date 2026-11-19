@@ -1,8 +1,61 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import net from 'node:net';
+import type { IncomingMessage, ServerResponse } from 'node:http';
 import { fileURLToPath } from 'node:url';
 import { GoogleGenAI, ThinkingLevel } from '@google/genai';
+
+export type ServerlessRequest = IncomingMessage & {
+  body?: unknown;
+  query?: Record<string, string | string[] | undefined>;
+};
+
+export type ServerlessResponse = ServerResponse & {
+  status?: (code: number) => ServerlessResponse;
+  json?: (body: unknown) => unknown;
+};
+
+export function getRequestHeader(req: IncomingMessage, name: string): string | undefined {
+  const val = req.headers[name.toLowerCase()];
+  if (Array.isArray(val)) return val[0];
+  return typeof val === 'string' ? val : undefined;
+}
+
+export function sendJson(res: ServerlessResponse, status: number, payload: unknown): void {
+  if (typeof res.status === 'function') {
+    const statusRes = res.status(status);
+    if (typeof statusRes?.json === 'function') {
+      statusRes.json(payload);
+      return;
+    }
+  }
+  res.statusCode = status;
+  res.setHeader('Content-Type', 'application/json; charset=utf-8');
+  res.end(JSON.stringify(payload));
+}
+
+export async function readJsonBody<T = Record<string, unknown>>(req: ServerlessRequest): Promise<T> {
+  if (req.body !== undefined && req.body !== null) {
+    if (typeof req.body === 'string') {
+      return (req.body.trim() ? JSON.parse(req.body) : {}) as T;
+    }
+    if (Buffer.isBuffer(req.body)) {
+      const text = req.body.toString('utf8').trim();
+      return (text ? JSON.parse(text) : {}) as T;
+    }
+    if (typeof req.body === 'object') {
+      return req.body as T;
+    }
+  }
+
+  const chunks: Buffer[] = [];
+  for await (const chunk of req) {
+    chunks.push(typeof chunk === 'string' ? Buffer.from(chunk) : Buffer.from(chunk));
+  }
+  const raw = Buffer.concat(chunks).toString('utf8').trim();
+  if (!raw) return {} as T;
+  return JSON.parse(raw) as T;
+}
 
 export type LibrarySearchKind = 'images' | 'maps' | 'videos';
 
@@ -41,9 +94,11 @@ const REQUEST_UA =
   'Mozilla/5.0 (compatible; VisualWorkflowCanvas/1.0; +https://vercel.app)';
 
 export function getFirebaseWebApiKey(): string {
+  const currentDir = path.dirname(fileURLToPath(import.meta.url));
   const candidates = [
     path.join(process.cwd(), 'firebase-applet-config.json'),
-    path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../firebase-applet-config.json'),
+    path.resolve(currentDir, '../firebase-applet-config.json'),
+    path.resolve(currentDir, '../../firebase-applet-config.json'),
   ];
   for (const configPath of candidates) {
     try {

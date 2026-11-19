@@ -1,5 +1,12 @@
 import { GoogleGenAI, Part } from '@google/genai';
-import { verifyFirebaseBearerToken } from '../lib/librarySearch';
+import {
+  getRequestHeader,
+  readJsonBody,
+  sendJson,
+  type ServerlessRequest,
+  type ServerlessResponse,
+  verifyFirebaseBearerToken,
+} from '../lib/librarySearch.js';
 
 const VALID_ASPECT_RATIOS = new Set([
   '1:1',
@@ -85,59 +92,75 @@ function getErrorStatusAndMessage(err: unknown): { status: number; message: stri
   return { status, message: rawMessage };
 }
 
-export async function POST(request: Request): Promise<Response> {
-  const isAuthorized = await verifyFirebaseBearerToken(
-    request.headers.get('authorization'),
-    request.headers.get('origin') || request.headers.get('referer')
-  );
-  if (!isAuthorized) {
-    return Response.json({ error: 'Authentication required to generate images.' }, { status: 401 });
+export default async function handler(
+  req: ServerlessRequest,
+  res: ServerlessResponse
+): Promise<void> {
+  if (req.method === 'OPTIONS') {
+    res.statusCode = 204;
+    res.end();
+    return;
   }
-
-  let body: {
-    mode?: 'create' | 'edit';
-    prompt?: string;
-    sourceImageUrl?: string;
-    sourceBase64?: string;
-    sourceMimeType?: string;
-    aspectRatio?: string;
-    imageSize?: string;
-    userApiKey?: string;
-  };
+  if (req.method !== 'POST') {
+    sendJson(res, 405, { error: 'Method not allowed.' });
+    return;
+  }
 
   try {
-    body = await request.json();
-  } catch {
-    return Response.json({ error: 'Invalid JSON request body.' }, { status: 400 });
-  }
-
-  const resolvedApiKey =
-    (typeof body.userApiKey === 'string' && body.userApiKey.trim()) ||
-    process.env.GEMINI_API_KEY ||
-    '';
-  if (!resolvedApiKey) {
-    return Response.json(
-      { error: 'No Gemini API key configured. Please add your API key in the user menu.' },
-      { status: 400 }
+    const isAuthorized = await verifyFirebaseBearerToken(
+      getRequestHeader(req, 'authorization'),
+      getRequestHeader(req, 'origin') || getRequestHeader(req, 'referer')
     );
-  }
+    if (!isAuthorized) {
+      sendJson(res, 401, { error: 'Authentication required to generate images.' });
+      return;
+    }
 
-  const prompt = typeof body.prompt === 'string' ? body.prompt.trim() : '';
-  if (!prompt) {
-    return Response.json({ error: 'Please enter a text prompt.' }, { status: 400 });
-  }
+    let body: {
+      mode?: 'create' | 'edit';
+      prompt?: string;
+      sourceImageUrl?: string;
+      sourceBase64?: string;
+      sourceMimeType?: string;
+      aspectRatio?: string;
+      imageSize?: string;
+      userApiKey?: string;
+    };
 
-  const mode = body.mode === 'edit' ? 'edit' : 'create';
-  const aspectRatio =
-    typeof body.aspectRatio === 'string' && VALID_ASPECT_RATIOS.has(body.aspectRatio)
-      ? body.aspectRatio
-      : '16:9';
-  const imageSize =
-    typeof body.imageSize === 'string' && VALID_IMAGE_SIZES.has(body.imageSize)
-      ? body.imageSize
-      : '1K';
+    try {
+      body = await readJsonBody(req);
+    } catch {
+      sendJson(res, 400, { error: 'Invalid JSON request body.' });
+      return;
+    }
 
-  try {
+    const resolvedApiKey =
+      (typeof body.userApiKey === 'string' && body.userApiKey.trim()) ||
+      process.env.GEMINI_API_KEY ||
+      '';
+    if (!resolvedApiKey) {
+      sendJson(res, 400, {
+        error: 'No Gemini API key configured. Please add your API key in the user menu.',
+      });
+      return;
+    }
+
+    const prompt = typeof body.prompt === 'string' ? body.prompt.trim() : '';
+    if (!prompt) {
+      sendJson(res, 400, { error: 'Please enter a text prompt.' });
+      return;
+    }
+
+    const mode = body.mode === 'edit' ? 'edit' : 'create';
+    const aspectRatio =
+      typeof body.aspectRatio === 'string' && VALID_ASPECT_RATIOS.has(body.aspectRatio)
+        ? body.aspectRatio
+        : '16:9';
+    const imageSize =
+      typeof body.imageSize === 'string' && VALID_IMAGE_SIZES.has(body.imageSize)
+        ? body.imageSize
+        : '1K';
+
     const parts: Part[] = [];
 
     if (mode === 'edit') {
@@ -191,19 +214,19 @@ export async function POST(request: Request): Promise<Response> {
     }
 
     if (!imageBase64) {
-      return Response.json(
-        { error: responseText || 'No image was returned by Gemini. Try refining your prompt.' },
-        { status: 422 }
-      );
+      sendJson(res, 422, {
+        error: responseText || 'No image was returned by Gemini. Try refining your prompt.',
+      });
+      return;
     }
 
-    return Response.json({
+    sendJson(res, 200, {
       imageDataUrl: `data:${mimeType};base64,${imageBase64}`,
       mimeType,
       text: responseText,
     });
   } catch (err) {
     const { status, message } = getErrorStatusAndMessage(err);
-    return Response.json({ error: message }, { status });
+    sendJson(res, status, { error: message });
   }
 }

@@ -1,39 +1,61 @@
 import { handleUpload, type HandleUploadBody } from '@vercel/blob/client';
-import { verifyFirebaseBearerToken } from '../lib/librarySearch';
+import {
+  getRequestHeader,
+  readJsonBody,
+  sendJson,
+  type ServerlessRequest,
+  type ServerlessResponse,
+  verifyFirebaseBearerToken,
+} from '../lib/librarySearch.js';
 
-export async function GET(): Promise<Response> {
-  return Response.json({ configured: Boolean(process.env.BLOB_READ_WRITE_TOKEN) });
-}
-
-export async function POST(request: Request): Promise<Response> {
-  if (!process.env.BLOB_READ_WRITE_TOKEN) {
-    return Response.json(
-      { error: 'BLOB_READ_WRITE_TOKEN is not configured on this server.' },
-      { status: 503 }
-    );
+export default async function handler(
+  req: ServerlessRequest,
+  res: ServerlessResponse
+): Promise<void> {
+  if (req.method === 'OPTIONS') {
+    res.statusCode = 204;
+    res.end();
+    return;
   }
 
-  let body: HandleUploadBody;
+  if (req.method === 'GET') {
+    sendJson(res, 200, { configured: Boolean(process.env.BLOB_READ_WRITE_TOKEN) });
+    return;
+  }
+
+  if (req.method !== 'POST') {
+    sendJson(res, 405, { error: 'Method not allowed.' });
+    return;
+  }
+
   try {
-    body = (await request.json()) as HandleUploadBody;
-  } catch {
-    return Response.json({ error: 'Invalid JSON request body.' }, { status: 400 });
-  }
-
-  if (body.type === 'blob.generate-client-token') {
-    const isAuthorized = await verifyFirebaseBearerToken(
-      request.headers.get('authorization'),
-      request.headers.get('origin') || request.headers.get('referer')
-    );
-    if (!isAuthorized) {
-      return Response.json({ error: 'Unauthorized upload request.' }, { status: 401 });
+    if (!process.env.BLOB_READ_WRITE_TOKEN) {
+      sendJson(res, 503, { error: 'BLOB_READ_WRITE_TOKEN is not configured on this server.' });
+      return;
     }
-  }
 
-  try {
+    let body: HandleUploadBody;
+    try {
+      body = await readJsonBody<HandleUploadBody>(req);
+    } catch {
+      sendJson(res, 400, { error: 'Invalid JSON request body.' });
+      return;
+    }
+
+    if (body?.type === 'blob.generate-client-token') {
+      const isAuthorized = await verifyFirebaseBearerToken(
+        getRequestHeader(req, 'authorization'),
+        getRequestHeader(req, 'origin') || getRequestHeader(req, 'referer')
+      );
+      if (!isAuthorized) {
+        sendJson(res, 401, { error: 'Unauthorized upload request.' });
+        return;
+      }
+    }
+
     const jsonResponse = await handleUpload({
       body,
-      request,
+      request: req,
       onBeforeGenerateToken: async (pathname) => {
         const isAllowedFolder =
           pathname.startsWith('images/') ||
@@ -58,11 +80,10 @@ export async function POST(request: Request): Promise<Response> {
       },
     });
 
-    return Response.json(jsonResponse);
+    sendJson(res, 200, jsonResponse);
   } catch (error) {
-    return Response.json(
-      { error: error instanceof Error ? error.message : 'Failed to authorize upload.' },
-      { status: 400 }
-    );
+    sendJson(res, 400, {
+      error: error instanceof Error ? error.message : 'Failed to authorize upload.',
+    });
   }
 }

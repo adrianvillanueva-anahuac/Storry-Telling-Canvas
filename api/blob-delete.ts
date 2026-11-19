@@ -1,34 +1,61 @@
 import { del } from '@vercel/blob';
-import { verifyFirebaseBearerToken } from '../lib/librarySearch';
+import {
+  getRequestHeader,
+  readJsonBody,
+  sendJson,
+  type ServerlessRequest,
+  type ServerlessResponse,
+  verifyFirebaseBearerToken,
+} from '../lib/librarySearch.js';
 
-export async function POST(request: Request): Promise<Response> {
-  if (!process.env.BLOB_READ_WRITE_TOKEN) {
-    return Response.json(
-      { error: 'BLOB_READ_WRITE_TOKEN is not configured on this server.' },
-      { status: 503 }
-    );
+export default async function handler(
+  req: ServerlessRequest,
+  res: ServerlessResponse
+): Promise<void> {
+  if (req.method === 'OPTIONS') {
+    res.statusCode = 204;
+    res.end();
+    return;
   }
-
-  const isAuthorized = await verifyFirebaseBearerToken(
-    request.headers.get('authorization'),
-    request.headers.get('origin') || request.headers.get('referer')
-  );
-  if (!isAuthorized) {
-    return Response.json({ error: 'Unauthorized delete request.' }, { status: 401 });
+  if (req.method !== 'POST') {
+    sendJson(res, 405, { error: 'Method not allowed.' });
+    return;
   }
 
   try {
-    const { url } = (await request.json()) as { url?: string };
+    if (!process.env.BLOB_READ_WRITE_TOKEN) {
+      sendJson(res, 503, { error: 'BLOB_READ_WRITE_TOKEN is not configured on this server.' });
+      return;
+    }
+
+    const isAuthorized = await verifyFirebaseBearerToken(
+      getRequestHeader(req, 'authorization'),
+      getRequestHeader(req, 'origin') || getRequestHeader(req, 'referer')
+    );
+    if (!isAuthorized) {
+      sendJson(res, 401, { error: 'Unauthorized delete request.' });
+      return;
+    }
+
+    let body: { url?: string };
+    try {
+      body = await readJsonBody<{ url?: string }>(req);
+    } catch {
+      sendJson(res, 400, { error: 'Invalid JSON request body.' });
+      return;
+    }
+
+    const url = body?.url;
     if (!url || !url.includes('.blob.vercel-storage.com')) {
-      return Response.json({ error: 'Invalid Vercel Blob URL.' }, { status: 400 });
+      sendJson(res, 400, { error: 'Invalid Vercel Blob URL.' });
+      return;
     }
 
     await del(url);
-    return Response.json({ success: true });
+    sendJson(res, 200, { success: true });
   } catch (error) {
-    return Response.json(
-      { error: error instanceof Error ? error.message : 'Failed to delete blob.' },
-      { status: 500 }
-    );
+    sendJson(res, 500, {
+      error: error instanceof Error ? error.message : 'Failed to delete blob.',
+    });
   }
 }
