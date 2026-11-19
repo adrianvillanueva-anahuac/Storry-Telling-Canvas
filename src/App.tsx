@@ -16,6 +16,8 @@ import {
 } from './types/workflow';
 import {
   auth,
+  AuthSignInError,
+  firebaseProjectId,
   signInWithGoogle,
   logOut,
   testFirestoreConnection,
@@ -83,6 +85,10 @@ import {
   AlignHorizontalDistributeCenter,
   AlignVerticalDistributeCenter,
   Tag,
+  AlertTriangle,
+  Check,
+  Copy,
+  ExternalLink,
 } from 'lucide-react';
 import { Header } from './components/Header';
 import { LabelFilterBar, UNLABELED_FILTER_ID } from './components/LabelFilterBar';
@@ -141,7 +147,14 @@ export default function App() {
   // Authentication & Role
   const [authReady, setAuthReady] = useState(false);
   const [firebaseUser, setFirebaseUser] = useState<FirebaseUser | null>(null);
-  const [authError, setAuthError] = useState<string | null>(null);
+  const [authErrorInfo, setAuthErrorInfo] = useState<{
+    code: string;
+    message: string;
+    hostname?: string;
+  } | null>(null);
+  const [isSigningIn, setIsSigningIn] = useState(false);
+  const [copiedAuthDomain, setCopiedAuthDomain] = useState(false);
+  const copyAuthDomainTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [isUploadingMedia, setIsUploadingMedia] = useState(false);
   const [currentUser, setCurrentUser] = useState<UserProfile>({
@@ -428,9 +441,14 @@ export default function App() {
     setRedoCount(0);
   }, [activeProjectId]);
 
-  // Test Firestore Connection on Boot
+  // Test Firestore Connection on Boot & cleanup copy timer
   useEffect(() => {
     testFirestoreConnection();
+    return () => {
+      if (copyAuthDomainTimerRef.current) {
+        clearTimeout(copyAuthDomainTimerRef.current);
+      }
+    };
   }, []);
 
   // Firebase Auth Listener & Live Role Sync
@@ -3639,15 +3657,52 @@ export default function App() {
   );
 
   const handleGoogleLogin = async () => {
-    setAuthError(null);
+    if (isSigningIn) return;
+    setAuthErrorInfo(null);
+    setCopiedAuthDomain(false);
+    setIsSigningIn(true);
     try {
       await signInWithGoogle();
     } catch (err) {
-      setAuthError(
-        err instanceof Error
-          ? err.message
-          : t('app.googleSignInError')
-      );
+      if (err instanceof AuthSignInError) {
+        setAuthErrorInfo({
+          code: err.code,
+          message: err.message,
+          hostname: err.hostname || (typeof window !== 'undefined' ? window.location.hostname : undefined),
+        });
+      } else {
+        setAuthErrorInfo({
+          code: 'auth/unknown',
+          message: err instanceof Error ? err.message : t('app.googleSignInError'),
+          hostname: typeof window !== 'undefined' ? window.location.hostname : undefined,
+        });
+      }
+    } finally {
+      setIsSigningIn(false);
+    }
+  };
+
+  const handleCopyAuthHostname = async (hostname: string) => {
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(hostname);
+      } else {
+        const tempInput = document.createElement('input');
+        tempInput.value = hostname;
+        document.body.appendChild(tempInput);
+        tempInput.select();
+        document.execCommand('copy');
+        document.body.removeChild(tempInput);
+      }
+      setCopiedAuthDomain(true);
+      if (copyAuthDomainTimerRef.current) {
+        clearTimeout(copyAuthDomainTimerRef.current);
+      }
+      copyAuthDomainTimerRef.current = setTimeout(() => {
+        setCopiedAuthDomain(false);
+      }, 2000);
+    } catch {
+      // Clipboard blocked in restricted context
     }
   };
 
@@ -3663,6 +3718,25 @@ export default function App() {
   }
 
   if (!firebaseUser) {
+    const isUnauthorizedDomain = authErrorInfo?.code === 'auth/unauthorized-domain';
+    const currentHostname =
+      authErrorInfo?.hostname || (typeof window !== 'undefined' ? window.location.hostname : '');
+    const isDynamicVercelPreview =
+      Boolean(currentHostname) &&
+      currentHostname.endsWith('.vercel.app') &&
+      currentHostname !== 'visual-workflow-canvas.vercel.app';
+    const firebaseAuthSettingsUrl = `https://console.firebase.google.com/project/${firebaseProjectId}/authentication/settings`;
+
+    const resolvedAuthErrorText = authErrorInfo
+      ? authErrorInfo.code === 'auth/popup-blocked' ||
+        authErrorInfo.code === 'auth/popup-closed-by-user' ||
+        authErrorInfo.code === 'auth/cancelled-popup-request'
+        ? t('auth.popupBlocked')
+        : authErrorInfo.code === 'auth/network-request-failed'
+        ? t('auth.networkError')
+        : authErrorInfo.message || t('app.googleSignInError')
+      : null;
+
     return (
       <div className="w-screen h-screen relative bg-[#c9c6bd] dark:bg-neutral-950 text-[#2b2924] dark:text-neutral-100 flex items-center justify-center p-4">
         <div
@@ -3693,7 +3767,11 @@ export default function App() {
             ES
           </button>
         </div>
-        <div className="w-full max-w-sm rounded-2xl bg-[#ebe7de] dark:bg-neutral-900 border border-[#c3beb1] dark:border-neutral-800 p-7 shadow-2xl text-center space-y-5">
+        <div
+          className={`w-full ${
+            isUnauthorizedDomain ? 'max-w-md' : 'max-w-sm'
+          } rounded-2xl bg-[#ebe7de] dark:bg-neutral-900 border border-[#c3beb1] dark:border-neutral-800 p-7 shadow-2xl text-center space-y-5`}
+        >
           <div className="w-12 h-12 rounded-2xl bg-blue-600/15 dark:bg-blue-600/20 border border-blue-600/30 dark:border-blue-500/30 text-blue-700 dark:text-blue-400 mx-auto flex items-center justify-center font-bold text-lg">
             VW
           </div>
@@ -3706,17 +3784,82 @@ export default function App() {
             </p>
           </div>
 
-          {authError && (
-            <div className="p-3 rounded-xl bg-red-600/12 dark:bg-red-950/50 border border-red-600/35 dark:border-red-800/60 text-xs text-red-800 dark:text-red-300 text-left break-words">
-              {authError}
-            </div>
+          {authErrorInfo && (
+            isUnauthorizedDomain ? (
+              <div className="p-3.5 rounded-xl bg-red-600/10 dark:bg-red-950/45 border border-red-600/35 dark:border-red-800/60 text-xs text-red-900 dark:text-red-200 text-left space-y-2.5">
+                <div className="flex items-start gap-2">
+                  <AlertTriangle className="w-4 h-4 text-red-700 dark:text-red-400 shrink-0 mt-0.5" />
+                  <div className="space-y-1 min-w-0">
+                    <p className="font-semibold text-red-950 dark:text-red-100">
+                      {t('auth.unauthorizedDomainTitle')}
+                    </p>
+                    <p className="text-[11px] leading-relaxed text-red-900/90 dark:text-red-200/90">
+                      {t('auth.unauthorizedDomainDesc', { hostname: currentHostname || 'unknown' })}
+                    </p>
+                  </div>
+                </div>
+
+                {currentHostname && (
+                  <div className="flex items-center justify-between gap-2 px-2.5 py-2 rounded-lg bg-[#e2ddd2] dark:bg-neutral-950 border border-[#c3beb1] dark:border-neutral-800">
+                    <code className="text-[11px] font-mono text-[#1f1d18] dark:text-neutral-100 truncate select-all">
+                      {currentHostname}
+                    </code>
+                    <button
+                      type="button"
+                      onClick={() => handleCopyAuthHostname(currentHostname)}
+                      className="px-2.5 py-1 rounded-md bg-[#d4cfc3] hover:bg-[#c8c2b4] dark:bg-neutral-800 dark:hover:bg-neutral-700 text-[#1f1d18] dark:text-neutral-100 text-[11px] font-semibold inline-flex items-center gap-1 shrink-0 whitespace-nowrap transition-colors cursor-pointer"
+                    >
+                      {copiedAuthDomain ? (
+                        <>
+                          <Check className="w-3 h-3 text-emerald-600 dark:text-emerald-400" />
+                          <span>{t('auth.domainCopied')}</span>
+                        </>
+                      ) : (
+                        <>
+                          <Copy className="w-3 h-3" />
+                          <span>{t('auth.copyDomain')}</span>
+                        </>
+                      )}
+                    </button>
+                  </div>
+                )}
+
+                <p className="text-[11px] font-medium text-[#4a463d] dark:text-neutral-300 leading-snug">
+                  {t('auth.unauthorizedDomainSteps')}
+                </p>
+
+                {isDynamicVercelPreview && (
+                  <p className="text-[11px] text-amber-800 dark:text-amber-300 leading-snug">
+                    {t('auth.vercelPreviewNote')}
+                  </p>
+                )}
+
+                <div className="pt-0.5">
+                  <a
+                    href={firebaseAuthSettingsUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-blue-700 hover:text-blue-900 dark:text-blue-400 dark:hover:text-blue-300 underline underline-offset-2"
+                  >
+                    <span>{t('auth.openFirebaseConsole')}</span>
+                    <ExternalLink className="w-3 h-3 shrink-0" />
+                  </a>
+                </div>
+              </div>
+            ) : (
+              <div className="p-3 rounded-xl bg-red-600/12 dark:bg-red-950/50 border border-red-600/35 dark:border-red-800/60 text-xs text-red-800 dark:text-red-300 text-left break-words">
+                {resolvedAuthErrorText}
+              </div>
+            )
           )}
 
           <button
+            type="button"
+            disabled={isSigningIn}
             onClick={handleGoogleLogin}
-            className="w-full py-2.5 px-4 rounded-xl bg-blue-600 hover:bg-blue-500 active:bg-blue-700 text-white text-xs font-semibold shadow-lg shadow-blue-900/20 dark:shadow-blue-900/30 transition-colors cursor-pointer"
+            className="w-full py-2.5 px-4 rounded-xl bg-blue-600 hover:bg-blue-500 active:bg-blue-700 disabled:opacity-60 text-white text-xs font-semibold shadow-lg shadow-blue-900/20 dark:shadow-blue-900/30 transition-colors cursor-pointer disabled:cursor-wait"
           >
-            {t('auth.signInWithGoogle')}
+            {isSigningIn ? t('auth.signingIn') : t('auth.signInWithGoogle')}
           </button>
         </div>
       </div>

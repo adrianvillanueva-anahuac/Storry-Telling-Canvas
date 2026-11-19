@@ -65,6 +65,14 @@ const en = {
   'auth.signOutAndSwitch': 'Sign out and switch account',
   'auth.authError': 'Authentication error. Please try again.',
   'auth.popupBlocked': 'Popup was blocked or closed. Please allow popups and try again.',
+  'auth.networkError': 'Network error connecting to Google Sign-In. Check your connection and try again.',
+  'auth.unauthorizedDomainTitle': 'Domain Not Authorized for Sign-In',
+  'auth.unauthorizedDomainDesc': 'Firebase Authentication has not authorized "{hostname}" yet. Add it once in Firebase Console to enable Google Sign-In here.',
+  'auth.unauthorizedDomainSteps': 'Firebase Console → Authentication → Settings → Authorized domains → Add domain',
+  'auth.copyDomain': 'Copy domain',
+  'auth.domainCopied': 'Copied',
+  'auth.openFirebaseConsole': 'Open Firebase Console',
+  'auth.vercelPreviewNote': 'Dynamic Vercel preview URLs change per commit. For team access, use your main production domain.',
 
   // Header
   'header.selectProject': 'Select Project',
@@ -1048,6 +1056,14 @@ const es: Record<TranslationKey, string> = {
   'auth.signOutAndSwitch': 'Cerrar sesión y cambiar de cuenta',
   'auth.authError': 'Error de autenticación. Por favor, inténtalo de nuevo.',
   'auth.popupBlocked': 'La ventana emergente fue bloqueada o cerrada. Permite las ventanas emergentes e inténtalo de nuevo.',
+  'auth.networkError': 'Error de red al conectar con Google. Revisa tu conexión e inténtalo de nuevo.',
+  'auth.unauthorizedDomainTitle': 'Dominio no autorizado para iniciar sesión',
+  'auth.unauthorizedDomainDesc': 'Firebase Authentication aún no autoriza "{hostname}". Agrégalo una sola vez en Firebase Console para habilitar el acceso aquí.',
+  'auth.unauthorizedDomainSteps': 'Firebase Console → Authentication → Settings → Authorized domains → Add domain',
+  'auth.copyDomain': 'Copiar dominio',
+  'auth.domainCopied': 'Copiado',
+  'auth.openFirebaseConsole': 'Abrir Firebase Console',
+  'auth.vercelPreviewNote': 'Las URLs de vista previa de Vercel cambian en cada deploy; para el equipo usa tu dominio principal de producción.',
 
   // Header
   'header.selectProject': 'Seleccionar proyecto',

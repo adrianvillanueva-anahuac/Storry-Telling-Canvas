@@ -30,8 +30,24 @@ export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
 export const storage = getStorage(app);
 
 // Initialize Firebase Authentication
+export const firebaseProjectId = firebaseConfig.projectId;
 export const auth = getAuth(app);
 export const googleProvider = new GoogleAuthProvider();
+googleProvider.setCustomParameters({ prompt: 'select_account' });
+
+export class AuthSignInError extends Error {
+  code: string;
+  hostname?: string;
+  projectId?: string;
+
+  constructor(message: string, code: string, hostname?: string, projectId?: string) {
+    super(message);
+    this.name = 'AuthSignInError';
+    this.code = code;
+    this.hostname = hostname;
+    this.projectId = projectId;
+  }
+}
 
 export enum OperationType {
   CREATE = 'create',
@@ -159,7 +175,22 @@ export async function signInWithGoogle() {
     return user;
   } catch (err) {
     console.error('Sign-in error:', err);
-    throw err;
+    const rawMessage = err instanceof Error ? err.message : String(err || 'Sign-in error');
+    const rawCode =
+      typeof err === 'object' && err !== null && 'code' in err && typeof (err as { code?: unknown }).code === 'string'
+        ? (err as { code: string }).code
+        : '';
+    let resolvedCode = rawCode;
+    if (!resolvedCode) {
+      if (rawMessage.includes('auth/unauthorized-domain')) resolvedCode = 'auth/unauthorized-domain';
+      else if (rawMessage.includes('auth/popup-blocked')) resolvedCode = 'auth/popup-blocked';
+      else if (rawMessage.includes('auth/popup-closed-by-user')) resolvedCode = 'auth/popup-closed-by-user';
+      else if (rawMessage.includes('auth/cancelled-popup-request')) resolvedCode = 'auth/cancelled-popup-request';
+      else if (rawMessage.includes('auth/network-request-failed')) resolvedCode = 'auth/network-request-failed';
+      else resolvedCode = 'auth/unknown';
+    }
+    const hostname = typeof window !== 'undefined' ? window.location.hostname : undefined;
+    throw new AuthSignInError(rawMessage, resolvedCode, hostname, firebaseConfig.projectId);
   }
 }
 
