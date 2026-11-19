@@ -12,6 +12,7 @@ import {
   fetchExternalImageAsDataUrl,
   LibrarySearchKind,
   searchLibraryMediaWithGemini,
+  searchLibraryMediaWithoutApiKey,
   verifyFirebaseBearerToken,
 } from './lib/librarySearch.js';
 
@@ -504,13 +505,6 @@ app.post('/api/gemini-search', async (req, res) => {
     process.env.GEMINI_API_KEY ||
     '';
 
-  if (!resolvedApiKey) {
-    return res.status(400).json({
-      error: 'Gemini API key is not configured on the server or in your user settings.',
-      code: 'MISSING_API_KEY',
-    });
-  }
-
   const trimmedQuery = typeof query === 'string' ? query.trim() : '';
   if (!trimmedQuery) {
     return res.status(400).json({ error: 'Please enter a search query.' });
@@ -520,17 +514,37 @@ app.post('/api/gemini-search', async (req, res) => {
   const safeKind: LibrarySearchKind = validKinds.has(kind as LibrarySearchKind)
     ? (kind as LibrarySearchKind)
     : 'images';
+  const safeLanguage: 'en' | 'es' = language === 'es' ? 'es' : 'en';
+  const safePage = typeof page === 'number' ? page : 1;
+  const safeExcludeUrls = Array.isArray(excludeUrls) ? excludeUrls.slice(0, 120) : [];
 
   try {
-    const result = await searchLibraryMediaWithGemini({
+    if (resolvedApiKey) {
+      try {
+        const geminiResult = await searchLibraryMediaWithGemini({
+          kind: safeKind,
+          query: trimmedQuery,
+          apiKey: resolvedApiKey,
+          language: safeLanguage,
+          page: safePage,
+          excludeUrls: safeExcludeUrls,
+        });
+        if (geminiResult.items.length > 0) {
+          return res.json(geminiResult);
+        }
+      } catch (geminiErr) {
+        console.warn('[server] Gemini search failed, falling back to keyless search:', geminiErr);
+      }
+    }
+
+    const fallbackResult = await searchLibraryMediaWithoutApiKey({
       kind: safeKind,
       query: trimmedQuery,
-      apiKey: resolvedApiKey,
-      language: language === 'es' ? 'es' : 'en',
-      page: typeof page === 'number' ? page : 1,
-      excludeUrls: Array.isArray(excludeUrls) ? excludeUrls.slice(0, 120) : [],
+      language: safeLanguage,
+      page: safePage,
+      excludeUrls: safeExcludeUrls,
     });
-    return res.json(result);
+    return res.json(fallbackResult);
   } catch (err: any) {
     const rawMsg = err?.message || 'Search failed.';
     let status = typeof err?.status === 'number' && err.status >= 400 && err.status < 600 ? err.status : 500;

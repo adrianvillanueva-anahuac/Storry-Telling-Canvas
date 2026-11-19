@@ -753,6 +753,557 @@ Only include real URLs returned by Google Search.`;
   };
 }
 
+const BROWSER_UA =
+  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36';
+
+function extractBalancedJsonObject(source: string, startIdx: number): string | null {
+  if (startIdx < 0 || source[startIdx] !== '{') return null;
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+
+  for (let i = startIdx; i < source.length; i++) {
+    const ch = source[i];
+    if (inString) {
+      if (escaped) {
+        escaped = false;
+      } else if (ch === '\\') {
+        escaped = true;
+      } else if (ch === '"') {
+        inString = false;
+      }
+      continue;
+    }
+
+    if (ch === '"') {
+      inString = true;
+    } else if (ch === '{') {
+      depth += 1;
+    } else if (ch === '}') {
+      depth -= 1;
+      if (depth === 0) {
+        return source.slice(startIdx, i + 1);
+      }
+    }
+  }
+  return null;
+}
+
+function collectYouTubeVideoRenderers(
+  node: unknown,
+  out: Array<{
+    videoId: string;
+    title: string;
+    channel: string;
+    thumbnailUrl: string;
+  }>,
+  seenIds: Set<string>
+): void {
+  if (!node || typeof node !== 'object') return;
+  if (Array.isArray(node)) {
+    for (const item of node) {
+      collectYouTubeVideoRenderers(item, out, seenIds);
+      if (out.length >= 24) return;
+    }
+    return;
+  }
+
+  const obj = node as Record<string, unknown>;
+  const renderer = obj.videoRenderer as Record<string, unknown> | undefined;
+  if (renderer && typeof renderer === 'object' && typeof renderer.videoId === 'string') {
+    const videoId = renderer.videoId.trim();
+    if (/^[a-zA-Z0-9_-]{11}$/.test(videoId) && !seenIds.has(videoId)) {
+      const titleObj = renderer.title as
+        | { runs?: Array<{ text?: string }>; simpleText?: string }
+        | undefined;
+      const title =
+        titleObj?.runs?.map((r) => r.text || '').join('').trim() ||
+        titleObj?.simpleText?.trim() ||
+        `YouTube (${videoId})`;
+
+      const ownerObj = (renderer.ownerText || renderer.longBylineText) as
+        | { runs?: Array<{ text?: string }> }
+        | undefined;
+      const channel = ownerObj?.runs?.[0]?.text?.trim() || 'YouTube';
+
+      const thumbs = (
+        renderer.thumbnail as { thumbnails?: Array<{ url?: string }> } | undefined
+      )?.thumbnails;
+      const rawThumb =
+        (Array.isArray(thumbs) && thumbs.length > 0 ? thumbs[thumbs.length - 1]?.url : '') || '';
+      const thumbnailUrl = rawThumb.startsWith('http')
+        ? rawThumb
+        : `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`;
+
+      seenIds.add(videoId);
+      out.push({
+        videoId,
+        title: title.slice(0, 200),
+        channel: channel.slice(0, 120),
+        thumbnailUrl,
+      });
+      if (out.length >= 24) return;
+    }
+  }
+
+  for (const value of Object.values(obj)) {
+    if (value && typeof value === 'object') {
+      collectYouTubeVideoRenderers(value, out, seenIds);
+      if (out.length >= 24) return;
+    }
+  }
+}
+
+async function searchYouTubeWithoutApiKey(params: {
+  query: string;
+  language: 'en' | 'es';
+  page: number;
+  excludedSet: Set<string>;
+}): Promise<LibrarySearchResponse> {
+  const { query, language, page, excludedSet } = params;
+  const pageModifiers = ['', 'HD', 'cinematic', 'reference', 'tutorial'];
+  const modifier = page > 1 ? pageModifiers[(page - 1) % pageModifiers.length] : '';
+  const searchQuery = modifier ? `${query} ${modifier}`.trim() : query;
+  const searchUrl = `https://www.youtube.com/results?search_query=${encodeURIComponent(
+    searchQuery
+  )}&hl=${language === 'es' ? 'es' : 'en'}`;
+
+  const res = await fetchWithTimeout(searchUrl, {
+    method: 'GET',
+    timeoutMs: 5000,
+    headers: {
+      'User-Agent': BROWSER_UA,
+      'Accept-Language': language === 'es' ? 'es-419,es;q=0.9,en;q=0.8' : 'en-US,en;q=0.9',
+      Cookie: 'CONSENT=YES+cb.20210328-17-p0.en+FX+678;',
+    },
+  });
+
+  if (!res.ok) {
+    return {
+      kind: 'videos',
+      items: [],
+      groundingSources: [{ title: 'YouTube Search', uri: searchUrl }],
+      searchQueries: [searchQuery],
+      hasMore: false,
+    };
+  }
+
+  const html = await res.text();
+  const collected: Array<{
+    videoId: string;
+    title: string;
+    channel: string;
+    thumbnailUrl: string;
+  }> = [];
+  const seenIds = new Set<string>();
+
+  const markers = ['var ytInitialData = ', 'window["ytInitialData"] = ', 'ytInitialData = '];
+  for (const marker of markers) {
+    const idx = html.indexOf(marker);
+    if (idx !== -1) {
+      const jsonStart = html.indexOf('{', idx + marker.length);
+      const rawJson = extractBalancedJsonObject(html, jsonStart);
+      if (rawJson) {
+        try {
+          const parsed = JSON.parse(rawJson);
+          collectYouTubeVideoRenderers(parsed, collected, seenIds);
+          if (collected.length > 0) break;
+        } catch {
+          // Try next marker or regex fallback
+        }
+      }
+    }
+  }
+
+  const videos: VideoSearchResultItem[] = [];
+  for (const entry of collected) {
+    const watchUrl = `https://www.youtube.com/watch?v=${entry.videoId}`;
+    if (excludedSet.has(watchUrl)) continue;
+    videos.push({
+      id: entry.videoId,
+      youtubeId: entry.videoId,
+      title: entry.title,
+      channel: entry.channel,
+      thumbnailUrl: entry.thumbnailUrl,
+      watchUrl,
+      sourceUrl: watchUrl,
+    });
+    if (videos.length >= 16) break;
+  }
+
+  // Regex + oEmbed fallback if ytInitialData layout differed
+  if (videos.length === 0) {
+    const idMatches = Array.from(html.matchAll(/"videoId":"([a-zA-Z0-9_-]{11})"/g)).map(
+      (m) => m[1]
+    );
+    const uniqueIds = Array.from(new Set(idMatches))
+      .filter((id) => !excludedSet.has(`https://www.youtube.com/watch?v=${id}`))
+      .slice(0, 12);
+    const verified = await Promise.allSettled(
+      uniqueIds.map((id) => verifyYouTubeVideo(id, '', '', `https://www.youtube.com/watch?v=${id}`))
+    );
+    for (const r of verified) {
+      if (r.status === 'fulfilled' && r.value) {
+        videos.push(r.value);
+      }
+    }
+  }
+
+  return {
+    kind: 'videos',
+    items: videos,
+    groundingSources: [{ title: 'YouTube Search', uri: searchUrl }],
+    searchQueries: [searchQuery],
+    hasMore: page < 5 && videos.length > 0,
+  };
+}
+
+function cleanWikimediaTitle(rawTitle: string): string {
+  return rawTitle
+    .replace(/^File:/i, '')
+    .replace(/\.[a-z0-9]{2,5}$/i, '')
+    .replace(/[_]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function isUsableRasterMimeOrUrl(mime: string | undefined, url: string): boolean {
+  const m = (mime || '').toLowerCase();
+  if (m && (m.includes('svg') || m.includes('pdf') || m.includes('video') || m.includes('audio'))) {
+    return false;
+  }
+  const lowerUrl = url.toLowerCase().split('?')[0];
+  if (
+    lowerUrl.endsWith('.svg') ||
+    lowerUrl.endsWith('.pdf') ||
+    lowerUrl.endsWith('.webm') ||
+    lowerUrl.endsWith('.ogv') ||
+    lowerUrl.endsWith('.ogg') ||
+    lowerUrl.endsWith('.mp4')
+  ) {
+    return false;
+  }
+  if (BLOCKED_IMAGE_PATTERNS.test(url)) return false;
+  return true;
+}
+
+async function fetchWikimediaCommonsImages(
+  searchTerm: string,
+  offset: number
+): Promise<ImageSearchResultItem[]> {
+  const apiUrl =
+    `https://commons.wikimedia.org/w/api.php?action=query&generator=search&gsrnamespace=6` +
+    `&gsrsearch=${encodeURIComponent(`${searchTerm} filetype:bitmap`)}` +
+    `&gsrlimit=24&gsroffset=${offset}&prop=imageinfo&iiprop=url|mime|size&iiurlwidth=1280&format=json&origin=*`;
+
+  const res = await fetchWithTimeout(apiUrl, { timeoutMs: 4200 });
+  if (!res.ok) return [];
+
+  const data = (await res.json()) as {
+    query?: {
+      pages?: Record<
+        string,
+        {
+          title?: string;
+          index?: number;
+          imageinfo?: Array<{
+            url?: string;
+            thumburl?: string;
+            thumbmime?: string;
+            mime?: string;
+            width?: number;
+            height?: number;
+            descriptionurl?: string;
+          }>;
+        }
+      >;
+    };
+  };
+
+  const pages = Object.values(data.query?.pages || {}).sort(
+    (a, b) => (a.index ?? 999) - (b.index ?? 999)
+  );
+  const items: ImageSearchResultItem[] = [];
+
+  for (const page of pages) {
+    const info = page.imageinfo?.[0];
+    if (!info) continue;
+    const chosenUrl = info.thumburl || info.url || '';
+    const safeUrl = isSafePublicUrl(chosenUrl);
+    if (!safeUrl) continue;
+
+    const mime = (info.thumbmime || info.mime || 'image/jpeg').split(';')[0].trim().toLowerCase();
+    if (!mime.startsWith('image/')) continue;
+    if (!isUsableRasterMimeOrUrl(mime, safeUrl.toString())) continue;
+    if (typeof info.width === 'number' && info.width > 0 && info.width < 180) continue;
+
+    const sourceUrl =
+      info.descriptionurl ||
+      `https://commons.wikimedia.org/wiki/${encodeURIComponent((page.title || '').replace(/ /g, '_'))}`;
+
+    items.push({
+      id: makeSearchItemId(safeUrl.toString()),
+      title: cleanWikimediaTitle(page.title || '') || 'Wikimedia Commons',
+      imageUrl: safeUrl.toString(),
+      sourceUrl,
+      sourceDomain: 'commons.wikimedia.org',
+      mimeType: mime.includes('png') ? 'image/png' : mime.includes('webp') ? 'image/webp' : 'image/jpeg',
+    });
+  }
+
+  return items;
+}
+
+async function fetchWikipediaPageImages(
+  searchTerm: string,
+  wikiHost: string,
+  offset: number
+): Promise<ImageSearchResultItem[]> {
+  const apiUrl =
+    `https://${wikiHost}/w/api.php?action=query&generator=search` +
+    `&gsrsearch=${encodeURIComponent(searchTerm)}&gsrlimit=20&gsroffset=${offset}` +
+    `&prop=pageimages|info&inprop=url&piprop=thumbnail|original&pithumbsize=1280&format=json&origin=*`;
+
+  const res = await fetchWithTimeout(apiUrl, { timeoutMs: 3800 });
+  if (!res.ok) return [];
+
+  const data = (await res.json()) as {
+    query?: {
+      pages?: Record<
+        string,
+        {
+          title?: string;
+          index?: number;
+          fullurl?: string;
+          thumbnail?: { source?: string; width?: number; height?: number };
+          original?: { source?: string; width?: number; height?: number };
+        }
+      >;
+    };
+  };
+
+  const pages = Object.values(data.query?.pages || {}).sort(
+    (a, b) => (a.index ?? 999) - (b.index ?? 999)
+  );
+  const items: ImageSearchResultItem[] = [];
+
+  for (const page of pages) {
+    const thumbSrc = page.thumbnail?.source || '';
+    const origSrc = page.original?.source || '';
+    const candidate =
+      thumbSrc && isUsableRasterMimeOrUrl(undefined, thumbSrc)
+        ? thumbSrc
+        : origSrc && isUsableRasterMimeOrUrl(undefined, origSrc)
+        ? origSrc
+        : '';
+
+    if (!candidate) continue;
+    if (
+      candidate === thumbSrc &&
+      typeof page.thumbnail?.width === 'number' &&
+      page.thumbnail.width > 0 &&
+      page.thumbnail.width < 160
+    ) {
+      continue;
+    }
+
+    const safeUrl = isSafePublicUrl(candidate);
+    if (!safeUrl) continue;
+
+    const lower = safeUrl.pathname.toLowerCase();
+    const mimeType = lower.endsWith('.png')
+      ? 'image/png'
+      : lower.endsWith('.webp')
+      ? 'image/webp'
+      : 'image/jpeg';
+
+    const sourceUrl =
+      page.fullurl ||
+      `https://${wikiHost}/wiki/${encodeURIComponent((page.title || '').replace(/ /g, '_'))}`;
+
+    items.push({
+      id: makeSearchItemId(safeUrl.toString()),
+      title: (page.title || wikiHost).trim(),
+      imageUrl: safeUrl.toString(),
+      sourceUrl,
+      sourceDomain: wikiHost,
+      mimeType,
+    });
+  }
+
+  return items;
+}
+
+async function fetchOpenverseImages(
+  searchTerm: string,
+  page: number
+): Promise<ImageSearchResultItem[]> {
+  const apiUrl = `https://api.openverse.org/v1/images/?q=${encodeURIComponent(
+    searchTerm
+  )}&page=${page}&page_size=16`;
+
+  const res = await fetchWithTimeout(apiUrl, {
+    timeoutMs: 3500,
+    headers: { Accept: 'application/json' },
+  });
+  if (!res.ok) return [];
+
+  const data = (await res.json()) as {
+    results?: Array<{
+      id?: string;
+      title?: string;
+      url?: string;
+      thumbnail?: string;
+      foreign_landing_url?: string;
+      width?: number;
+      filetype?: string;
+    }>;
+  };
+
+  const candidates = (data.results || [])
+    .filter((r) => typeof r.url === 'string' && isUsableRasterMimeOrUrl(r.filetype, r.url))
+    .slice(0, 10);
+
+  const verified = await Promise.allSettled(
+    candidates.map(async (r): Promise<ImageSearchResultItem | null> => {
+      const rawUrl = r.url!;
+      const check = await verifyImageUrl(rawUrl);
+      const chosenUrl = check?.url || (r.thumbnail && isSafePublicUrl(r.thumbnail) ? r.thumbnail : null);
+      if (!chosenUrl) return null;
+
+      const sourceUrl = r.foreign_landing_url || chosenUrl;
+      const sourceDomain = (() => {
+        try {
+          return new URL(sourceUrl).hostname.replace(/^www\./, '');
+        } catch {
+          return 'openverse.org';
+        }
+      })();
+
+      return {
+        id: makeSearchItemId(chosenUrl),
+        title: (r.title || sourceDomain).slice(0, 140),
+        imageUrl: chosenUrl,
+        sourceUrl,
+        sourceDomain,
+        mimeType: check?.mimeType || 'image/jpeg',
+      };
+    })
+  );
+
+  const items: ImageSearchResultItem[] = [];
+  for (const v of verified) {
+    if (v.status === 'fulfilled' && v.value) {
+      items.push(v.value);
+    }
+  }
+  return items;
+}
+
+export async function searchLibraryMediaWithoutApiKey(params: {
+  kind: LibrarySearchKind;
+  query: string;
+  language?: 'en' | 'es';
+  page?: number;
+  excludeUrls?: string[];
+}): Promise<LibrarySearchResponse> {
+  const { kind, query, language = 'en', page = 1, excludeUrls = [] } = params;
+  const cleanQuery = query.trim();
+  const safePage = Number.isFinite(page) && page >= 1 ? Math.min(Math.floor(page), 10) : 1;
+  const excludedSet = new Set(
+    excludeUrls
+      .filter((u): u is string => typeof u === 'string' && u.trim().length > 0)
+      .map((u) => u.trim().split('#')[0])
+  );
+
+  if (kind === 'videos') {
+    return searchYouTubeWithoutApiKey({
+      query: cleanQuery,
+      language,
+      page: safePage,
+      excludedSet,
+    });
+  }
+
+  const offset = (safePage - 1) * 20;
+  const commonsQuery =
+    kind === 'maps'
+      ? `(${cleanQuery}) (map OR floorplan OR blueprint OR plan OR chart)`
+      : cleanQuery;
+  const wikiQuery = kind === 'maps' ? `${cleanQuery} map` : cleanQuery;
+  const openverseQuery = kind === 'maps' ? `${cleanQuery} map` : cleanQuery;
+
+  const jobs: Array<Promise<ImageSearchResultItem[]>> = [
+    fetchWikimediaCommonsImages(commonsQuery, offset),
+    fetchWikipediaPageImages(wikiQuery, 'en.wikipedia.org', offset),
+    fetchOpenverseImages(openverseQuery, safePage),
+  ];
+
+  if (language === 'es') {
+    jobs.push(fetchWikipediaPageImages(wikiQuery, 'es.wikipedia.org', offset));
+  }
+  if (kind === 'maps') {
+    jobs.push(fetchWikimediaCommonsImages(cleanQuery, offset));
+  }
+
+  const settled = await Promise.allSettled(jobs);
+  const uniqueImages: ImageSearchResultItem[] = [];
+  const seenFinalImg = new Set<string>(excludedSet);
+  const seenIds = new Set<string>();
+  const usedDomains = new Set<string>();
+
+  for (const result of settled) {
+    if (result.status !== 'fulfilled') continue;
+    for (const item of result.value) {
+      const norm = item.imageUrl.split('#')[0];
+      if (!seenFinalImg.has(norm) && !seenIds.has(item.id)) {
+        seenFinalImg.add(norm);
+        seenIds.add(item.id);
+        uniqueImages.push(item);
+        usedDomains.add(item.sourceDomain);
+      }
+    }
+  }
+
+  const groundingSources: GroundingSource[] = [];
+  if (usedDomains.has('commons.wikimedia.org') || uniqueImages.length > 0) {
+    groundingSources.push({
+      title: 'Wikimedia Commons',
+      uri: `https://commons.wikimedia.org/w/index.php?search=${encodeURIComponent(commonsQuery)}`,
+    });
+  }
+  if (usedDomains.has('en.wikipedia.org')) {
+    groundingSources.push({
+      title: 'Wikipedia',
+      uri: `https://en.wikipedia.org/w/index.php?search=${encodeURIComponent(wikiQuery)}`,
+    });
+  }
+  if (usedDomains.has('es.wikipedia.org')) {
+    groundingSources.push({
+      title: 'Wikipedia (ES)',
+      uri: `https://es.wikipedia.org/w/index.php?search=${encodeURIComponent(wikiQuery)}`,
+    });
+  }
+  if (
+    Array.from(usedDomains).some(
+      (d) => d !== 'commons.wikimedia.org' && d !== 'en.wikipedia.org' && d !== 'es.wikipedia.org'
+    )
+  ) {
+    groundingSources.push({
+      title: 'Openverse',
+      uri: `https://openverse.org/search/image?q=${encodeURIComponent(openverseQuery)}`,
+    });
+  }
+
+  return {
+    kind,
+    items: uniqueImages.slice(0, 36),
+    groundingSources,
+    searchQueries: [cleanQuery],
+    hasMore: safePage < 5 && uniqueImages.length > 0,
+  };
+}
+
 export async function fetchExternalImageAsDataUrl(
   rawImageUrl: string,
   suggestedTitle?: string

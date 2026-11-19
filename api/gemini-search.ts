@@ -3,6 +3,7 @@ import {
   LibrarySearchKind,
   readJsonBody,
   searchLibraryMediaWithGemini,
+  searchLibraryMediaWithoutApiKey,
   sendJson,
   type ServerlessRequest,
   type ServerlessResponse,
@@ -82,14 +83,6 @@ export default async function handler(
       process.env.GEMINI_API_KEY ||
       '';
 
-    if (!resolvedApiKey) {
-      sendJson(res, 400, {
-        error: 'Gemini API key is not configured on the server or in your user settings.',
-        code: 'MISSING_API_KEY',
-      });
-      return;
-    }
-
     const kind: LibrarySearchKind = VALID_KINDS.has(body.kind as LibrarySearchKind)
       ? (body.kind as LibrarySearchKind)
       : 'images';
@@ -100,15 +93,37 @@ export default async function handler(
       return;
     }
 
-    const result = await searchLibraryMediaWithGemini({
+    const language: 'en' | 'es' = body.language === 'es' ? 'es' : 'en';
+    const page = typeof body.page === 'number' ? body.page : 1;
+    const excludeUrls = Array.isArray(body.excludeUrls) ? body.excludeUrls.slice(0, 120) : [];
+
+    if (resolvedApiKey) {
+      try {
+        const geminiResult = await searchLibraryMediaWithGemini({
+          kind,
+          query,
+          apiKey: resolvedApiKey,
+          language,
+          page,
+          excludeUrls,
+        });
+        if (geminiResult.items.length > 0) {
+          sendJson(res, 200, geminiResult);
+          return;
+        }
+      } catch (geminiErr) {
+        console.warn('[api/gemini-search] Gemini search failed, falling back to keyless search:', geminiErr);
+      }
+    }
+
+    const fallbackResult = await searchLibraryMediaWithoutApiKey({
       kind,
       query,
-      apiKey: resolvedApiKey,
-      language: body.language === 'es' ? 'es' : 'en',
-      page: typeof body.page === 'number' ? body.page : 1,
-      excludeUrls: Array.isArray(body.excludeUrls) ? body.excludeUrls.slice(0, 120) : [],
+      language,
+      page,
+      excludeUrls,
     });
-    sendJson(res, 200, result);
+    sendJson(res, 200, fallbackResult);
   } catch (err) {
     const { status, message } = getErrorStatusAndMessage(err);
     sendJson(res, status, { error: message });
