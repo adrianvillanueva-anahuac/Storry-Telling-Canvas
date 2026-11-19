@@ -148,6 +148,12 @@ export interface Connection {
     first: string;
     second: string;
   };
+  angleOffset?: number;
+  cornerRadius?: number;
+  curveOffset?: {
+    x: number;
+    y: number;
+  };
 }
 
 export interface TextElement {

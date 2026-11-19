@@ -111,10 +111,19 @@
         "target": { "type": "string" },
         "targetPort": { "type": "string", "enum": ["top", "bottom", "left", "right"] },
         "type": { "type": "string", "enum": ["curve", "angle", "straight"] },
-        "style": { "type": "string", "enum": ["solid", "dotted"] },
+        "style": { "type": "string", "enum": ["solid", "dotted", "dashed", "parallel"] },
         "color": { "type": "string" },
         "label": { "type": "string", "maxLength": 100 },
-        "arrows": { "type": "string", "enum": ["none", "end", "both"] }
+        "arrows": { "type": "string", "enum": ["none", "start", "end", "both"] },
+        "angleOffset": { "type": "number" },
+        "cornerRadius": { "type": "number" },
+        "curveOffset": {
+          "type": "object",
+          "properties": {
+            "x": { "type": "number" },
+            "y": { "type": "number" }
+          }
+        }
       },
       "required": ["id", "projectId", "source", "sourcePort", "target", "targetPort"]
     },

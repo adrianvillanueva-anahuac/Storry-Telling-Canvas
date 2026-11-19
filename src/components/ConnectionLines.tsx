@@ -1,10 +1,22 @@
-import React, { useMemo } from 'react';
-import { Connection, WorkflowNode } from '../types/workflow';
-import { calculateConnectionPath, getNodePortCoords } from '../utils/connectionPath';
+import React, { useMemo, useRef, useState } from 'react';
+import { Connection, TextElement, WorkflowNode } from '../types/workflow';
+import {
+  calculateConnectionPath,
+  ConnectionPathHandle,
+  ConnectionPathOptions,
+  getNodePortCoords,
+} from '../utils/connectionPath';
+import {
+  computeLineAngleSnap,
+  computeLinePointSnap,
+  SnapGuideLine,
+} from '../utils/snapGuides';
+import { useLanguage } from '../hooks/useLanguage';
 
 interface ConnectionLinesProps {
   connections: Connection[];
   nodes: Record<string, WorkflowNode>;
+  texts?: Record<string, TextElement>;
   tempConnection: {
     sourceId: string;
     sourcePort: 'top' | 'bottom' | 'left' | 'right';
@@ -23,27 +35,212 @@ interface ConnectionLinesProps {
   } | null;
   onClickConnection?: (connectionId: string, clientX: number, clientY: number) => void;
   onHoverConnection?: (connectionId: string, clientX: number, clientY: number) => void;
+  selectedConnectionId?: string | null;
   isPanMode?: boolean;
+  isReadOnly?: boolean;
   isSearchActive?: boolean;
   matchedNodeIds?: Set<string>;
+  onCommitConnectionShape?: (
+    connectionId: string,
+    updates: Partial<Pick<Connection, 'angleOffset' | 'curveOffset'>>
+  ) => void;
+  onSnapGuidesChange?: (guides: SnapGuideLine[]) => void;
+}
+
+interface LiveDragOverride {
+  connectionId: string;
+  angleOffset?: number;
+  curveOffset?: { x: number; y: number };
 }
 
 export const ConnectionLines: React.FC<ConnectionLinesProps> = ({
   connections,
   nodes,
+  texts = {},
   tempConnection,
   onClickConnection,
   onHoverConnection,
+  selectedConnectionId = null,
   isPanMode = false,
+  isReadOnly = false,
   isSearchActive = false,
   matchedNodeIds,
+  onCommitConnectionShape,
+  onSnapGuidesChange,
 }) => {
+  const { t } = useLanguage();
+  const [hoveredConnectionId, setHoveredConnectionId] = useState<string | null>(null);
+  const [liveDrag, setLiveDrag] = useState<LiveDragOverride | null>(null);
+  const liveDragRef = useRef<LiveDragOverride | null>(null);
+
   const uniqueColors = useMemo(() => {
     const set = new Set<string>();
     connections.forEach((c) => set.add(c.color || '#0052cc'));
     set.add('#0052cc');
     return Array.from(set);
   }, [connections]);
+
+  const startHandleDrag = (
+    e: React.PointerEvent<SVGGElement>,
+    conn: Connection,
+    handle: ConnectionPathHandle
+  ) => {
+    if (e.button !== 0 || isReadOnly || isPanMode) return;
+    e.stopPropagation();
+    e.preventDefault();
+
+    const connType = conn.type || 'angle';
+    const canvasEl = e.currentTarget.closest('.canvas-grid') as HTMLElement | null;
+    const rawZoom = canvasEl
+      ? parseFloat(getComputedStyle(canvasEl).getPropertyValue('--canvas-zoom'))
+      : 1;
+    const zoom = Number.isFinite(rawZoom) && rawZoom > 0 ? rawZoom : 1;
+
+    const startClientX = e.clientX;
+    const startClientY = e.clientY;
+    const initialAngleOffset = conn.angleOffset ?? 0;
+    const initialCurveOffset = conn.curveOffset ?? { x: 0, y: 0 };
+
+    // Snapshot other connections' bend handles for inter-line angle snapping
+    const otherBendHandles: Array<{ x: number; y: number }> = [];
+    connections.forEach((other) => {
+      if (other.id === conn.id) return;
+      const oStart = getNodePortCoords(nodes, other.source, other.sourcePort);
+      const oEnd = getNodePortCoords(nodes, other.target, other.targetPort);
+      if (!oStart || !oEnd) return;
+      const oPath = calculateConnectionPath(
+        oStart.x,
+        oStart.y,
+        oEnd.x,
+        oEnd.y,
+        other.sourcePort,
+        other.targetPort,
+        other.type || 'angle',
+        0,
+        {
+          angleOffset: other.angleOffset,
+          cornerRadius: other.cornerRadius,
+          curveOffset: other.curveOffset,
+        }
+      );
+      otherBendHandles.push({ x: oPath.handle.x, y: oPath.handle.y });
+    });
+
+    const handleMove = (moveEvent: PointerEvent) => {
+      const dx = (moveEvent.clientX - startClientX) / zoom;
+      const dy = (moveEvent.clientY - startClientY) / zoom;
+
+      if (connType === 'angle') {
+        const rawOffset =
+          handle.axis === 'x' ? initialAngleOffset + dx : initialAngleOffset + dy;
+        const baseCoord = handle.axis === 'x' ? handle.baseX : handle.baseY;
+        const rawCoord = baseCoord + rawOffset;
+
+        let nextOffset = rawOffset;
+        if (!moveEvent.altKey) {
+          const snap = computeLineAngleSnap({
+            rawCoord,
+            axis: handle.axis === 'x' ? 'x' : 'y',
+            baseCoord,
+            spanStart: handle.spanStart,
+            spanEnd: handle.spanEnd,
+            extraTargets: handle.extraTargets,
+            nodes,
+            texts,
+            otherBendHandles,
+          });
+          nextOffset = snap.coord - baseCoord;
+          onSnapGuidesChange?.(snap.guides);
+        } else {
+          onSnapGuidesChange?.([]);
+        }
+
+        const roundedOffset = Math.abs(nextOffset) < 0.25 ? 0 : Math.round(nextOffset * 10) / 10;
+        const nextOverride: LiveDragOverride = {
+          connectionId: conn.id,
+          angleOffset: roundedOffset,
+        };
+        liveDragRef.current = nextOverride;
+        setLiveDrag(nextOverride);
+      } else {
+        const rawX = handle.baseX + initialCurveOffset.x + dx;
+        const rawY = handle.baseY + initialCurveOffset.y + dy;
+
+        let nextCurveX = rawX - handle.baseX;
+        let nextCurveY = rawY - handle.baseY;
+
+        if (!moveEvent.altKey) {
+          const snap = computeLinePointSnap({
+            rawX,
+            rawY,
+            baseX: handle.baseX,
+            baseY: handle.baseY,
+            extraXTargets: handle.extraTargets.slice(0, 2),
+            extraYTargets: handle.extraTargets.slice(2, 4),
+            nodes,
+            texts,
+            otherBendHandles,
+          });
+          nextCurveX = snap.x - handle.baseX;
+          nextCurveY = snap.y - handle.baseY;
+          onSnapGuidesChange?.(snap.guides);
+        } else {
+          onSnapGuidesChange?.([]);
+        }
+
+        const nextOverride: LiveDragOverride = {
+          connectionId: conn.id,
+          curveOffset: {
+            x: Math.abs(nextCurveX) < 0.25 ? 0 : Math.round(nextCurveX * 10) / 10,
+            y: Math.abs(nextCurveY) < 0.25 ? 0 : Math.round(nextCurveY * 10) / 10,
+          },
+        };
+        liveDragRef.current = nextOverride;
+        setLiveDrag(nextOverride);
+      }
+    };
+
+    const cleanup = () => {
+      window.removeEventListener('pointermove', handleMove);
+      window.removeEventListener('pointerup', handleUp);
+      window.removeEventListener('pointercancel', handleUp);
+      onSnapGuidesChange?.([]);
+    };
+
+    const handleUp = () => {
+      cleanup();
+      const latest = liveDragRef.current;
+      liveDragRef.current = null;
+      setLiveDrag(null);
+
+      if (!latest || latest.connectionId !== conn.id) return;
+
+      if (connType === 'angle') {
+        const finalOffset = latest.angleOffset ?? 0;
+        if (Math.abs(finalOffset - initialAngleOffset) > 0.1) {
+          onCommitConnectionShape?.(conn.id, {
+            angleOffset: Math.abs(finalOffset) < 0.5 ? undefined : finalOffset,
+          });
+        }
+      } else if (latest.curveOffset) {
+        const fx = latest.curveOffset.x;
+        const fy = latest.curveOffset.y;
+        const changed =
+          Math.abs(fx - initialCurveOffset.x) > 0.1 ||
+          Math.abs(fy - initialCurveOffset.y) > 0.1;
+        if (changed) {
+          const isZero = Math.abs(fx) < 0.5 && Math.abs(fy) < 0.5;
+          onCommitConnectionShape?.(conn.id, {
+            curveOffset: isZero ? undefined : { x: fx, y: fy },
+          });
+        }
+      }
+    };
+
+    window.addEventListener('pointermove', handleMove);
+    window.addEventListener('pointerup', handleUp);
+    window.addEventListener('pointercancel', handleUp);
+  };
 
   return (
     <svg className="absolute inset-0 w-full h-full pointer-events-none z-[5] overflow-visible">
@@ -106,23 +303,38 @@ export const ConnectionLines: React.FC<ConnectionLinesProps> = ({
         const end = getNodePortCoords(nodes, conn.target, conn.targetPort);
         if (!start || !end) return null;
 
-        const connType = conn.type || 'angle';
-        const { d: pathD, labelX, labelY } = calculateConnectionPath(
+        const isDraggingThis = liveDrag?.connectionId === conn.id;
+        const effectiveConn = isDraggingThis ? { ...conn, ...liveDrag } : conn;
+
+        const connType = effectiveConn.type || 'angle';
+        const pathOptions: ConnectionPathOptions = {
+          angleOffset: effectiveConn.angleOffset,
+          cornerRadius: effectiveConn.cornerRadius,
+          curveOffset: effectiveConn.curveOffset,
+        };
+        const { d: pathD, labelX, labelY, handle } = calculateConnectionPath(
           start.x,
           start.y,
           end.x,
           end.y,
-          conn.sourcePort,
-          conn.targetPort,
-          connType
+          effectiveConn.sourcePort,
+          effectiveConn.targetPort,
+          connType,
+          0,
+          pathOptions
         );
-        const hex = (conn.color || '#0052cc').replace('#', '');
-        const isParallel = conn.style === 'parallel';
+        const lineColor = effectiveConn.color || '#0052cc';
+        const hex = lineColor.replace('#', '');
+        const isParallel = effectiveConn.style === 'parallel';
 
         const markerEnd =
-          conn.arrows === 'end' || conn.arrows === 'both' ? `url(#arrow-end-${hex})` : undefined;
+          effectiveConn.arrows === 'end' || effectiveConn.arrows === 'both'
+            ? `url(#arrow-end-${hex})`
+            : undefined;
         const markerStart =
-          conn.arrows === 'start' || conn.arrows === 'both' ? `url(#arrow-start-${hex})` : undefined;
+          effectiveConn.arrows === 'start' || effectiveConn.arrows === 'both'
+            ? `url(#arrow-start-${hex})`
+            : undefined;
 
         const parallelLine1 = isParallel
           ? calculateConnectionPath(
@@ -130,10 +342,11 @@ export const ConnectionLines: React.FC<ConnectionLinesProps> = ({
               start.y,
               end.x,
               end.y,
-              conn.sourcePort,
-              conn.targetPort,
+              effectiveConn.sourcePort,
+              effectiveConn.targetPort,
               connType,
-              -15
+              -15,
+              pathOptions
             )
           : null;
         const parallelLine2 = isParallel
@@ -142,14 +355,15 @@ export const ConnectionLines: React.FC<ConnectionLinesProps> = ({
               start.y,
               end.x,
               end.y,
-              conn.sourcePort,
-              conn.targetPort,
+              effectiveConn.sourcePort,
+              effectiveConn.targetPort,
               connType,
-              15
+              15,
+              pathOptions
             )
           : null;
-        const pa = conn.parallelArrows || { first: 'forward', second: 'backward' };
-        const ps = conn.parallelStyles || { first: 'solid', second: 'solid' };
+        const pa = effectiveConn.parallelArrows || { first: 'forward', second: 'backward' };
+        const ps = effectiveConn.parallelStyles || { first: 'solid', second: 'solid' };
         const getStrokeStyle = (pattern?: string) => {
           if (pattern === 'dotted') {
             return { strokeDasharray: '1 6', strokeLinecap: 'round' as const };
@@ -159,13 +373,13 @@ export const ConnectionLines: React.FC<ConnectionLinesProps> = ({
           }
           return { strokeDasharray: undefined, strokeLinecap: 'butt' as const };
         };
-        const singleStroke = getStrokeStyle(conn.style);
+        const singleStroke = getStrokeStyle(effectiveConn.style);
         const line1Stroke = getStrokeStyle(ps.first);
         const line2Stroke = getStrokeStyle(ps.second);
 
-        const isSeparateLabels = isParallel && conn.parallelLabelMode === 'separate';
-        const label1Text = conn.parallelLabels?.first ?? '';
-        const label2Text = conn.parallelLabels?.second ?? '';
+        const isSeparateLabels = isParallel && effectiveConn.parallelLabelMode === 'separate';
+        const label1Text = effectiveConn.parallelLabels?.first ?? '';
+        const label2Text = effectiveConn.parallelLabels?.second ?? '';
 
         const getOutwardLabelPos = (
           lineLabel: { labelX: number; labelY: number },
@@ -186,8 +400,8 @@ export const ConnectionLines: React.FC<ConnectionLinesProps> = ({
           };
         };
 
-        const sourceMatches = Boolean(isSearchActive && matchedNodeIds?.has(conn.source));
-        const targetMatches = Boolean(isSearchActive && matchedNodeIds?.has(conn.target));
+        const sourceMatches = Boolean(isSearchActive && matchedNodeIds?.has(effectiveConn.source));
+        const targetMatches = Boolean(isSearchActive && matchedNodeIds?.has(effectiveConn.target));
         const searchOpacity = !isSearchActive
           ? 1
           : sourceMatches && targetMatches
@@ -196,17 +410,39 @@ export const ConnectionLines: React.FC<ConnectionLinesProps> = ({
           ? 0.35
           : 0.12;
 
+        const isHovered = hoveredConnectionId === conn.id;
+        const isSelected = selectedConnectionId === conn.id;
+        const showBendHandle =
+          !isReadOnly && !isPanMode && (isHovered || isSelected || isDraggingThis);
+        const isCustomBent =
+          connType === 'angle'
+            ? Math.abs(effectiveConn.angleOffset ?? 0) > 0.5
+            : Math.hypot(
+                effectiveConn.curveOffset?.x ?? 0,
+                effectiveConn.curveOffset?.y ?? 0
+              ) > 0.5;
+        const handleCursor =
+          connType === 'angle'
+            ? handle.axis === 'x'
+              ? 'ew-resize'
+              : 'ns-resize'
+            : 'move';
+
         return (
           <g
             key={conn.id}
             style={{ opacity: searchOpacity, transition: 'opacity 200ms ease' }}
             className="cursor-pointer"
+            onMouseEnter={() => setHoveredConnectionId(conn.id)}
+            onMouseLeave={() =>
+              setHoveredConnectionId((prev) => (prev === conn.id ? null : prev))
+            }
           >
             {isParallel && parallelLine1 && parallelLine2 ? (
               <>
                 <path
                   d={parallelLine1.d}
-                  stroke={conn.color || '#0052cc'}
+                  stroke={lineColor}
                   strokeWidth="2"
                   strokeDasharray={line1Stroke.strokeDasharray}
                   strokeLinecap={line1Stroke.strokeLinecap}
@@ -224,7 +460,7 @@ export const ConnectionLines: React.FC<ConnectionLinesProps> = ({
                 />
                 <path
                   d={parallelLine2.d}
-                  stroke={conn.color || '#0052cc'}
+                  stroke={lineColor}
                   strokeWidth="2"
                   strokeDasharray={line2Stroke.strokeDasharray}
                   strokeLinecap={line2Stroke.strokeLinecap}
@@ -244,7 +480,7 @@ export const ConnectionLines: React.FC<ConnectionLinesProps> = ({
             ) : (
               <path
                 d={pathD}
-                stroke={conn.color || '#0052cc'}
+                stroke={lineColor}
                 strokeWidth="2.5"
                 strokeDasharray={singleStroke.strokeDasharray}
                 strokeLinecap={singleStroke.strokeLinecap}
@@ -368,7 +604,7 @@ export const ConnectionLines: React.FC<ConnectionLinesProps> = ({
                 })()}
               </>
             ) : (
-              conn.label && (
+              effectiveConn.label && (
                 <g
                   style={{
                     transform: `translate(${labelX}px, ${labelY}px) scale(calc(1 / var(--canvas-zoom, 1)))`,
@@ -383,10 +619,66 @@ export const ConnectionLines: React.FC<ConnectionLinesProps> = ({
                     dominantBaseline={isParallel ? 'central' : undefined}
                     className="text-[11px] font-bold fill-neutral-900 dark:fill-neutral-200 pointer-events-none select-none [text-shadow:0_1px_2px_rgba(255,255,255,0.9),0_0_4px_#fff] dark:[text-shadow:0_1px_3px_rgba(0,0,0,0.8),0_0_4px_#000]"
                   >
-                    {conn.label}
+                    {effectiveConn.label}
                   </text>
                 </g>
               )
+            )}
+
+            {showBendHandle && (
+              <g
+                style={{
+                  transform: `translate(${handle.x}px, ${handle.y}px) scale(calc(1 / var(--canvas-zoom, 1)))`,
+                  transformOrigin: '0 0',
+                  cursor: handleCursor,
+                }}
+                className="pointer-events-auto"
+                onPointerDown={(e) => startHandleDrag(e, effectiveConn, handle)}
+                onClick={(e) => e.stopPropagation()}
+                onDoubleClick={(e) => {
+                  e.stopPropagation();
+                  e.preventDefault();
+                  if (connType === 'angle') {
+                    onCommitConnectionShape?.(conn.id, { angleOffset: undefined });
+                  } else {
+                    onCommitConnectionShape?.(conn.id, { curveOffset: undefined });
+                  }
+                }}
+              >
+                <title>{t('linePopover.bendHandleHint')}</title>
+                <circle r={13} fill="transparent" />
+                {isDraggingThis && (
+                  <circle
+                    r={11}
+                    fill={lineColor}
+                    fillOpacity={0.18}
+                    stroke={lineColor}
+                    strokeWidth={1.2}
+                    strokeOpacity={0.55}
+                  />
+                )}
+                {connType === 'angle' ? (
+                  <rect
+                    x={handle.axis === 'x' ? -4 : -9}
+                    y={handle.axis === 'x' ? -9 : -4}
+                    width={handle.axis === 'x' ? 8 : 18}
+                    height={handle.axis === 'x' ? 18 : 8}
+                    rx={4}
+                    fill={isCustomBent ? lineColor : '#ffffff'}
+                    stroke={lineColor}
+                    strokeWidth={2}
+                    className="drop-shadow-sm"
+                  />
+                ) : (
+                  <circle
+                    r={5.5}
+                    fill={isCustomBent ? lineColor : '#ffffff'}
+                    stroke={lineColor}
+                    strokeWidth={2}
+                    className="drop-shadow-sm"
+                  />
+                )}
+              </g>
             )}
           </g>
         );

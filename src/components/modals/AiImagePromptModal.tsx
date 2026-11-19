@@ -8,6 +8,7 @@ interface AiImagePromptModalProps {
   targetKind: 'image' | 'map';
   sourceImageUrl?: string | null;
   defaultTitle?: string;
+  defaultAspectRatio?: string;
   userApiKey: string | null;
   applyButtonLabel?: string;
   onApplyFile: (file: File) => Promise<void>;
@@ -21,6 +22,7 @@ export const AiImagePromptModal: React.FC<AiImagePromptModalProps> = ({
   targetKind,
   sourceImageUrl,
   defaultTitle,
+  defaultAspectRatio = '16:9',
   userApiKey,
   applyButtonLabel,
   onApplyFile,
@@ -28,7 +30,7 @@ export const AiImagePromptModal: React.FC<AiImagePromptModalProps> = ({
 }) => {
   const { t } = useLanguage();
   const [prompt, setPrompt] = useState('');
-  const [aspectRatio, setAspectRatio] = useState('16:9');
+  const [aspectRatio, setAspectRatio] = useState(defaultAspectRatio);
   const [imageSize, setImageSize] = useState('1K');
   const [isGenerating, setIsGenerating] = useState(false);
   const [isApplying, setIsApplying] = useState(false);

@@ -181,3 +181,231 @@ export function computeNodeSnap(
 
   return { x: finalX, y: finalY, guides };
 }
+
+export interface LineAngleSnapParams {
+  rawCoord: number;
+  axis: 'x' | 'y';
+  baseCoord: number;
+  spanStart: number;
+  spanEnd: number;
+  extraTargets?: number[];
+  nodes: Record<string, WorkflowNode>;
+  texts: Record<string, TextElement>;
+  otherBendHandles?: Array<{ x: number; y: number }>;
+  threshold?: number;
+}
+
+export interface LineAngleSnapResult {
+  coord: number;
+  guides: SnapGuideLine[];
+}
+
+function collectAxisTargetsForLines(
+  axis: 'x' | 'y',
+  baseCoord: number,
+  spanStart: number,
+  spanEnd: number,
+  extraTargets: number[] | undefined,
+  nodes: Record<string, WorkflowNode>,
+  texts: Record<string, TextElement>,
+  otherBendHandles: Array<{ x: number; y: number }> | undefined
+): AxisTarget[] {
+  const targets: AxisTarget[] = [];
+
+  // Symmetrical default center / route alignment
+  targets.push({ coord: baseCoord, spanStart, spanEnd, priority: 0 });
+
+  // Connected ports & stubs alignment
+  if (extraTargets) {
+    extraTargets.forEach((coord) => {
+      targets.push({ coord, spanStart, spanEnd, priority: 0 });
+    });
+  }
+
+  // Peer nodes edges and centers
+  Object.values(nodes).forEach((n) => {
+    const nx = parseFloat(n.x) || 0;
+    const ny = parseFloat(n.y) || 0;
+    if (axis === 'x') {
+      targets.push(
+        { coord: nx, spanStart: ny, spanEnd: ny + NODE_HEIGHT, priority: 0 },
+        { coord: nx + NODE_WIDTH / 2, spanStart: ny, spanEnd: ny + NODE_HEIGHT, priority: 1 },
+        { coord: nx + NODE_WIDTH, spanStart: ny, spanEnd: ny + NODE_HEIGHT, priority: 0 }
+      );
+    } else {
+      targets.push(
+        { coord: ny, spanStart: nx, spanEnd: nx + NODE_WIDTH, priority: 0 },
+        { coord: ny + NODE_HEIGHT / 2, spanStart: nx, spanEnd: nx + NODE_WIDTH, priority: 1 },
+        { coord: ny + NODE_HEIGHT, spanStart: nx, spanEnd: nx + NODE_WIDTH, priority: 0 }
+      );
+    }
+  });
+
+  // Containers edges
+  Object.values(texts).forEach((t) => {
+    if (t.mode !== 'container') return;
+    const tx = parseFloat(t.x) || 0;
+    const ty = parseFloat(t.y) || 0;
+    const tw = t.width || 340;
+    const th = t.height || 240;
+    if (axis === 'x') {
+      targets.push(
+        { coord: tx, spanStart: ty, spanEnd: ty + th, priority: 0 },
+        { coord: tx + tw, spanStart: ty, spanEnd: ty + th, priority: 0 }
+      );
+    } else {
+      targets.push(
+        { coord: ty, spanStart: tx, spanEnd: tx + tw, priority: 0 },
+        { coord: ty + th, spanStart: tx, spanEnd: tx + tw, priority: 0 }
+      );
+    }
+  });
+
+  // Other connection bend handles
+  if (otherBendHandles) {
+    otherBendHandles.forEach((h) => {
+      if (axis === 'x') {
+        targets.push({ coord: h.x, spanStart: h.y - 12, spanEnd: h.y + 12, priority: 0 });
+      } else {
+        targets.push({ coord: h.y, spanStart: h.x - 12, spanEnd: h.x + 12, priority: 0 });
+      }
+    });
+  }
+
+  return targets;
+}
+
+function findBestAxisSnap(
+  rawVal: number,
+  targets: AxisTarget[],
+  threshold: number
+): number | null {
+  let bestDist = threshold + 0.001;
+  let bestPriority = 2;
+  let snappedCoord: number | null = null;
+
+  for (const target of targets) {
+    const dist = Math.abs(target.coord - rawVal);
+    if (
+      dist < bestDist - 0.01 ||
+      (Math.abs(dist - bestDist) <= 0.01 && target.priority < bestPriority)
+    ) {
+      bestDist = dist;
+      bestPriority = target.priority;
+      snappedCoord = target.coord;
+    }
+  }
+
+  return snappedCoord;
+}
+
+export function computeLineAngleSnap({
+  rawCoord,
+  axis,
+  baseCoord,
+  spanStart,
+  spanEnd,
+  extraTargets,
+  nodes,
+  texts,
+  otherBendHandles,
+  threshold = SNAP_THRESHOLD_PX,
+}: LineAngleSnapParams): LineAngleSnapResult {
+  const targets = collectAxisTargetsForLines(
+    axis,
+    baseCoord,
+    spanStart,
+    spanEnd,
+    extraTargets,
+    nodes,
+    texts,
+    otherBendHandles
+  );
+  const snappedCoord = findBestAxisSnap(rawCoord, targets, threshold);
+
+  if (snappedCoord === null) {
+    return { coord: rawCoord, guides: [] };
+  }
+
+  const GUIDE_PADDING = 14;
+  const matchingTargets = targets.filter((t) => Math.abs(t.coord - snappedCoord) < 0.5);
+  const minSpan = Math.min(spanStart, ...matchingTargets.map((t) => t.spanStart));
+  const maxSpan = Math.max(spanEnd, ...matchingTargets.map((t) => t.spanEnd));
+  const markerSet = new Set<number>([
+    spanStart,
+    spanEnd,
+    ...matchingTargets.flatMap((t) => [t.spanStart, t.spanEnd]),
+  ]);
+
+  return {
+    coord: snappedCoord,
+    guides: [
+      {
+        axis,
+        coord: snappedCoord,
+        spanStart: minSpan - GUIDE_PADDING,
+        spanEnd: maxSpan + GUIDE_PADDING,
+        markers: Array.from(markerSet),
+      },
+    ],
+  };
+}
+
+export interface LinePointSnapParams {
+  rawX: number;
+  rawY: number;
+  baseX: number;
+  baseY: number;
+  extraXTargets?: number[];
+  extraYTargets?: number[];
+  nodes: Record<string, WorkflowNode>;
+  texts: Record<string, TextElement>;
+  otherBendHandles?: Array<{ x: number; y: number }>;
+  threshold?: number;
+}
+
+export function computeLinePointSnap({
+  rawX,
+  rawY,
+  baseX,
+  baseY,
+  extraXTargets,
+  extraYTargets,
+  nodes,
+  texts,
+  otherBendHandles,
+  threshold = SNAP_THRESHOLD_PX,
+}: LinePointSnapParams): SnapResult {
+  const xRes = computeLineAngleSnap({
+    rawCoord: rawX,
+    axis: 'x',
+    baseCoord: baseX,
+    spanStart: rawY - 16,
+    spanEnd: rawY + 16,
+    extraTargets: extraXTargets,
+    nodes,
+    texts,
+    otherBendHandles,
+    threshold,
+  });
+
+  const yRes = computeLineAngleSnap({
+    rawCoord: rawY,
+    axis: 'y',
+    baseCoord: baseY,
+    spanStart: rawX - 16,
+    spanEnd: rawX + 16,
+    extraTargets: extraYTargets,
+    nodes,
+    texts,
+    otherBendHandles,
+    threshold,
+  });
+
+  return {
+    x: xRes.coord,
+    y: yRes.coord,
+    guides: [...xRes.guides, ...yRes.guides],
+  };
+}
+

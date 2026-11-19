@@ -34,7 +34,6 @@ interface ThemeSprites {
 const WORLD_GRID_STEP = 24;
 const BASE_CURSOR_RADIUS_PX = 240; // Proportional cursor field radius
 const BASE_EXTRA_RADIUS = 0.95; // Subtle dot growth at working zoom
-const MIN_SCREEN_GRID_STEP = 12; // Keeps stride constant (2x) across the entire 48% -> 28% starfield transition
 const DECAY_EPSILON = 0.0025;
 const OFFSET_EPSILON = 0.035;
 const MAX_AURORA_NODES = 24;
@@ -43,6 +42,25 @@ const MAX_AURORA_NODES = 24;
 const STARFIELD_START_ZOOM = 0.48;
 const STARFIELD_FULL_ZOOM = 0.28;
 const STARFIELD_SURVIVAL_THRESHOLD = 0.72; // ~28% of dots survive as stars
+
+function smoothstep01(t: number): number {
+  const c = Math.max(0, Math.min(1, t));
+  return c * c * (3 - 2 * c);
+}
+
+function getParityVisibility(ix: number, iy: number, zoom: number): number {
+  if ((ix & 1) !== 0 || (iy & 1) !== 0) {
+    if (zoom >= 0.58) return 1;
+    if (zoom <= 0.40) return 0;
+    return smoothstep01((zoom - 0.40) / (0.58 - 0.40));
+  }
+  if ((ix & 2) !== 0 || (iy & 2) !== 0) {
+    if (zoom >= 0.31) return 1;
+    if (zoom <= 0.22) return 0;
+    return smoothstep01((zoom - 0.22) / (0.31 - 0.22));
+  }
+  return 1;
+}
 
 function dotRandomHash(ix: number, iy: number): number {
   let n = (Math.imul(ix, 374761393) + Math.imul(iy, 668265263)) | 0;
@@ -253,11 +271,8 @@ export const ReactiveDotGrid: React.FC<ReactiveDotGridProps> = ({
       const configuredRadius = Math.max(40, style.reactiveRadius || BASE_CURSOR_RADIUS_PX);
       const reducedMotion = reducedMotionRef.current;
 
-      // Adaptive power-of-2 stride so zoom-out stays 60fps fast
-      const stride =
-        rawScreenStep < MIN_SCREEN_GRID_STEP
-          ? Math.min(8, Math.pow(2, Math.ceil(Math.log2(MIN_SCREEN_GRID_STEP / rawScreenStep))))
-          : 1;
+      // Smooth parity fade completes BEFORE stride switches (58%->40% for stride 1->2, 31%->22% for stride 2->4)
+      const stride = zoom >= 0.39 ? 1 : zoom >= 0.21 ? 2 : 4;
       const effectiveStep = rawScreenStep * stride;
 
       // Starry sky blend across 48% -> 28% zoom-out
@@ -268,6 +283,8 @@ export const ReactiveDotGrid: React.FC<ReactiveDotGridProps> = ({
           ? 1
           : (STARFIELD_START_ZOOM - zoom) / (STARFIELD_START_ZOOM - STARFIELD_FULL_ZOOM);
       const starBlend = rawStarBlend * rawStarBlend * (3 - 2 * rawStarBlend);
+      // Continuous star jitter scale independent of discrete stride jumps
+      const continuousJitterSpan = rawScreenStep * 2 * 0.68 * starBlend;
 
       // Proportional scaling when zooming out or in
       const zoomScale =
@@ -456,22 +473,18 @@ export const ReactiveDotGrid: React.FC<ReactiveDotGridProps> = ({
             if (Math.abs(baseSx - px) > cursorRadiusPx + effectiveStep) continue;
 
             for (let iy = pMinIy; iy <= pMaxIy; iy += stride) {
+              const parityVis = getParityVisibility(ix, iy, zoom);
+              if (parityVis <= 0.01) continue;
               const survivalHash = dotRandomHash(ix, iy);
-              if (getStarVisibility(survivalHash, starBlend) <= 0.01) continue;
+              if (getStarVisibility(survivalHash, starBlend) * parityVis <= 0.01) continue;
 
               const jitterX =
                 starBlend > 0.001
-                  ? (dotRandomHash(ix * 7 + 13, iy * 11 - 5) - 0.5) *
-                    effectiveStep *
-                    0.68 *
-                    starBlend
+                  ? (dotRandomHash(ix * 7 + 13, iy * 11 - 5) - 0.5) * continuousJitterSpan
                   : 0;
               const jitterY =
                 starBlend > 0.001
-                  ? (dotRandomHash(ix * 13 - 3, iy * 5 + 19) - 0.5) *
-                    effectiveStep *
-                    0.68 *
-                    starBlend
+                  ? (dotRandomHash(ix * 13 - 3, iy * 5 + 19) - 0.5) * continuousJitterSpan
                   : 0;
 
               const sx = baseSx + jitterX;
@@ -546,12 +559,10 @@ export const ReactiveDotGrid: React.FC<ReactiveDotGridProps> = ({
 
       // Smoothly relax untouched wake states and prune completed entries
       wakeStates.forEach((state, key) => {
-        if (stride > 1) {
-          const [ix, iy] = unpackGridKey(key);
-          if (((ix % stride) + stride) % stride !== 0 || ((iy % stride) + stride) % stride !== 0) {
-            wakeStates.delete(key);
-            return;
-          }
+        const [ix, iy] = unpackGridKey(key);
+        if (getParityVisibility(ix, iy, zoom) <= 0.01) {
+          wakeStates.delete(key);
+          return;
         }
         if (!touchedKeys.has(key)) {
           state.energy *= trailDecayFactor;
@@ -578,20 +589,39 @@ export const ReactiveDotGrid: React.FC<ReactiveDotGridProps> = ({
       }
 
       // PASS 2: Base Grid (>= 48% zoom) OR Starry Sky Transition (48% -> 28%)
+      const baseDotAlpha = dark ? 1 : 0.52;
       if (starBlend <= 0.005) {
-        ctx.fillStyle = `rgba(${farRgb[0]}, ${farRgb[1]}, ${farRgb[2]}, ${dark ? 1 : 0.52})`;
+        const oddFade = zoom >= 0.58 ? 1 : zoom <= 0.40 ? 0 : smoothstep01((zoom - 0.40) / (0.58 - 0.40));
+        ctx.fillStyle = `rgba(${farRgb[0]}, ${farRgb[1]}, ${farRgb[2]}, ${baseDotAlpha})`;
         ctx.beginPath();
+        const fadingDots: Array<{ x: number; y: number }> = [];
         for (let ix = minIx; ix <= maxIx; ix += stride) {
           const sx = ix * rawScreenStep - scrollLeft;
+          const xOdd = (ix & 1) !== 0;
           for (let iy = minIy; iy <= maxIy; iy += stride) {
             const key = packGridKey(ix, iy);
             if (wakeStates.has(key)) continue;
             const sy = iy * rawScreenStep - scrollTop;
+            if (oddFade < 0.995 && (xOdd || (iy & 1) !== 0)) {
+              if (oddFade > 0.01) fadingDots.push({ x: sx, y: sy });
+              continue;
+            }
             ctx.moveTo(sx + baseRadius, sy);
             ctx.arc(sx, sy, baseRadius, 0, Math.PI * 2);
           }
         }
         ctx.fill();
+
+        if (fadingDots.length > 0 && oddFade > 0.01) {
+          ctx.fillStyle = `rgba(${farRgb[0]}, ${farRgb[1]}, ${farRgb[2]}, ${(baseDotAlpha * oddFade).toFixed(3)})`;
+          ctx.beginPath();
+          for (let i = 0; i < fadingDots.length; i++) {
+            const d = fadingDots[i];
+            ctx.moveTo(d.x + baseRadius, d.y);
+            ctx.arc(d.x, d.y, baseRadius, 0, Math.PI * 2);
+          }
+          ctx.fill();
+        }
       } else {
         const dimStars: Array<{ x: number; y: number; r: number }> = [];
         const midStars: Array<{ x: number; y: number; r: number }> = [];
@@ -602,21 +632,28 @@ export const ReactiveDotGrid: React.FC<ReactiveDotGridProps> = ({
           glow: number;
           starLum: number;
         }> = [];
+        const FADE_BUCKETS = 6;
+        const fadingBuckets: Array<Array<{ x: number; y: number; r: number }>> = Array.from(
+          { length: FADE_BUCKETS },
+          () => []
+        );
 
         for (let ix = minIx; ix <= maxIx; ix += stride) {
           const baseSx = ix * rawScreenStep - scrollLeft;
           for (let iy = minIy; iy <= maxIy; iy += stride) {
+            const parityVis = getParityVisibility(ix, iy, zoom);
+            if (parityVis <= 0.01) continue;
             const survivalHash = dotRandomHash(ix, iy);
-            const vis = getStarVisibility(survivalHash, starBlend);
+            const vis = getStarVisibility(survivalHash, starBlend) * parityVis;
             if (vis <= 0.01) continue;
 
             const key = packGridKey(ix, iy);
             if (wakeStates.has(key)) continue;
 
             const jitterX =
-              (dotRandomHash(ix * 7 + 13, iy * 11 - 5) - 0.5) * effectiveStep * 0.68 * starBlend;
+              (dotRandomHash(ix * 7 + 13, iy * 11 - 5) - 0.5) * continuousJitterSpan;
             const jitterY =
-              (dotRandomHash(ix * 13 - 3, iy * 5 + 19) - 0.5) * effectiveStep * 0.68 * starBlend;
+              (dotRandomHash(ix * 13 - 3, iy * 5 + 19) - 0.5) * continuousJitterSpan;
             const sx = baseSx + jitterX;
             const sy = iy * rawScreenStep - scrollTop + jitterY;
 
@@ -624,8 +661,12 @@ export const ReactiveDotGrid: React.FC<ReactiveDotGridProps> = ({
             const starSizeMul = 1 - starBlend + starBlend * (0.55 + starLum * 0.95);
             const r = baseRadius * starSizeMul;
 
-            if (vis < 0.99) {
-              dimStars.push({ x: sx, y: sy, r: r * (0.7 + 0.3 * vis) });
+            if (vis < 0.96) {
+              const bucket = Math.max(
+                0,
+                Math.min(FADE_BUCKETS - 1, Math.floor(vis * FADE_BUCKETS))
+              );
+              fadingBuckets[bucket].push({ x: sx, y: sy, r });
             } else if (starLum > 0.82) {
               brightStars.push({
                 x: sx,
@@ -642,10 +683,26 @@ export const ReactiveDotGrid: React.FC<ReactiveDotGridProps> = ({
           }
         }
 
+        const dimRgb = mixRgb(farRgb, nearRgb, (dark ? 0.17 : 0) * starBlend);
+        const dimAlpha = baseDotAlpha + ((dark ? 0.42 : 0.30) - baseDotAlpha) * starBlend;
+
+        for (let b = 0; b < FADE_BUCKETS; b++) {
+          const list = fadingBuckets[b];
+          if (list.length === 0) continue;
+          const bucketAlpha = ((b + 0.5) / FADE_BUCKETS) * dimAlpha;
+          if (bucketAlpha <= 0.01) continue;
+          ctx.fillStyle = `rgba(${dimRgb[0]}, ${dimRgb[1]}, ${dimRgb[2]}, ${bucketAlpha.toFixed(3)})`;
+          ctx.beginPath();
+          for (let i = 0; i < list.length; i++) {
+            const s = list[i];
+            ctx.moveTo(s.x + s.r, s.y);
+            ctx.arc(s.x, s.y, s.r, 0, Math.PI * 2);
+          }
+          ctx.fill();
+        }
+
         if (dimStars.length > 0) {
-          const dimRgb = mixRgb(farRgb, nearRgb, dark ? 0.17 : 0);
-          const dimAlpha = dark ? 0.58 - 0.16 * starBlend : 0.45 - 0.15 * starBlend;
-          ctx.fillStyle = `rgba(${dimRgb[0]}, ${dimRgb[1]}, ${dimRgb[2]}, ${dimAlpha.toFixed(2)})`;
+          ctx.fillStyle = `rgba(${dimRgb[0]}, ${dimRgb[1]}, ${dimRgb[2]}, ${dimAlpha.toFixed(3)})`;
           ctx.beginPath();
           for (let i = 0; i < dimStars.length; i++) {
             const s = dimStars[i];
@@ -656,9 +713,9 @@ export const ReactiveDotGrid: React.FC<ReactiveDotGridProps> = ({
         }
 
         if (midStars.length > 0) {
-          const midRgb = mixRgb(farRgb, nearRgb, 0.55);
-          const midAlpha = dark ? 0.46 + 0.18 * starBlend : 0.54 + 0.14 * starBlend;
-          ctx.fillStyle = `rgba(${midRgb[0]}, ${midRgb[1]}, ${midRgb[2]}, ${midAlpha.toFixed(2)})`;
+          const midRgb = mixRgb(farRgb, nearRgb, 0.55 * starBlend);
+          const midAlpha = baseDotAlpha + ((dark ? 0.64 : 0.68) - baseDotAlpha) * starBlend;
+          ctx.fillStyle = `rgba(${midRgb[0]}, ${midRgb[1]}, ${midRgb[2]}, ${midAlpha.toFixed(3)})`;
           ctx.beginPath();
           for (let i = 0; i < midStars.length; i++) {
             const s = midStars[i];
@@ -688,9 +745,9 @@ export const ReactiveDotGrid: React.FC<ReactiveDotGridProps> = ({
           }
           ctx.globalAlpha = 1;
 
-          const brightRgb = mixRgb(farRgb, nearRgb, 0.99);
-          const brightAlpha = dark ? 0.64 + 0.26 * starBlend : 0.68 + 0.22 * starBlend;
-          ctx.fillStyle = `rgba(${brightRgb[0]}, ${brightRgb[1]}, ${brightRgb[2]}, ${brightAlpha.toFixed(2)})`;
+          const brightRgb = mixRgb(farRgb, nearRgb, 0.99 * starBlend);
+          const brightAlpha = baseDotAlpha + ((dark ? 0.90 : 0.90) - baseDotAlpha) * starBlend;
+          ctx.fillStyle = `rgba(${brightRgb[0]}, ${brightRgb[1]}, ${brightRgb[2]}, ${brightAlpha.toFixed(3)})`;
           ctx.beginPath();
           for (let i = 0; i < brightStars.length; i++) {
             const s = brightStars[i];
@@ -722,17 +779,19 @@ export const ReactiveDotGrid: React.FC<ReactiveDotGridProps> = ({
             return;
           }
 
+          const parityVis = getParityVisibility(ix, iy, zoom);
+          if (parityVis <= 0.01) return;
           const survivalHash = dotRandomHash(ix, iy);
-          const vis = getStarVisibility(survivalHash, starBlend);
+          const vis = getStarVisibility(survivalHash, starBlend) * parityVis;
           if (vis <= 0.01) return;
 
           const jitterX =
             starBlend > 0.001
-              ? (dotRandomHash(ix * 7 + 13, iy * 11 - 5) - 0.5) * effectiveStep * 0.68 * starBlend
+              ? (dotRandomHash(ix * 7 + 13, iy * 11 - 5) - 0.5) * continuousJitterSpan
               : 0;
           const jitterY =
             starBlend > 0.001
-              ? (dotRandomHash(ix * 13 - 3, iy * 5 + 19) - 0.5) * effectiveStep * 0.68 * starBlend
+              ? (dotRandomHash(ix * 13 - 3, iy * 5 + 19) - 0.5) * continuousJitterSpan
               : 0;
 
           const sx = ix * rawScreenStep - scrollLeft + jitterX + state.ox;

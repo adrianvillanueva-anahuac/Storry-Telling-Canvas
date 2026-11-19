@@ -233,7 +233,6 @@ export default function App() {
   const targetZoomRef = useRef(1);
   const targetLogZoomRef = useRef(0);
   const logZoomVelocityRef = useRef(0);
-  const isZoomingOutRef = useRef(false);
   const zoomRafRef = useRef<number | null>(null);
   const lastZoomFrameTimeRef = useRef<number>(0);
   const lastStateSyncTimeRef = useRef<number>(0);
@@ -247,8 +246,6 @@ export default function App() {
   } | null>(null);
   const viewportRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLDivElement>(null);
-  const workspaceItemsRef = useRef({ nodes: appState.nodes, texts: appState.texts });
-  workspaceItemsRef.current = { nodes: appState.nodes, texts: appState.texts };
 
   // Modals & Panels
   const [adminConsoleOpen, setAdminConsoleOpen] = useState(false);
@@ -669,13 +666,17 @@ export default function App() {
     if (!authReady || !firebaseUser || !activeProjectId) return;
 
     const unsubCanvas = subscribeProjectCanvas(activeProjectId, (data) => {
-      setAppState((prev) => ({
-        ...prev,
-        nodes: data.nodes,
-        connections: data.connections,
-        texts: data.texts,
-        storedNodes: data.storedNodes,
-      }));
+      setAppState((prev) => {
+        const next = {
+          ...prev,
+          nodes: data.nodes,
+          connections: data.connections,
+          texts: data.texts,
+          storedNodes: data.storedNodes,
+        };
+        appStateRef.current = next;
+        return next;
+      });
     });
 
     return () => unsubCanvas();
@@ -958,42 +959,6 @@ export default function App() {
     dotGridRenderRef.current = fn;
   }, []);
 
-  const getWorkspaceContentCenter = useCallback(() => {
-    const { nodes, texts } = workspaceItemsRef.current;
-    let minX = Infinity;
-    let minY = Infinity;
-    let maxX = -Infinity;
-    let maxY = -Infinity;
-
-    Object.values(nodes).forEach((n) => {
-      const x = parseFloat(n.x) || 0;
-      const y = parseFloat(n.y) || 0;
-      if (x < minX) minX = x;
-      if (y < minY) minY = y;
-      if (x + 220 > maxX) maxX = x + 220;
-      if (y + 180 > maxY) maxY = y + 180;
-    });
-
-    Object.values(texts).forEach((t) => {
-      const x = parseFloat(t.x) || 0;
-      const y = parseFloat(t.y) || 0;
-      const w = t.width || (t.mode === 'container' ? 360 : 180);
-      const h = t.height || (t.mode === 'container' ? 240 : 60);
-      if (x < minX) minX = x;
-      if (y < minY) minY = y;
-      if (x + w > maxX) maxX = x + w;
-      if (y + h > maxY) maxY = y + h;
-    });
-
-    if (!Number.isFinite(minX)) {
-      return { x: 2500, y: 2500 };
-    }
-    return {
-      x: (minX + maxX) / 2,
-      y: (minY + maxY) / 2,
-    };
-  }, []);
-
   const stopZoomAnimation = useCallback(() => {
     if (zoomRafRef.current !== null) {
       cancelAnimationFrame(zoomRafRef.current);
@@ -1107,7 +1072,7 @@ export default function App() {
     [applyZoomImmediate]
   );
 
-  // Smooth critically-damped log-space zoom animation with gradual centering at max zoom-out
+  // Smooth critically-damped log-space zoom animation strictly anchored at cursor
   const stepZoomAnimation = useCallback(
     (now: number) => {
       const dt = lastZoomFrameTimeRef.current
@@ -1150,40 +1115,10 @@ export default function App() {
       const anchor = zoomAnchorRef.current;
       let nextCamX = cameraPosRef.current.x;
       let nextCamY = cameraPosRef.current.y;
-      let camSettled = true;
 
       if (vp && anchor) {
-        const anchorCamX = anchor.canvasX * nextZoom - anchor.mouseX;
-        const anchorCamY = anchor.canvasY * nextZoom - anchor.mouseY;
-
-        // Gradually center nodes & workspace when approaching or reaching max zoom-out (20%)
-        if (isZoomingOutRef.current && nextZoom < 0.36) {
-          const center = getWorkspaceContentCenter();
-          const centeredCamX = center.x * nextZoom - vp.clientWidth / 2;
-          const centeredCamY = center.y * nextZoom - vp.clientHeight / 2;
-
-          const rawT = Math.max(0, Math.min(1, (0.36 - nextZoom) / (0.36 - 0.2)));
-          const centerBlend = rawT * rawT * (3 - 2 * rawT);
-
-          const desiredCamX = anchorCamX + (centeredCamX - anchorCamX) * centerBlend;
-          const desiredCamY = anchorCamY + (centeredCamY - anchorCamY) * centerBlend;
-
-          const followRate = nextZoom <= 0.205 ? 6.2 : 11.5;
-          const followAlpha = 1 - Math.exp(-dt * followRate);
-          nextCamX = cameraPosRef.current.x + (desiredCamX - cameraPosRef.current.x) * followAlpha;
-          nextCamY = cameraPosRef.current.y + (desiredCamY - cameraPosRef.current.y) * followAlpha;
-
-          const remaining = Math.hypot(desiredCamX - nextCamX, desiredCamY - nextCamY);
-          if (remaining >= 0.35) {
-            camSettled = false;
-          } else if (zoomSettled) {
-            nextCamX = desiredCamX;
-            nextCamY = desiredCamY;
-          }
-        } else {
-          nextCamX = anchorCamX;
-          nextCamY = anchorCamY;
-        }
+        nextCamX = anchor.canvasX * nextZoom - anchor.mouseX;
+        nextCamY = anchor.canvasY * nextZoom - anchor.mouseY;
       }
 
       applyCameraTransform(nextZoom, nextCamX, nextCamY);
@@ -1193,8 +1128,7 @@ export default function App() {
         window.dispatchEvent(new CustomEvent('canvas-zoom-live', { detail: nextZoom }));
       }
 
-      const settled = zoomSettled && camSettled;
-      if (settled) {
+      if (zoomSettled) {
         zoomRafRef.current = null;
         zoomAnchorRef.current = null;
         window.dispatchEvent(new CustomEvent('canvas-zoom-live', { detail: nextZoom }));
@@ -1203,7 +1137,7 @@ export default function App() {
         zoomRafRef.current = requestAnimationFrame(stepZoomAnimation);
       }
     },
-    [applyCameraTransform, getWorkspaceContentCenter]
+    [applyCameraTransform]
   );
 
   // Non-passive wheel listener for smooth logarithmic zoom without scroll jumps
@@ -1224,18 +1158,25 @@ export default function App() {
       normalizedDelta = Math.max(-180, Math.min(180, normalizedDelta));
       if (Math.abs(normalizedDelta) < 0.01) return;
 
+      const nextTargetLog = Math.max(
+        minLog,
+        Math.min(targetLogZoomRef.current - normalizedDelta * 0.0011, maxLog)
+      );
+      if (
+        zoomRafRef.current === null &&
+        Math.abs(nextTargetLog - targetLogZoomRef.current) < 1e-6 &&
+        Math.abs(Math.log(currentZoomRef.current) - nextTargetLog) < 1e-4
+      ) {
+        return;
+      }
+
       const rect = vp.getBoundingClientRect();
       const mouseX = e.clientX - rect.left;
       const mouseY = e.clientY - rect.top;
 
-      const zoomingOut = normalizedDelta > 0;
-      const directionChanged = isZoomingOutRef.current !== zoomingOut;
-      isZoomingOutRef.current = zoomingOut;
-
       const prevAnchor = zoomAnchorRef.current;
       if (
         zoomRafRef.current === null ||
-        directionChanged ||
         !prevAnchor ||
         Math.abs(mouseX - prevAnchor.mouseX) > 2 ||
         Math.abs(mouseY - prevAnchor.mouseY) > 2
@@ -1249,11 +1190,8 @@ export default function App() {
         };
       }
 
-      targetLogZoomRef.current = Math.max(
-        minLog,
-        Math.min(targetLogZoomRef.current - normalizedDelta * 0.0011, maxLog)
-      );
-      targetZoomRef.current = Math.exp(targetLogZoomRef.current);
+      targetLogZoomRef.current = nextTargetLog;
+      targetZoomRef.current = Math.exp(nextTargetLog);
 
       setActiveLinePopover(null);
 
@@ -2578,13 +2516,12 @@ export default function App() {
       y: `${centerY}px`,
       text: defaultText,
       mode: type,
-      color: type === 'floating' ? '#e2e8f0' : '#0052cc',
-      size: type === 'floating' ? 24 : 14,
+      color: type === 'floating' ? '#e2e8f0' : type === 'annotation' ? '' : '#0052cc',
+      size: type === 'floating' ? 24 : type === 'annotation' ? 12 : 14,
       bold: type === 'container',
       italic: false,
       labelId: '',
-      width: type === 'container' ? 400 : undefined,
-      height: type === 'container' ? 260 : undefined,
+      ...(type === 'container' ? { width: 400, height: 260 } : {}),
     };
 
     setAppState((prev) => {
@@ -2606,26 +2543,142 @@ export default function App() {
     const curr = appStateRef.current.texts[textId];
     if (!curr) return;
 
+    const safeUpdates: Partial<TextElement> = { ...updates };
+    delete safeUpdates.mode;
+    if (Object.keys(safeUpdates).length === 0) return;
+
     const isContinuousStyleEdit =
-      Object.keys(updates).length === 1 && ('size' in updates || 'color' in updates);
+      Object.keys(safeUpdates).length === 1 && ('size' in safeUpdates || 'color' in safeUpdates);
     pushUndoSnapshot(
       undefined,
-      isContinuousStyleEdit ? `text:${textId}:${'size' in updates ? 'size' : 'color'}` : undefined
+      isContinuousStyleEdit ? `text:${textId}:${'size' in safeUpdates ? 'size' : 'color'}` : undefined
     );
 
-    const updatedText = { ...curr, ...updates };
-    setAppState((prev) => {
-      const next = {
-        ...prev,
-        texts: {
-          ...prev.texts,
-          [textId]: updatedText,
-        },
+    const updatedText: TextElement = {
+      ...curr,
+      ...safeUpdates,
+      mode: curr.mode,
+    };
+
+    let nextState: AppState = {
+      ...appStateRef.current,
+      nodes: { ...appStateRef.current.nodes },
+      texts: {
+        ...appStateRef.current.texts,
+        [textId]: updatedText,
+      },
+    };
+
+    const changedNodes: WorkflowNode[] = [];
+    const changedTextsMap = new Map<string, TextElement>();
+
+    const isContainerBoundsChange =
+      updatedText.mode === 'container' &&
+      ('x' in safeUpdates ||
+        'y' in safeUpdates ||
+        'width' in safeUpdates ||
+        'height' in safeUpdates);
+
+    if (isContainerBoundsChange) {
+      const cLeft = parseFloat(updatedText.x) || 0;
+      const cTop = parseFloat(updatedText.y) || 0;
+      const cRight = cLeft + (updatedText.width || 340);
+      const cBottom = cTop + (updatedText.height || 240);
+
+      const evaluateContainment = (elX: number, elY: number, elW: number, elH: number) => {
+        const elRight = elX + elW;
+        const elBottom = elY + elH;
+        const centerX = elX + elW / 2;
+        const centerY = elY + elH / 2;
+        const centerInside =
+          centerX >= cLeft && centerX <= cRight && centerY >= cTop && centerY <= cBottom;
+        const overlapW = Math.max(0, Math.min(elRight, cRight) - Math.max(elX, cLeft));
+        const overlapH = Math.max(0, Math.min(elBottom, cBottom) - Math.max(elY, cTop));
+        const overlapArea = overlapW * overlapH;
+        const itemArea = Math.max(1, elW * elH);
+        return {
+          shouldCapture: centerInside || overlapArea >= itemArea * 0.4,
+          isCompletelyOutside: overlapArea === 0 && !centerInside,
+        };
       };
-      appStateRef.current = next;
-      return next;
-    });
-    saveTextToFirestore(activeProjectId, updatedText);
+
+      Object.values(nextState.nodes).forEach((node) => {
+        const nx = parseFloat(node.x) || 0;
+        const ny = parseFloat(node.y) || 0;
+        const { shouldCapture, isCompletelyOutside } = evaluateContainment(nx, ny, 220, 171);
+        if (!node.containerId && shouldCapture) {
+          const capturedNode: WorkflowNode = { ...node, containerId: textId };
+          nextState.nodes[node.id] = capturedNode;
+          changedNodes.push(capturedNode);
+          delete pendingExitContainerRef.current[node.id];
+        } else if (node.containerId === textId && isCompletelyOutside) {
+          const releasedNode: WorkflowNode = { ...node, containerId: null };
+          nextState.nodes[node.id] = releasedNode;
+          changedNodes.push(releasedNode);
+        }
+      });
+
+      Object.values(nextState.texts).forEach((t) => {
+        if (t.id === textId || t.mode === 'container') return;
+        const tx = parseFloat(t.x) || 0;
+        const ty = parseFloat(t.y) || 0;
+        const domEl = typeof document !== 'undefined' ? document.getElementById(t.id) : null;
+        const tw =
+          t.width ||
+          (domEl && domEl.offsetWidth > 0 ? domEl.offsetWidth : undefined) ||
+          (t.mode === 'annotation'
+            ? 220
+            : Math.max(80, (t.text?.length || 4) * ((t.size || 20) * 0.62) + 16));
+        const th =
+          t.height ||
+          (domEl && domEl.offsetHeight > 0 ? domEl.offsetHeight : undefined) ||
+          (t.mode === 'annotation'
+            ? 100
+            : Math.max(32, (t.size || 20) * 1.4 + 12));
+
+        const { shouldCapture, isCompletelyOutside } = evaluateContainment(tx, ty, tw, th);
+        if (!t.containerId && shouldCapture) {
+          const capturedText: TextElement = { ...t, containerId: textId };
+          nextState.texts[t.id] = capturedText;
+          changedTextsMap.set(t.id, capturedText);
+          delete pendingExitContainerRef.current[t.id];
+        } else if (t.containerId === textId && isCompletelyOutside) {
+          const releasedText: TextElement = { ...t, containerId: null };
+          nextState.texts[t.id] = releasedText;
+          changedTextsMap.set(t.id, releasedText);
+        }
+      });
+    } else if (
+      updatedText.mode !== 'container' &&
+      updatedText.containerId &&
+      ('x' in updates || 'y' in updates || 'width' in updates || 'height' in updates || 'size' in updates)
+    ) {
+      const prevTexts = nextState.texts;
+      const boundedState = updateContainerBounds(nextState, {
+        syncToFirestore: false,
+        extendOnly: true,
+      });
+      if (boundedState !== nextState) {
+        Object.values(boundedState.texts).forEach((bt) => {
+          if (bt.id !== textId && bt !== prevTexts[bt.id]) {
+            changedTextsMap.set(bt.id, bt);
+          }
+        });
+        nextState = boundedState;
+      }
+    }
+
+    appStateRef.current = nextState;
+    setAppState(nextState);
+
+    if (changedNodes.length > 0 || changedTextsMap.size > 0) {
+      saveCanvasPositionsBatch(activeProjectId, changedNodes, [
+        updatedText,
+        ...Array.from(changedTextsMap.values()),
+      ]);
+    } else {
+      saveTextToFirestore(activeProjectId, updatedText);
+    }
   };
 
   const handleFitContainerToNodes = useCallback(
@@ -3283,12 +3336,40 @@ export default function App() {
           <ConnectionLines
             connections={appState.connections}
             nodes={appState.nodes}
+            texts={appState.texts}
             tempConnection={tempConnection}
+            selectedConnectionId={activeLinePopover?.connectionId ?? null}
             isPanMode={isSpacePressed || canvasToolMode === 'pan'}
+            isReadOnly={isReadOnly}
             isSearchActive={isSearchActive}
             matchedNodeIds={matchedNodeIds}
+            onSnapGuidesChange={setSnapGuides}
             onClickConnection={(connectionId, x, y) => {
               setActiveLinePopover({ connectionId, x, y });
+            }}
+            onCommitConnectionShape={(connectionId, updates) => {
+              if (!activeProjectId || isReadOnly) return;
+              const targetConn = appStateRef.current.connections.find((c) => c.id === connectionId);
+              if (!targetConn) return;
+              pushUndoSnapshot();
+              const updatedConn = { ...targetConn, ...updates };
+              if (updates.angleOffset === undefined && 'angleOffset' in updates) {
+                delete updatedConn.angleOffset;
+              }
+              if (updates.curveOffset === undefined && 'curveOffset' in updates) {
+                delete updatedConn.curveOffset;
+              }
+              setAppState((prev) => {
+                const next = {
+                  ...prev,
+                  connections: prev.connections.map((c) =>
+                    c.id === connectionId ? updatedConn : c
+                  ),
+                };
+                appStateRef.current = next;
+                return next;
+              });
+              saveConnectionToFirestore(activeProjectId, updatedConn);
             }}
           />
 
@@ -3608,12 +3689,23 @@ export default function App() {
                   ? 'parallelLabels'
                   : 'color' in updates
                   ? 'color'
+                  : 'cornerRadius' in updates
+                  ? 'cornerRadius'
                   : null;
               pushUndoSnapshot(
                 undefined,
                 coalesceField ? `line:${activeConn.id}:${coalesceField}` : undefined
               );
               const updatedConn = { ...activeConn, ...updates };
+              if ('angleOffset' in updates && updates.angleOffset === undefined) {
+                delete updatedConn.angleOffset;
+              }
+              if ('curveOffset' in updates && updates.curveOffset === undefined) {
+                delete updatedConn.curveOffset;
+              }
+              if ('cornerRadius' in updates && updates.cornerRadius === undefined) {
+                delete updatedConn.cornerRadius;
+              }
               setAppState((prev) => {
                 const next = {
                   ...prev,
@@ -4051,6 +4143,7 @@ export default function App() {
           projectId={activeProjectId}
           projectTitle={activeProject?.title}
           isReadOnly={isReadOnly}
+          userApiKey={userGeminiApiKey}
           author={currentUser.name}
           initialEditActorId={actorLibraryState.editActorId ?? null}
           pickNodeTitle={

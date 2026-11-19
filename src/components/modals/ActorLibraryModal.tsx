@@ -8,12 +8,15 @@ import {
   Pencil,
   Plus,
   Search,
+  Sparkles,
   Tag,
   Trash2,
   UploadCloud,
+  Wand2,
   X,
 } from 'lucide-react';
 import { useLanguage } from '../../hooks/useLanguage';
+import { AiImagePromptModal } from './AiImagePromptModal';
 
 const STATE_COLOR_PALETTE = [
   '#3b82f6',
@@ -32,6 +35,7 @@ interface ActorLibraryModalProps {
   projectId: string;
   projectTitle?: string;
   isReadOnly?: boolean;
+  userApiKey?: string | null;
   author: string;
   initialEditActorId?: string | null;
   pickNodeTitle?: string | null;
@@ -48,6 +52,7 @@ export const ActorLibraryModal: React.FC<ActorLibraryModalProps> = ({
   projectId,
   projectTitle,
   isReadOnly = false,
+  userApiKey = null,
   author,
   initialEditActorId = null,
   pickNodeTitle = null,
@@ -76,6 +81,7 @@ export const ActorLibraryModal: React.FC<ActorLibraryModalProps> = ({
   const [newTagInput, setNewTagInput] = useState('');
 
   const [isUploadingThumb, setIsUploadingThumb] = useState(false);
+  const [aiModalOpen, setAiModalOpen] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -267,8 +273,9 @@ export const ActorLibraryModal: React.FC<ActorLibraryModalProps> = ({
   }, [actors, search, selectedTagFilter]);
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/55 dark:bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
-      <div className="bg-[#ebe7de] dark:bg-neutral-900 border border-[#c3beb1] dark:border-neutral-700/80 rounded-2xl w-full max-w-4xl max-h-[88vh] shadow-2xl flex flex-col overflow-hidden">
+    <>
+      <div className="fixed inset-0 z-50 bg-black/55 dark:bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+        <div className="bg-[#ebe7de] dark:bg-neutral-900 border border-[#c3beb1] dark:border-neutral-700/80 rounded-2xl w-full max-w-4xl max-h-[88vh] shadow-2xl flex flex-col overflow-hidden">
         {/* Header */}
         <div className="px-5 py-4 border-b border-[#d4cfc3] dark:border-neutral-800 flex items-center justify-between gap-3">
           <div className="min-w-0">
@@ -595,6 +602,29 @@ export const ActorLibraryModal: React.FC<ActorLibraryModalProps> = ({
                   )}
                 </div>
 
+                <button
+                  type="button"
+                  disabled={isUploadingThumb}
+                  onClick={() => setAiModalOpen(true)}
+                  title={
+                    thumbnailUrl
+                      ? t('actorLib.nanoBananaEditTooltip')
+                      : t('actorLib.nanoBananaCreateTooltip')
+                  }
+                  className="w-full py-1.5 px-2.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white border border-emerald-500/40 text-xs font-semibold flex items-center justify-center gap-1.5 shadow-sm transition-colors whitespace-nowrap cursor-pointer"
+                >
+                  {thumbnailUrl ? (
+                    <Wand2 className="w-3.5 h-3.5 shrink-0" />
+                  ) : (
+                    <Sparkles className="w-3.5 h-3.5 shrink-0" />
+                  )}
+                  <span>
+                    {thumbnailUrl
+                      ? t('actorLib.nanoBananaEditBtn')
+                      : t('actorLib.nanoBananaCreateBtn')}
+                  </span>
+                </button>
+
                 <input
                   type="text"
                   value={thumbnailUrl || ''}
@@ -854,7 +884,22 @@ export const ActorLibraryModal: React.FC<ActorLibraryModalProps> = ({
             </div>
           </form>
         )}
+        </div>
       </div>
-    </div>
+
+      {aiModalOpen && (
+        <AiImagePromptModal
+          mode={thumbnailUrl ? 'edit' : 'create'}
+          targetKind="image"
+          sourceImageUrl={thumbnailUrl}
+          defaultTitle={name.trim() || t('actorLib.defaultCategory')}
+          defaultAspectRatio="1:1"
+          userApiKey={userApiKey}
+          applyButtonLabel={t('actorLib.nanoBananaApplyLabel')}
+          onApplyFile={handleUploadThumbnail}
+          onClose={() => setAiModalOpen(false)}
+        />
+      )}
+    </>
   );
 };

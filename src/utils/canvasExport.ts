@@ -125,15 +125,23 @@ export function computeWorkspaceBounds(
       // Leave extra headroom above container for title badge
       includeBox(x, y - 28, w, h + 28);
     } else if (t.mode === 'annotation') {
-      const bodyLines = wrapTextLines(t.body || '', 30, 6).length;
-      const estH = Math.max(98, 56 + bodyLines * 16);
-      includeBox(x, y, 220, estH);
+      const noteW = t.width || 220;
+      const maxChars = Math.max(12, Math.floor((noteW - 24) / 6.5));
+      const bodyLines = wrapTextLines(t.body || '', maxChars, 8).length;
+      const estH = Math.max(t.height || 0, 56 + bodyLines * 16, 98);
+      includeBox(x, y, noteW, estH);
     } else {
       const fontSize = t.size || 20;
-      const lines = (t.text || '').split(/\r?\n/);
+      const lines = t.width
+        ? wrapTextLines(
+            t.text || '',
+            Math.max(6, Math.floor((t.width - 12) / (fontSize * 0.58))),
+            24
+          )
+        : (t.text || '').split(/\r?\n/);
       const longest = Math.max(1, ...lines.map((l) => l.length));
-      const estW = Math.max(80, longest * fontSize * 0.62 + 16);
-      const estH = Math.max(36, lines.length * fontSize * 1.3 + 12);
+      const estW = t.width ? t.width : Math.max(80, longest * fontSize * 0.62 + 16);
+      const estH = Math.max(t.height || 0, lines.length * fontSize * 1.3 + 12, 36);
       includeBox(x, y, estW, estH);
     }
   });
@@ -340,6 +348,11 @@ export function buildExportSvgString(options: CanvasExportOptions): {
       if (!start || !end) return '';
 
       const connType = conn.type || 'angle';
+      const pathOptions = {
+        angleOffset: conn.angleOffset,
+        cornerRadius: conn.cornerRadius,
+        curveOffset: conn.curveOffset,
+      };
       const { d, labelX, labelY } = calculateConnectionPath(
         start.x,
         start.y,
@@ -347,7 +360,9 @@ export function buildExportSvgString(options: CanvasExportOptions): {
         end.y,
         conn.sourcePort,
         conn.targetPort,
-        connType
+        connType,
+        0,
+        pathOptions
       );
       const color = conn.color || '#0052cc';
       const hex = sanitizeId(color.replace('#', ''));
@@ -376,7 +391,8 @@ export function buildExportSvgString(options: CanvasExportOptions): {
           conn.sourcePort,
           conn.targetPort,
           connType,
-          -15
+          -15,
+          pathOptions
         );
         const line2 = calculateConnectionPath(
           start.x,
@@ -386,7 +402,8 @@ export function buildExportSvgString(options: CanvasExportOptions): {
           conn.sourcePort,
           conn.targetPort,
           connType,
-          15
+          15,
+          pathOptions
         );
         const pa = conn.parallelArrows || { first: 'forward', second: 'backward' };
         const ps = conn.parallelStyles || { first: 'solid', second: 'solid' };
@@ -551,8 +568,11 @@ export function buildExportSvgString(options: CanvasExportOptions): {
         const noteBorder = useLightThemePalette ? '#c9bd98' : useLightSurface ? '#fcd34d' : '#92400e';
         const noteDivider = useLightThemePalette ? '#d5cab0' : useLightSurface ? '#fde68a' : '#78350f';
         const noteText = useLightThemePalette ? '#2b2821' : useLightSurface ? '#171717' : '#fef3c7';
-        const bodyLines = wrapTextLines(el.body || '', 30, 8);
-        const cardH = Math.max(96, 56 + bodyLines.length * 16);
+        const noteW = el.width || 220;
+        const maxBodyChars = Math.max(12, Math.floor((noteW - 24) / 6.5));
+        const maxTitleChars = Math.max(10, Math.floor((noteW - 24) / 7.2));
+        const bodyLines = wrapTextLines(el.body || '', maxBodyChars, 12);
+        const cardH = Math.max(el.height || 0, 56 + bodyLines.length * 16, 96);
 
         const bodyTspans = bodyLines
           .map(
@@ -563,9 +583,9 @@ export function buildExportSvgString(options: CanvasExportOptions): {
 
         return `
           <g>
-            <rect x="${x}" y="${y}" width="220" height="${cardH}" rx="12" fill="${noteBg}" stroke="${noteBorder}" stroke-width="1.2" />
-            <text x="${x + 12}" y="${y + 22}" font-family="${fontFamily}" font-size="12" font-weight="700" fill="${noteText}">${escapeXml(truncateText(el.text || labels.defaultStickyNote || 'Sticky Note', 26))}</text>
-            <line x1="${x + 12}" y1="${y + 30}" x2="${x + 208}" y2="${y + 30}" stroke="${noteDivider}" stroke-width="1" />
+            <rect x="${x}" y="${y}" width="${noteW}" height="${cardH}" rx="12" fill="${noteBg}" stroke="${noteBorder}" stroke-width="1.2" />
+            <text x="${x + 12}" y="${y + 22}" font-family="${fontFamily}" font-size="12" font-weight="700" fill="${noteText}">${escapeXml(truncateText(el.text || labels.defaultStickyNote || 'Sticky Note', maxTitleChars))}</text>
+            <line x1="${x + 12}" y1="${y + 30}" x2="${x + noteW - 12}" y2="${y + 30}" stroke="${noteDivider}" stroke-width="1" />
             <text x="${x + 12}" y="${y + 48}" font-family="${fontFamily}" font-size="12" fill="${noteText}" opacity="0.92">${bodyTspans}</text>
           </g>
         `;
@@ -576,7 +596,13 @@ export function buildExportSvgString(options: CanvasExportOptions): {
       const fontWeight = el.bold ? 'bold' : 'normal';
       const fontStyle = el.italic ? 'italic' : 'normal';
       const textColor = el.color || (useLightSurface ? '#171717' : '#e2e8f0');
-      const lines = (el.text || '').split(/\r?\n/);
+      const lines = el.width
+        ? wrapTextLines(
+            el.text || '',
+            Math.max(6, Math.floor((el.width - 12) / (fontSize * 0.58))),
+            24
+          )
+        : (el.text || '').split(/\r?\n/);
       const tspans = lines
         .map(
           (line, idx) =>

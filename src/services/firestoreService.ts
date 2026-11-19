@@ -26,6 +26,16 @@ import {
   WorkflowNode,
 } from '../types/workflow';
 
+function stripUndefined<T extends Record<string, unknown>>(obj: T): T {
+  const cleaned: Record<string, unknown> = {};
+  Object.entries(obj).forEach(([key, value]) => {
+    if (value !== undefined) {
+      cleaned[key] = value;
+    }
+  });
+  return cleaned as T;
+}
+
 // ==========================================
 // 1. Projects Management
 // ==========================================
@@ -232,7 +242,11 @@ export async function saveNodeToFirestore(
 ): Promise<void> {
   const path = `projects/${projectId}/nodes/${node.id}`;
   try {
-    await setDoc(doc(db, 'projects', projectId, 'nodes', node.id), node, { merge: true });
+    await setDoc(
+      doc(db, 'projects', projectId, 'nodes', node.id),
+      stripUndefined(node as unknown as Record<string, unknown>),
+      { merge: true }
+    );
   } catch (error) {
     handleFirestoreError(error, OperationType.WRITE, path);
   }
@@ -257,7 +271,10 @@ export async function archiveNodeInFirestore(
   try {
     const batch = writeBatch(db);
     batch.delete(doc(db, 'projects', projectId, 'nodes', node.id));
-    batch.set(doc(db, 'projects', projectId, 'storedNodes', node.id), node);
+    batch.set(
+      doc(db, 'projects', projectId, 'storedNodes', node.id),
+      stripUndefined(node as unknown as Record<string, unknown>)
+    );
     await batch.commit();
   } catch (error) {
     handleFirestoreError(error, OperationType.WRITE, `projects/${projectId}/storedNodes/${node.id}`);
@@ -271,7 +288,10 @@ export async function restoreNodeInFirestore(
   try {
     const batch = writeBatch(db);
     batch.delete(doc(db, 'projects', projectId, 'storedNodes', node.id));
-    batch.set(doc(db, 'projects', projectId, 'nodes', node.id), { ...node, containerId: null });
+    batch.set(
+      doc(db, 'projects', projectId, 'nodes', node.id),
+      stripUndefined({ ...node, containerId: null } as unknown as Record<string, unknown>)
+    );
     await batch.commit();
   } catch (error) {
     handleFirestoreError(error, OperationType.WRITE, `projects/${projectId}/nodes/${node.id}`);
@@ -311,7 +331,10 @@ export async function saveConnectionToFirestore(
 ): Promise<void> {
   const path = `projects/${projectId}/connections/${connection.id}`;
   try {
-    await setDoc(doc(db, 'projects', projectId, 'connections', connection.id), connection);
+    await setDoc(
+      doc(db, 'projects', projectId, 'connections', connection.id),
+      stripUndefined(connection as unknown as Record<string, unknown>)
+    );
   } catch (error) {
     handleFirestoreError(error, OperationType.WRITE, path);
   }
@@ -335,7 +358,11 @@ export async function saveTextToFirestore(
 ): Promise<void> {
   const path = `projects/${projectId}/texts/${text.id}`;
   try {
-    await setDoc(doc(db, 'projects', projectId, 'texts', text.id), text, { merge: true });
+    await setDoc(
+      doc(db, 'projects', projectId, 'texts', text.id),
+      stripUndefined(text as unknown as Record<string, unknown>),
+      { merge: true }
+    );
   } catch (error) {
     handleFirestoreError(error, OperationType.WRITE, path);
   }
@@ -373,13 +400,21 @@ export async function saveCanvasPositionsBatch(
     };
 
     for (const node of nodes) {
-      batch.set(doc(db, 'projects', projectId, 'nodes', node.id), node, { merge: true });
+      batch.set(
+        doc(db, 'projects', projectId, 'nodes', node.id),
+        stripUndefined(node as unknown as Record<string, unknown>),
+        { merge: true }
+      );
       opCount += 1;
       await flushIfNeeded(false);
     }
 
     for (const text of texts) {
-      batch.set(doc(db, 'projects', projectId, 'texts', text.id), text, { merge: true });
+      batch.set(
+        doc(db, 'projects', projectId, 'texts', text.id),
+        stripUndefined(text as unknown as Record<string, unknown>),
+        { merge: true }
+      );
       opCount += 1;
       await flushIfNeeded(false);
     }

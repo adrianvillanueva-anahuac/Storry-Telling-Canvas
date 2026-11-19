@@ -1,6 +1,6 @@
 import React from 'react';
 import { Connection, LineStrokePattern, ParallelArrowDirection } from '../../types/workflow';
-import { ArrowLeft, ArrowLeftRight, ArrowRight, Minus, Trash2, X } from 'lucide-react';
+import { ArrowLeft, ArrowLeftRight, ArrowRight, Minus, RotateCcw, Trash2, X } from 'lucide-react';
 import { useLanguage } from '../../hooks/useLanguage';
 
 interface LinePropertiesMenuProps {
@@ -21,6 +21,16 @@ export const LinePropertiesMenu: React.FC<LinePropertiesMenuProps> = ({
   const { t } = useLanguage();
   const activeType = connection.type || 'angle';
   const isParallel = connection.style === 'parallel';
+  const hasBend =
+    Math.abs(connection.angleOffset ?? 0) > 0.5 ||
+    Math.hypot(connection.curveOffset?.x ?? 0, connection.curveOffset?.y ?? 0) > 0.5;
+  const showCornerRadius =
+    activeType === 'angle' ||
+    (activeType === 'straight' &&
+      Math.hypot(connection.curveOffset?.x ?? 0, connection.curveOffset?.y ?? 0) > 0.5);
+  const effectiveCornerRadius =
+    connection.cornerRadius ?? (activeType === 'angle' ? 10 : 0);
+
   const parallelArrows = connection.parallelArrows || {
     first: 'forward' as ParallelArrowDirection,
     second: 'backward' as ParallelArrowDirection,
@@ -35,16 +45,18 @@ export const LinePropertiesMenu: React.FC<LinePropertiesMenuProps> = ({
     second: '',
   };
 
+  const estimatedHeight =
+    (isParallel ? (parallelLabelMode === 'separate' ? 465 : 420) : 330) +
+    (showCornerRadius ? 48 : 0) +
+    (hasBend ? 36 : 0);
+
   const leftPos =
     typeof window !== 'undefined'
       ? Math.min(position.x + 10, window.innerWidth - 304)
       : position.x + 10;
   const topPos =
     typeof window !== 'undefined'
-      ? Math.min(
-          position.y + 10,
-          window.innerHeight - (isParallel ? (parallelLabelMode === 'separate' ? 465 : 420) : 330)
-        )
+      ? Math.min(position.y + 10, window.innerHeight - estimatedHeight)
       : position.y + 10;
 
   return (
@@ -193,6 +205,44 @@ export const LinePropertiesMenu: React.FC<LinePropertiesMenuProps> = ({
               <span>{t('linePopover.straight')}</span>
             </button>
           </div>
+
+          {showCornerRadius && (
+            <div className="mt-2 pt-2 border-t border-[#d4cfc3]/70 dark:border-neutral-800/80">
+              <div className="flex items-center justify-between mb-1">
+                <label className="text-[11px] text-[#5c584e] dark:text-neutral-400">
+                  {t('linePopover.cornerRadius')}
+                </label>
+                <span className="font-mono text-[10px] text-[#5c584e] dark:text-neutral-400">
+                  {effectiveCornerRadius}px
+                </span>
+              </div>
+              <input
+                type="range"
+                min={0}
+                max={28}
+                step={1}
+                value={effectiveCornerRadius}
+                onChange={(e) => onUpdate({ cornerRadius: Number(e.target.value) })}
+                className="w-full accent-blue-600 cursor-pointer h-1.5"
+              />
+            </div>
+          )}
+
+          {hasBend && (
+            <button
+              type="button"
+              onClick={() =>
+                onUpdate({
+                  angleOffset: undefined,
+                  curveOffset: undefined,
+                })
+              }
+              className="mt-2 w-full flex items-center justify-center gap-1.5 py-1 bg-[#dcd7cc] hover:bg-[#d2ccbf] dark:bg-neutral-800 dark:hover:bg-neutral-700/80 border border-[#c3beb1] dark:border-neutral-700 rounded-md text-[11px] font-medium text-[#3a362e] dark:text-neutral-300 transition-colors cursor-pointer"
+            >
+              <RotateCcw className="w-3 h-3" />
+              <span>{t('linePopover.resetRoute')}</span>
+            </button>
+          )}
         </div>
 
         <div className="space-y-2">

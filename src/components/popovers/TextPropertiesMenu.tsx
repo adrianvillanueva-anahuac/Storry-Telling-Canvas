@@ -1,6 +1,6 @@
 import React from 'react';
 import { LabelItem, TextElement } from '../../types/workflow';
-import { Bold, Italic, Tag, X } from 'lucide-react';
+import { Bold, Italic, RotateCcw, Tag, X } from 'lucide-react';
 import { useLanguage } from '../../hooks/useLanguage';
 
 interface TextPropertiesMenuProps {
@@ -12,6 +12,12 @@ interface TextPropertiesMenuProps {
   onOpenLabelManager: () => void;
 }
 
+const COLOR_PRESETS: Record<TextElement['mode'], string[]> = {
+  floating: ['#e2e8f0', '#1f1d18', '#38bdf8', '#f59e0b', '#10b981', '#f43f5e', '#a855f7'],
+  annotation: ['#d97706', '#2563eb', '#10b981', '#f43f5e', '#8b5cf6', '#64748b'],
+  container: ['#0052cc', '#0284c7', '#059669', '#d97706', '#e11d48', '#7c3aed', '#475569'],
+};
+
 export const TextPropertiesMenu: React.FC<TextPropertiesMenuProps> = ({
   element,
   labels,
@@ -22,6 +28,25 @@ export const TextPropertiesMenu: React.FC<TextPropertiesMenuProps> = ({
 }) => {
   const { t } = useLanguage();
   const isBoldActive = element.mode === 'container' ? element.bold !== false : Boolean(element.bold);
+  const currentFontSize =
+    element.mode === 'annotation'
+      ? Math.max(11, Math.min(28, element.size || 12))
+      : element.size || (element.mode === 'container' ? 14 : 24);
+  const presets = COLOR_PRESETS[element.mode];
+  const colorValue =
+    element.mode === 'annotation'
+      ? element.color && element.color !== '#0052cc'
+        ? element.color
+        : '#d97706'
+      : element.color || '#0052cc';
+
+  const headerTitle =
+    element.mode === 'container'
+      ? t('textPopover.titleContainer')
+      : element.mode === 'annotation'
+      ? t('textPopover.titleAnnotation')
+      : t('textPopover.titleFloating');
+
   const leftPos =
     typeof window !== 'undefined'
       ? Math.min(position.x + 10, window.innerWidth - 276)
@@ -40,23 +65,10 @@ export const TextPropertiesMenu: React.FC<TextPropertiesMenuProps> = ({
         className="fixed z-50 w-64 max-w-[calc(100vw-1rem)] max-h-[calc(100dvh-1rem)] overflow-y-auto bg-[#ebe7de] dark:bg-neutral-900 border border-[#c3beb1] dark:border-neutral-700/80 rounded-xl shadow-2xl p-3 text-xs space-y-3 backdrop-blur-md"
       >
         <div className="flex items-center justify-between border-b border-[#d4cfc3] dark:border-neutral-800 pb-2">
-          <span className="font-semibold text-[#2b2924] dark:text-neutral-200">{t('textPopover.title')}</span>
+          <span className="font-semibold text-[#2b2924] dark:text-neutral-200">{headerTitle}</span>
           <button onClick={onClose} className="p-1 text-[#635e54] hover:text-[#1f1d18] dark:text-neutral-400 dark:hover:text-white cursor-pointer">
             <X className="w-4 h-4" />
           </button>
-        </div>
-
-        <div>
-          <label className="text-[11px] text-[#5c584e] dark:text-neutral-400 block mb-1">{t('textPopover.functionMode')}</label>
-          <select
-            value={element.mode}
-            onChange={(e) => onUpdate({ mode: e.target.value as 'floating' | 'annotation' | 'container' })}
-            className="w-full bg-[#e0dbd0] dark:bg-neutral-800 border border-[#c3beb1] dark:border-neutral-700 rounded-md px-2 py-1 text-[#2b2924] dark:text-neutral-100 outline-none focus:border-blue-500"
-          >
-            <option value="floating" className="bg-[#ebe7de] text-[#2b2924] dark:bg-neutral-900 dark:text-neutral-200">{t('textPopover.modeFloating')}</option>
-            <option value="annotation" className="bg-[#ebe7de] text-[#2b2924] dark:bg-neutral-900 dark:text-neutral-200">{t('textPopover.modeAnnotation')}</option>
-            <option value="container" className="bg-[#ebe7de] text-[#2b2924] dark:bg-neutral-900 dark:text-neutral-200">{t('textPopover.modeContainer')}</option>
-          </select>
         </div>
 
         {element.mode === 'container' && (
@@ -94,26 +106,71 @@ export const TextPropertiesMenu: React.FC<TextPropertiesMenuProps> = ({
           </div>
         )}
 
-        <div className="flex items-center justify-between">
-          <label className="text-[11px] text-[#5c584e] dark:text-neutral-400">{t('textPopover.color')}</label>
-          <div className="flex items-center gap-2">
-            <input
-              type="color"
-              value={element.color || '#0052cc'}
-              onChange={(e) => onUpdate({ color: e.target.value })}
-              className="w-6 h-6 rounded cursor-pointer border-0 bg-transparent"
-            />
-            <span className="font-mono text-[10px] text-[#5c584e] dark:text-neutral-400">{element.color}</span>
+        <div className="space-y-1.5">
+          <div className="flex items-center justify-between">
+            <label className="text-[11px] text-[#5c584e] dark:text-neutral-400">{t('textPopover.color')}</label>
+            <div className="flex items-center gap-2">
+              <input
+                type="color"
+                value={colorValue}
+                onChange={(e) => onUpdate({ color: e.target.value })}
+                className="w-6 h-6 rounded cursor-pointer border-0 bg-transparent"
+              />
+              <span className="font-mono text-[10px] text-[#5c584e] dark:text-neutral-400">
+                {element.mode === 'annotation' && (!element.color || element.color === '#0052cc')
+                  ? t('textPopover.defaultColor')
+                  : colorValue}
+              </span>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-1.5 flex-wrap">
+            {element.mode === 'annotation' && (
+              <button
+                type="button"
+                onClick={() => onUpdate({ color: '' })}
+                className={`w-5 h-5 rounded-full border flex items-center justify-center transition-transform cursor-pointer bg-[#e9e1c9] dark:bg-amber-950/90 ${
+                  !element.color || element.color === '#0052cc'
+                    ? 'border-sky-500 ring-2 ring-sky-400/50 scale-110'
+                    : 'border-[#c9bd98] dark:border-amber-700 hover:scale-110'
+                }`}
+                title={t('textPopover.defaultColor')}
+              >
+                <RotateCcw className="w-2.5 h-2.5 text-[#5c584e] dark:text-amber-200" />
+              </button>
+            )}
+            {presets.map((swatch) => {
+              const isActive =
+                element.mode === 'annotation'
+                  ? element.color === swatch
+                  : element.color?.toLowerCase() === swatch.toLowerCase();
+              return (
+                <button
+                  key={swatch}
+                  type="button"
+                  onClick={() => onUpdate({ color: swatch })}
+                  style={{ backgroundColor: swatch }}
+                  className={`w-5 h-5 rounded-full border transition-transform cursor-pointer ${
+                    isActive
+                      ? 'border-white ring-2 ring-sky-400 scale-110'
+                      : 'border-black/20 dark:border-white/20 hover:scale-110'
+                  }`}
+                  title={swatch}
+                />
+              );
+            })}
           </div>
         </div>
 
         <div>
-          <label className="text-[11px] text-[#5c584e] dark:text-neutral-400 block mb-1">{t('textPopover.fontSize', { size: element.size || 14 })}</label>
+          <label className="text-[11px] text-[#5c584e] dark:text-neutral-400 block mb-1">
+            {t('textPopover.fontSize', { size: currentFontSize })}
+          </label>
           <input
             type="range"
-            min={12}
-            max={72}
-            value={element.size || 14}
+            min={element.mode === 'annotation' ? 11 : 12}
+            max={element.mode === 'annotation' ? 28 : 72}
+            value={currentFontSize}
             onChange={(e) => onUpdate({ size: parseInt(e.target.value, 10) })}
             className="w-full accent-blue-600 dark:accent-blue-500"
           />
@@ -150,3 +207,4 @@ export const TextPropertiesMenu: React.FC<TextPropertiesMenuProps> = ({
     </>
   );
 };
+

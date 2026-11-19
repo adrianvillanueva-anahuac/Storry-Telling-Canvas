@@ -224,10 +224,16 @@ const en = {
   'linePopover.dirNoArrow': 'No Arrow',
   'linePopover.lineStyleAria': '{label} style',
   'linePopover.lineColor': 'Line Color',
+  'linePopover.cornerRadius': 'Corner Angle Radius',
+  'linePopover.resetRoute': 'Reset bend',
+  'linePopover.bendHandleHint': 'Drag to adjust angle (Alt: free · Double-click: reset)',
   'linePopover.removeConnection': 'Remove Connection',
 
   // Text Properties Menu
   'textPopover.title': 'Text Properties',
+  'textPopover.titleContainer': 'Container Appearance',
+  'textPopover.titleAnnotation': 'Note Appearance',
+  'textPopover.titleFloating': 'Text Appearance',
   'textPopover.functionMode': 'Function Mode',
   'textPopover.modeFloating': 'Floating Text',
   'textPopover.modeAnnotation': 'Annotation Note',
@@ -235,6 +241,7 @@ const en = {
   'textPopover.categoryLabel': 'Category Label',
   'textPopover.manageLabels': 'Manage Labels',
   'textPopover.color': 'Color',
+  'textPopover.defaultColor': 'Default style',
   'textPopover.fontSize': 'Font Size: {size}px',
   'textPopover.formatting': 'Formatting',
   'textPopover.bold': 'Bold',
@@ -831,6 +838,11 @@ const en = {
   'actorLib.confirmDelete': 'Delete "{name}" from the Actor Library? Scene references will remain marked as removed.',
   'actorLib.addToScene': 'Add to Scene',
   'actorLib.pickForSceneTitle': 'Select an Actor for Scene',
+  'actorLib.nanoBananaCreateBtn': 'Create with Nano Banana 2.1',
+  'actorLib.nanoBananaEditBtn': 'Edit with Nano Banana 2.1',
+  'actorLib.nanoBananaCreateTooltip': 'Generate actor thumbnail with AI (Nano Banana 2.1)',
+  'actorLib.nanoBananaEditTooltip': 'Edit current thumbnail with AI (Nano Banana 2.1)',
+  'actorLib.nanoBananaApplyLabel': 'Use as Thumbnail',
 
   // Actor Detail Modal
   'actorDetail.title': 'Actor Details',
@@ -1110,10 +1122,16 @@ const es: Record<TranslationKey, string> = {
   'linePopover.dirNoArrow': 'Sin flecha',
   'linePopover.lineStyleAria': 'Estilo de {label}',
   'linePopover.lineColor': 'Color de línea',
+  'linePopover.cornerRadius': 'Radio de ángulo',
+  'linePopover.resetRoute': 'Restablecer ángulo',
+  'linePopover.bendHandleHint': 'Arrastra para ajustar ángulo (Alt: libre · Doble clic: restablecer)',
   'linePopover.removeConnection': 'Eliminar conexión',
 
   // Text Properties Menu
   'textPopover.title': 'Propiedades de texto',
+  'textPopover.titleContainer': 'Aspecto del contenedor',
+  'textPopover.titleAnnotation': 'Aspecto de la nota',
+  'textPopover.titleFloating': 'Aspecto del texto',
   'textPopover.functionMode': 'Modo de función',
   'textPopover.modeFloating': 'Texto flotante',
   'textPopover.modeAnnotation': 'Nota de anotación',
@@ -1121,6 +1139,7 @@ const es: Record<TranslationKey, string> = {
   'textPopover.categoryLabel': 'Etiqueta de categoría',
   'textPopover.manageLabels': 'Gestionar etiquetas',
   'textPopover.color': 'Color',
+  'textPopover.defaultColor': 'Estilo clásico',
   'textPopover.fontSize': 'Tamaño de fuente: {size}px',
   'textPopover.formatting': 'Formato',
   'textPopover.bold': 'Negrita',
@@ -1717,6 +1736,11 @@ const es: Record<TranslationKey, string> = {
   'actorLib.confirmDelete': '¿Eliminar "{name}" de la Librería de Actores? Las referencias en escenas quedarán marcadas como eliminadas.',
   'actorLib.addToScene': 'Agregar a escena',
   'actorLib.pickForSceneTitle': 'Seleccionar actor para la escena',
+  'actorLib.nanoBananaCreateBtn': 'Crear con Nano Banana 2.1',
+  'actorLib.nanoBananaEditBtn': 'Editar con Nano Banana 2.1',
+  'actorLib.nanoBananaCreateTooltip': 'Generar miniatura con IA (Nano Banana 2.1)',
+  'actorLib.nanoBananaEditTooltip': 'Editar miniatura actual con IA (Nano Banana 2.1)',
+  'actorLib.nanoBananaApplyLabel': 'Usar como miniatura',
 
   // Actor Detail Modal
   'actorDetail.title': 'Detalle del Actor',
