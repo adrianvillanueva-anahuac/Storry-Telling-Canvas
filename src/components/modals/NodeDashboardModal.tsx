@@ -29,6 +29,7 @@ import {
   X,
 } from 'lucide-react';
 import { ShreddedImageIcon } from '../icons/ShreddedImageIcon';
+import { ResolvedImg } from '../ResolvedImg';
 import { useLanguage } from '../../hooks/useLanguage';
 import { getContrastTextColor } from '../../utils/colorContrast';
 
@@ -503,7 +504,7 @@ export const NodeDashboardModal: React.FC<NodeDashboardModalProps> = ({
                         </div>
                       ) : (
                         <>
-                          <img
+                          <ResolvedImg
                             src={node.mapImage}
                             alt={node.mapName}
                             referrerPolicy="no-referrer"
@@ -666,7 +667,7 @@ export const NodeDashboardModal: React.FC<NodeDashboardModalProps> = ({
                       className="w-full h-full cursor-pointer relative"
                       title={t('dashboard.pinningTooltip')}
                     >
-                      <img
+                      <ResolvedImg
                         src={node.image}
                         alt={node.title}
                         referrerPolicy="no-referrer"
@@ -940,7 +941,7 @@ export const NodeDashboardModal: React.FC<NodeDashboardModalProps> = ({
                             }`}
                           >
                             {actor?.thumbnailUrl && !brokenActorIds.has(actor.id) ? (
-                              <img
+                              <ResolvedImg
                                 src={actor.thumbnailUrl}
                                 alt={actor.name}
                                 referrerPolicy="no-referrer"

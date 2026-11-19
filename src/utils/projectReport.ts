@@ -1,4 +1,5 @@
 import { ActorItem, AppState, WorkflowNode } from '../types/workflow';
+import { isFirestoreMediaUrl, resolveMediaUrl } from '../services/mediaCache';
 
 export type ReportFormat = 'html' | 'csv' | 'json';
 
@@ -222,7 +223,7 @@ export function buildGlobalProjectReport(params: {
   };
 }
 
-export function exportProjectReportToFile(params: {
+export async function exportProjectReportToFile(params: {
   report: GlobalProjectReportData;
   format: ReportFormat;
   includeTagMatrix: boolean;
@@ -232,7 +233,7 @@ export function exportProjectReportToFile(params: {
   labels: ProjectReportLabels;
 }) {
   const {
-    report,
+    report: rawReport,
     format,
     includeTagMatrix,
     includeActorCatalog,
@@ -240,6 +241,47 @@ export function exportProjectReportToFile(params: {
     locale,
     labels,
   } = params;
+
+  const resolvedThumbMap = new Map<string, string>();
+  const thumbCandidates = Array.from(
+    new Set(
+      rawReport.actorRows
+        .map((r) => r.actor.thumbnailUrl)
+        .filter((u): u is string => isFirestoreMediaUrl(u))
+    )
+  );
+  if (thumbCandidates.length > 0) {
+    await Promise.all(
+      thumbCandidates.map(async (u) => {
+        const dataUrl = await resolveMediaUrl(u);
+        if (dataUrl) resolvedThumbMap.set(u, dataUrl);
+      })
+    );
+  }
+
+  const report: GlobalProjectReportData =
+    resolvedThumbMap.size === 0
+      ? rawReport
+      : {
+          ...rawReport,
+          actorRows: rawReport.actorRows.map((row) => ({
+            ...row,
+            actor: {
+              ...row.actor,
+              thumbnailUrl:
+                (row.actor.thumbnailUrl && resolvedThumbMap.get(row.actor.thumbnailUrl)) ||
+                row.actor.thumbnailUrl,
+            },
+          })),
+          sceneRows: rawReport.sceneRows.map((s) => ({
+            ...s,
+            actors: s.actors.map((a) => ({
+              ...a,
+              thumbnailUrl:
+                (a.thumbnailUrl && resolvedThumbMap.get(a.thumbnailUrl)) || a.thumbnailUrl,
+            })),
+          })),
+        };
 
   const safeTitle = (report.projectTitle || 'project')
     .toLowerCase()

@@ -214,6 +214,21 @@
         "updatedAt": { "type": "string", "maxLength": 64 }
       },
       "required": ["id", "projectId", "name", "color"]
+    },
+    "MediaAsset": {
+      "title": "MediaAsset",
+      "description": "Compressed project image asset persisted directly in Firestore when external blob/object storage is unavailable",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "projectId": { "type": "string", "maxLength": 128 },
+        "mimeType": { "type": "string", "enum": ["image/webp", "image/jpeg", "image/png"] },
+        "dataUrl": { "type": "string", "minLength": 24, "maxLength": 900000 },
+        "sizeBytes": { "type": "number" },
+        "createdBy": { "type": "string", "maxLength": 128 },
+        "createdAt": { "type": "string", "maxLength": 64 }
+      },
+      "required": ["id", "projectId", "mimeType", "dataUrl", "sizeBytes", "createdBy", "createdAt"]
     }
   },
   "firestore": {
@@ -268,6 +283,10 @@
     "/projects/{projectId}/labels/{labelId}": {
       "schema": { "$ref": "#/entities/LabelItem" },
       "description": "Custom color-coded labels scoped to a specific project"
+    },
+    "/projects/{projectId}/media/{mediaId}": {
+      "schema": { "$ref": "#/entities/MediaAsset" },
+      "description": "Compressed image assets stored securely per project for cross-environment persistence"
     },
     "/globalVideos/{videoId}": {
       "schema": { "$ref": "#/entities/GlobalVideo" },

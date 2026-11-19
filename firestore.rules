@@ -232,6 +232,33 @@ service cloud.firestore {
         data.updatedAt.size() <= 64;
     }
 
+    function isValidMediaAsset(data, mediaId, projectId) {
+      return data.keys().hasAll(['id', 'projectId', 'mimeType', 'dataUrl', 'sizeBytes', 'createdBy', 'createdAt']) &&
+        data.keys().hasOnly(['id', 'projectId', 'mimeType', 'dataUrl', 'sizeBytes', 'createdBy', 'createdAt']) &&
+        data.id is string &&
+        data.id == mediaId &&
+        data.projectId is string &&
+        data.projectId == projectId &&
+        data.mimeType in ['image/webp', 'image/jpeg', 'image/png'] &&
+        data.dataUrl is string &&
+        data.dataUrl.size() >= 24 &&
+        data.dataUrl.size() <= 900000 &&
+        data.dataUrl[0:11] == 'data:image/' &&
+        (
+          data.dataUrl[11:23] == 'webp;base64,' ||
+          data.dataUrl[11:23] == 'jpeg;base64,' ||
+          data.dataUrl[11:22] == 'png;base64,'
+        ) &&
+        data.sizeBytes is number &&
+        data.sizeBytes > 0 &&
+        data.sizeBytes <= 900000 &&
+        data.createdBy is string &&
+        data.createdBy == request.auth.uid &&
+        data.createdAt is string &&
+        data.createdAt.size() > 0 &&
+        data.createdAt.size() <= 64;
+    }
+
     // Boot Connectivity Check Collection
     match /test/{docId} {
       allow read: if true;
@@ -426,6 +453,26 @@ service cloud.firestore {
           incoming().id == existing().id &&
           incoming().projectId == existing().projectId;
         allow delete: if canEditProject(projectId) && isValidId(projectId) && isValidId(labelId);
+      }
+
+      match /media/{mediaId} {
+        allow read: if canReadProject(projectId);
+        allow create: if isVerified() &&
+          isValidId(projectId) &&
+          isValidId(mediaId) &&
+          isValidMediaAsset(incoming(), mediaId, projectId) &&
+          canEditProject(projectId);
+        allow update: if isVerified() &&
+          isValidId(projectId) &&
+          isValidId(mediaId) &&
+          isValidMediaAsset(incoming(), mediaId, projectId) &&
+          canEditProject(projectId) &&
+          incoming().id == existing().id &&
+          incoming().projectId == existing().projectId &&
+          incoming().createdBy == existing().createdBy &&
+          incoming().createdAt == existing().createdAt &&
+          incoming().diff(existing()).affectedKeys().hasOnly(['mimeType', 'dataUrl', 'sizeBytes']);
+        allow delete: if canEditProject(projectId) && isValidId(projectId) && isValidId(mediaId);
       }
     }
   }

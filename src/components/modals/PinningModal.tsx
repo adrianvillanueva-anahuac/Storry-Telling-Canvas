@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { CommentPin, DrawingElement, WorkflowNode } from '../../types/workflow';
 import { X } from 'lucide-react';
 import { DrawingToolsBar } from './DrawingToolsBar';
+import { ResolvedImg } from '../ResolvedImg';
 import { useLanguage } from '../../hooks/useLanguage';
 import {
   DrawingToolType,
@@ -813,7 +814,7 @@ export const PinningModal: React.FC<PinningModalProps> = ({
             {t('pinning.imageUnavailable')}
           </div>
         ) : (
-          <img
+          <ResolvedImg
             ref={fullSizeImageRef}
             src={node.image || ''}
             alt={node.title}

@@ -2,6 +2,7 @@ import React, { useRef, useState } from 'react';
 import { GalleryImage } from '../../types/workflow';
 import { Check, Globe, Image as ImageIcon, Map as MapIcon, Sparkles, Trash2, UploadCloud, Wand2, X } from 'lucide-react';
 import { ShreddedImageIcon } from '../icons/ShreddedImageIcon';
+import { ResolvedImg } from '../ResolvedImg';
 import { useLanguage } from '../../hooks/useLanguage';
 import { ImageSearchResultItem } from '../../services/librarySearchService';
 import { WebMediaSearchPanel } from './WebMediaSearchPanel';
@@ -312,7 +313,7 @@ export const GalleryModal: React.FC<GalleryModalProps> = ({
                             </span>
                           </div>
                         ) : (
-                          <img
+                          <ResolvedImg
                             src={img.url}
                             alt={img.name}
                             referrerPolicy="no-referrer"

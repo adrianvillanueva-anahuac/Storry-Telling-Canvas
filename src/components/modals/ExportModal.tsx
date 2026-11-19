@@ -17,6 +17,7 @@ import {
   ProjectReportLabels,
   ReportFormat,
 } from '../../utils/projectReport';
+import { ResolvedImg } from '../ResolvedImg';
 import {
   Box,
   Download,
@@ -199,8 +200,8 @@ export const ExportModal: React.FC<ExportModalProps> = ({
     }
   };
 
-  const handleDownloadReport = () => {
-    exportProjectReportToFile({
+  const handleDownloadReport = async () => {
+    await exportProjectReportToFile({
       report: reportData,
       format: reportFormat,
       includeTagMatrix,
@@ -584,7 +585,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({
                             >
                               <div className="w-8 h-8 rounded-md overflow-hidden bg-[#dcd7cc] dark:bg-neutral-950 border border-[#c3beb1] dark:border-neutral-700 flex items-center justify-center shrink-0">
                                 {actor.thumbnailUrl ? (
-                                  <img
+                                  <ResolvedImg
                                     src={actor.thumbnailUrl}
                                     alt={actor.name}
                                     referrerPolicy="no-referrer"

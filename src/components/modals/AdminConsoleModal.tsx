@@ -18,6 +18,7 @@ import {
   X,
   ExternalLink,
 } from 'lucide-react';
+import { ResolvedImg } from '../ResolvedImg';
 import { useLanguage } from '../../hooks/useLanguage';
 
 interface AdminConsoleModalProps {
@@ -1511,7 +1512,7 @@ export const AdminConsoleModal: React.FC<AdminConsoleModalProps> = ({
                                       <ImageIcon className="w-4 h-4" />
                                     </div>
                                   ) : (
-                                    <img
+                                    <ResolvedImg
                                       src={img.url}
                                       alt=""
                                       referrerPolicy="no-referrer"

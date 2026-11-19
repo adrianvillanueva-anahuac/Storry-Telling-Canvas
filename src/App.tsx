@@ -245,6 +245,7 @@ export default function App() {
   const [imagesDbList, setImagesDbList] = useState<ImageResource[]>([]);
   const [imagesDbLoaded, setImagesDbLoaded] = useState(false);
   const recentlyUploadedUrlsRef = useRef<Set<string>>(new Set());
+  const migratedLocalUrlsRef = useRef<Set<string>>(new Set());
 
   // Zoom & Viewport
   const [zoom, setZoom] = useState(1);
@@ -803,6 +804,7 @@ export default function App() {
         u &&
           (u.includes('.blob.vercel-storage.com') ||
             u.includes('firebasestorage.googleapis.com') ||
+            u.startsWith('fsmedia://') ||
             u.startsWith('/uploads/'))
       );
 
@@ -857,6 +859,137 @@ export default function App() {
     appState.nodes,
     isReadOnly,
   ]);
+
+  // Auto-migrate any reachable legacy /uploads/... URLs to persistent cloud storage (Vercel Blob or Firestore Media)
+  useEffect(() => {
+    if (!authReady || !firebaseUser || !activeProjectId || !imagesDbLoaded || isReadOnly) return;
+
+    const candidates = new Map<string, 'images' | 'maps' | 'objects'>();
+
+    imagesDbList.forEach((img) => {
+      if (
+        img.projectId === activeProjectId &&
+        typeof img.url === 'string' &&
+        img.url.startsWith('/uploads/') &&
+        !migratedLocalUrlsRef.current.has(img.url)
+      ) {
+        candidates.set(
+          img.url,
+          img.folder === 'maps' ? 'maps' : img.folder === 'objects' ? 'objects' : 'images'
+        );
+      }
+    });
+
+    Object.values(appState.nodes).forEach((node) => {
+      if (
+        typeof node.image === 'string' &&
+        node.image.startsWith('/uploads/') &&
+        !migratedLocalUrlsRef.current.has(node.image)
+      ) {
+        candidates.set(node.image, 'images');
+      }
+      if (
+        typeof node.mapImage === 'string' &&
+        node.mapImage.startsWith('/uploads/') &&
+        !migratedLocalUrlsRef.current.has(node.mapImage)
+      ) {
+        candidates.set(node.mapImage, 'maps');
+      }
+    });
+
+    (appState.actors || []).forEach((actor) => {
+      if (
+        typeof actor.thumbnailUrl === 'string' &&
+        actor.thumbnailUrl.startsWith('/uploads/') &&
+        !migratedLocalUrlsRef.current.has(actor.thumbnailUrl)
+      ) {
+        candidates.set(actor.thumbnailUrl, 'objects');
+      }
+    });
+
+    if (candidates.size === 0) return;
+
+    let cancelled = false;
+    (async () => {
+      for (const [localUrl, folder] of candidates.entries()) {
+        if (cancelled) break;
+        migratedLocalUrlsRef.current.add(localUrl);
+        try {
+          const res = await fetch(localUrl);
+          const contentType = (res.headers.get('content-type') || '').toLowerCase();
+          if (!res.ok || !contentType.startsWith('image/')) continue;
+
+          const blob = await res.blob();
+          const rawName = decodeURIComponent(localUrl.split('/').pop() || 'migrated.png').replace(
+            /^\d+_/,
+            ''
+          );
+          const file = new File([blob], rawName || 'migrated.png', {
+            type: blob.type || contentType.split(';')[0] || 'image/png',
+          });
+
+          const uploaded = await uploadImageToStorage(file, folder, {
+            projectId: activeProjectId,
+            allowLocalFallback: false,
+          });
+          if (cancelled || uploaded.url === localUrl) continue;
+
+          const normNew = uploaded.url.split('?')[0].trim();
+          recentlyUploadedUrlsRef.current.add(normNew);
+
+          const matchingDbItems = imagesDbList.filter(
+            (img) => img.projectId === activeProjectId && img.url === localUrl
+          );
+          for (const dbImg of matchingDbItems) {
+            await registerImageInDb({
+              ...dbImg,
+              url: uploaded.url,
+              storagePath: uploaded.storagePath,
+            });
+          }
+
+          const matchingNodes = Object.values(appState.nodes).filter(
+            (n) => n.image === localUrl || n.mapImage === localUrl
+          );
+          for (const node of matchingNodes) {
+            const updatedNode: WorkflowNode = {
+              ...node,
+              ...(node.image === localUrl ? { image: uploaded.url } : {}),
+              ...(node.mapImage === localUrl ? { mapImage: uploaded.url } : {}),
+            };
+            await saveNodeToFirestore(activeProjectId, updatedNode);
+          }
+
+          const matchingActors = (appState.actors || []).filter(
+            (a) => a.thumbnailUrl === localUrl
+          );
+          for (const actor of matchingActors) {
+            await saveProjectActor(activeProjectId, {
+              ...actor,
+              thumbnailUrl: uploaded.url,
+              thumbnailPath: uploaded.storagePath,
+            });
+          }
+        } catch {
+          // Skip assets not available on this host
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    authReady,
+    firebaseUser,
+    activeProjectId,
+    imagesDbLoaded,
+    imagesDbList,
+    appState.nodes,
+    appState.actors,
+    isReadOnly,
+  ]);
+
   useEffect(() => {
     if (!authReady || !firebaseUser || currentUser.role !== 'Admin') {
       setUsersList([]);
@@ -3213,8 +3346,8 @@ export default function App() {
     setUploadError(null);
     setIsUploadingMedia(true);
     try {
-      // 1. Upload file directly to Vercel Blob Storage
-      const res = await uploadImageToStorage(file, folder);
+      // 1. Upload file to cloud storage (Vercel Blob -> Firebase Storage -> Firestore Media Asset)
+      const res = await uploadImageToStorage(file, folder, { projectId: activeProjectId });
       const normUrl = res.url.split('?')[0].trim();
       recentlyUploadedUrlsRef.current.add(normUrl);
 
@@ -3266,7 +3399,7 @@ export default function App() {
     setUploadError(null);
     setIsUploadingMedia(true);
     try {
-      const res = await uploadImageToStorage(file, folder);
+      const res = await uploadImageToStorage(file, folder, { projectId: activeProjectId });
       const normUrl = res.url.split('?')[0].trim();
       recentlyUploadedUrlsRef.current.add(normUrl);
 
@@ -3306,7 +3439,7 @@ export default function App() {
     }
   };
 
-  // Gallery multi-upload to Vercel Blob Storage
+  // Gallery multi-upload to cloud storage
   const handleUploadGalleryFiles = async (files: FileList) => {
     if (!activeProjectId) return;
     const folder = galleryModalState.mode.includes('maps') ? 'maps' : 'images';
@@ -3315,7 +3448,9 @@ export default function App() {
     try {
       for (let i = 0; i < files.length; i++) {
         const file = files[i];
-        const res = await uploadImageToStorage(file, folder);
+        const res = await uploadImageToStorage(file, folder, { projectId: activeProjectId });
+        const normUrl = res.url.split('?')[0].trim();
+        recentlyUploadedUrlsRef.current.add(normUrl);
         await registerImageInDb({
           id: `img-${Date.now()}_${i}`,
           projectId: activeProjectId,
@@ -3354,7 +3489,10 @@ export default function App() {
         const safeDisplayName = (item.title || 'Web Image').trim().slice(0, 200) || 'Web Image';
         try {
           const file = await importExternalImageAsFile(item.imageUrl, safeDisplayName);
-          const res = await uploadImageToStorage(file, folder, { allowLocalFallback: false });
+          const res = await uploadImageToStorage(file, folder, {
+            projectId: activeProjectId,
+            allowLocalFallback: false,
+          });
           const normUrl = res.url.split('?')[0].trim();
           recentlyUploadedUrlsRef.current.add(normUrl);
 

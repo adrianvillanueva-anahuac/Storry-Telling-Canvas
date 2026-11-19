@@ -1,6 +1,7 @@
 import { AppState, TextElement, WorkflowNode } from '../types/workflow';
 import { calculateConnectionPath, getNodePortCoords } from './connectionPath';
 import { getContrastTextColor } from './colorContrast';
+import { isFirestoreMediaUrl, resolveMediaUrl } from '../services/mediaCache';
 
 export type ExportScope = 'workspace' | 'view';
 export type ExportFormat = 'png' | 'svg';
@@ -182,6 +183,14 @@ export function getExportBounds(options: Pick<CanvasExportOptions, 'state' | 'sc
 async function fetchUrlAsDataUrl(url: string): Promise<string | null> {
   if (!url) return null;
   if (url.startsWith('data:')) return url;
+
+  if (isFirestoreMediaUrl(url)) {
+    try {
+      return await resolveMediaUrl(url);
+    } catch {
+      return null;
+    }
+  }
 
   try {
     const response = await fetch(url, { mode: 'cors', credentials: 'omit' });

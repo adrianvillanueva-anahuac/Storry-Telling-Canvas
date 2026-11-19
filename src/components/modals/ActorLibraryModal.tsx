@@ -19,6 +19,7 @@ import {
 import { useLanguage } from '../../hooks/useLanguage';
 import { AiImagePromptModal } from './AiImagePromptModal';
 import { LibraryWebSearchModal } from './LibraryWebSearchModal';
+import { ResolvedImg } from '../ResolvedImg';
 import { importExternalImageAsFile } from '../../services/librarySearchService';
 
 const STATE_COLOR_PALETTE = [
@@ -179,7 +180,7 @@ export const ActorLibraryModal: React.FC<ActorLibraryModalProps> = ({
     setFormError(null);
     setIsUploadingThumb(true);
     try {
-      const res = await uploadImageToStorage(file, 'objects');
+      const res = await uploadImageToStorage(file, 'objects', { projectId });
       setThumbnailUrl(res.url);
       setThumbnailPath(res.storagePath);
     } catch (err) {
@@ -408,7 +409,7 @@ export const ActorLibraryModal: React.FC<ActorLibraryModalProps> = ({
                           title={t('actorLib.clickThumbHint')}
                         >
                           {actor.thumbnailUrl ? (
-                            <img
+                            <ResolvedImg
                               src={actor.thumbnailUrl}
                               alt={actor.name}
                               referrerPolicy="no-referrer"
@@ -554,7 +555,7 @@ export const ActorLibraryModal: React.FC<ActorLibraryModalProps> = ({
                 </label>
                 <div className="aspect-square rounded-xl overflow-hidden bg-[#dbd6ca] dark:bg-neutral-950 border border-[#c3beb1] dark:border-neutral-800 flex items-center justify-center relative">
                   {thumbnailUrl ? (
-                    <img
+                    <ResolvedImg
                       src={thumbnailUrl}
                       alt={name || 'Actor'}
                       referrerPolicy="no-referrer"
@@ -933,7 +934,10 @@ export const ActorLibraryModal: React.FC<ActorLibraryModalProps> = ({
             setIsUploadingThumb(true);
             try {
               const file = await importExternalImageAsFile(chosen.imageUrl, chosen.title);
-              const res = await uploadImageToStorage(file, 'objects', { allowLocalFallback: false });
+              const res = await uploadImageToStorage(file, 'objects', {
+                projectId,
+                allowLocalFallback: false,
+              });
               setThumbnailUrl(res.url);
               setThumbnailPath(res.storagePath);
               setWebSearchOpen(false);

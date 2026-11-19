@@ -3,6 +3,7 @@ import { CommentPin, DrawingElement, WorkflowNode } from '../../types/workflow';
 import { getFigureBBox } from './PinningModal';
 import { X, Map as MapIcon } from 'lucide-react';
 import { DrawingToolsBar } from './DrawingToolsBar';
+import { ResolvedImg } from '../ResolvedImg';
 import { useLanguage } from '../../hooks/useLanguage';
 import {
   DrawingToolType,
@@ -789,7 +790,7 @@ export const MapViewerModal: React.FC<MapViewerModalProps> = ({
             {t('mapViewer.imageUnavailable')}
           </div>
         ) : (
-          <img
+          <ResolvedImg
             ref={fullSizeMapImageRef}
             src={node.mapImage || ''}
             alt={node.mapName}

@@ -2,6 +2,7 @@ import React, { useRef, useState } from 'react';
 import { LabelItem, WorkflowNode } from '../types/workflow';
 import { Unlink, Trash2, MessageSquare, Image as ImageIcon, Tag } from 'lucide-react';
 import { ShreddedImageIcon } from './icons/ShreddedImageIcon';
+import { ResolvedImg } from './ResolvedImg';
 import { useLanguage } from '../hooks/useLanguage';
 import { getContrastTextColor } from '../utils/colorContrast';
 
@@ -314,7 +315,7 @@ export const WorkflowNodeCard: React.FC<WorkflowNodeCardProps> = ({
             onClick={handleThumbClick}
             className="relative rounded-lg overflow-hidden bg-black aspect-video group/thumb cursor-pointer border border-[#54514a] dark:border-neutral-800"
           >
-            <img
+            <ResolvedImg
               src={node.image}
               alt={node.title}
               referrerPolicy="no-referrer"

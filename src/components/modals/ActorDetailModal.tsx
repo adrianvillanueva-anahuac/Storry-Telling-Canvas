@@ -1,6 +1,7 @@
 import React from 'react';
 import { ActorItem, WorkflowNode } from '../../types/workflow';
 import { Box, Calendar, Layers, Pencil, Tag, User, X } from 'lucide-react';
+import { ResolvedImg } from '../ResolvedImg';
 import { useLanguage } from '../../hooks/useLanguage';
 
 interface ActorDetailModalProps {
@@ -93,7 +94,7 @@ export const ActorDetailModal: React.FC<ActorDetailModalProps> = ({
           <div className="md:col-span-5 flex flex-col gap-3">
             <div className="aspect-square w-full rounded-xl overflow-hidden bg-[#dbd6ca] dark:bg-neutral-950 border border-[#c3beb1] dark:border-neutral-800 flex items-center justify-center">
               {actor.thumbnailUrl ? (
-                <img
+                <ResolvedImg
                   src={actor.thumbnailUrl}
                   alt={actor.name}
                   referrerPolicy="no-referrer"

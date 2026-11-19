@@ -1,6 +1,8 @@
 import React, { useMemo, useState } from 'react';
 import { Check, Loader2, RefreshCw, Sparkles, Wand2, X } from 'lucide-react';
 import { dataUrlToImageFile, generateOrEditGeminiImage } from '../../services/geminiImageService';
+import { resolveMediaUrl } from '../../services/mediaCache';
+import { ResolvedImg } from '../ResolvedImg';
 import { useLanguage } from '../../hooks/useLanguage';
 
 interface AiImagePromptModalProps {
@@ -67,10 +69,12 @@ export const AiImagePromptModal: React.FC<AiImagePromptModalProps> = ({
     setError(null);
     setIsGenerating(true);
     try {
+      const resolvedSourceUrl =
+        isEdit && sourceImageUrl ? await resolveMediaUrl(sourceImageUrl) : undefined;
       const result = await generateOrEditGeminiImage({
         mode,
         prompt: trimmed,
-        sourceImageUrl: isEdit ? sourceImageUrl : undefined,
+        sourceImageUrl: isEdit ? resolvedSourceUrl || sourceImageUrl : undefined,
         aspectRatio,
         imageSize,
         userApiKey,
@@ -137,7 +141,7 @@ export const AiImagePromptModal: React.FC<AiImagePromptModalProps> = ({
                   {t('aiModal.currentKind', { kind: kindLabel })}
                 </span>
                 <div className="aspect-video rounded-xl overflow-hidden bg-[#ddd8cd] dark:bg-neutral-950 border border-[#c3beb1] dark:border-neutral-800">
-                  <img
+                  <ResolvedImg
                     src={sourceImageUrl}
                     alt={t('aiModal.currentRefAlt')}
                     className="w-full h-full object-cover"
