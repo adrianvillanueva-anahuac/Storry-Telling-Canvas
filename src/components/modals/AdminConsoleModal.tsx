@@ -108,6 +108,7 @@ export const AdminConsoleModal: React.FC<AdminConsoleModalProps> = ({
   >(null);
   const [isDeletingImages, setIsDeletingImages] = useState(false);
   const [resolvedImageSizes, setResolvedImageSizes] = useState<Record<string, number>>({});
+  const [brokenImageKeys, setBrokenImageKeys] = useState<Set<string>>(new Set());
   const probedImageIdsRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
@@ -1505,11 +1506,25 @@ export const AdminConsoleModal: React.FC<AdminConsoleModalProps> = ({
                                   />
                                 </td>
                                 <td className="py-2 px-3 w-16">
-                                  <img
-                                    src={img.url}
-                                    alt=""
-                                    className="w-12 h-8 object-cover rounded-md border border-[#c3beb1] dark:border-neutral-800"
-                                  />
+                                  {brokenImageKeys.has(`${img.id}:${img.url}`) ? (
+                                    <div className="w-12 h-8 rounded-md border border-[#c3beb1] dark:border-neutral-800 bg-[#d8d3c8] dark:bg-neutral-900 flex items-center justify-center text-[#6e695d] dark:text-neutral-500">
+                                      <ImageIcon className="w-4 h-4" />
+                                    </div>
+                                  ) : (
+                                    <img
+                                      src={img.url}
+                                      alt=""
+                                      referrerPolicy="no-referrer"
+                                      onError={() => {
+                                        setBrokenImageKeys((prev) => {
+                                          const next = new Set(prev);
+                                          next.add(`${img.id}:${img.url}`);
+                                          return next;
+                                        });
+                                      }}
+                                      className="w-12 h-8 object-cover rounded-md border border-[#c3beb1] dark:border-neutral-800"
+                                    />
+                                  )}
                                 </td>
                                 <td className="py-2 px-3">
                                   <p className="font-semibold text-[#2b2924] dark:text-neutral-200">{img.name}</p>

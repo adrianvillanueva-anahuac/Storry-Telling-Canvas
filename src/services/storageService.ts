@@ -2,6 +2,21 @@ import { upload } from '@vercel/blob/client';
 import { deleteObject, getDownloadURL, ref, uploadBytes } from 'firebase/storage';
 import { auth, storage } from './firebase';
 
+export interface UploadImageResult {
+  url: string;
+  storagePath: string;
+  storageProvider: 'vercel-blob' | 'firebase-storage' | 'local-ephemeral';
+}
+
+export class CloudStorageUnavailableError extends Error {
+  constructor(message = 'Cloud storage is not configured in this environment.') {
+    super(message);
+    this.name = 'CloudStorageUnavailableError';
+  }
+}
+
+let firebaseStorageUnavailable = false;
+
 function fileToDataUrl(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -18,17 +33,23 @@ function fileToDataUrl(file: File): Promise<string> {
 }
 
 async function isVercelBlobConfigured(): Promise<boolean> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 4000);
   try {
-    const res = await fetch('/api/blob-token', { method: 'GET' });
-    if (res.ok) {
-      const data = (await res.json()) as { configured?: boolean };
-      if (data && data.configured === false) {
-        return false;
-      }
+    const res = await fetch('/api/blob-token', {
+      method: 'GET',
+      signal: controller.signal,
+    });
+    const contentType = res.headers.get('content-type') || '';
+    if (!res.ok || !contentType.includes('application/json')) {
+      return false;
     }
-    return true;
+    const data = (await res.json()) as { configured?: boolean };
+    return data?.configured === true;
   } catch {
-    return true;
+    return false;
+  } finally {
+    clearTimeout(timeout);
   }
 }
 
@@ -36,7 +57,7 @@ async function uploadViaLocalServer(
   file: File,
   safeName: string,
   folder: 'images' | 'maps' | 'objects'
-): Promise<{ url: string; storagePath: string }> {
+): Promise<UploadImageResult> {
   const base64Data = await fileToDataUrl(file);
   const res = await fetch('/api/upload', {
     method: 'POST',
@@ -47,38 +68,63 @@ async function uploadViaLocalServer(
       folder,
     }),
   });
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({}));
-    throw new Error(err.error || `Local upload failed (${res.status})`);
+  const contentType = res.headers.get('content-type') || '';
+  if (!contentType.includes('application/json')) {
+    throw new Error('Local upload endpoint is not available in this published environment.');
   }
-  const data = (await res.json()) as { url?: string; filename?: string };
-  if (!data.url) {
-    throw new Error('Local upload did not return an image URL.');
+  const data = (await res.json().catch(() => ({}))) as {
+    url?: string;
+    filename?: string;
+    error?: string;
+  };
+  if (!res.ok || !data.url) {
+    throw new Error(data.error || `Local upload failed (${res.status})`);
   }
   return {
     url: data.url,
     storagePath: `${folder}/${data.filename || safeName}`,
+    storageProvider: 'local-ephemeral',
   };
 }
 
 async function uploadViaFirebaseStorage(
   file: File,
   storagePath: string
-): Promise<{ url: string; storagePath: string }> {
-  const storageRef = ref(storage, storagePath);
-  await uploadBytes(storageRef, file, {
-    contentType: file.type || 'image/png',
-  });
-  const url = await getDownloadURL(storageRef);
-  return { url, storagePath };
+): Promise<UploadImageResult> {
+  if (firebaseStorageUnavailable) {
+    throw new Error('Firebase Storage is unavailable in this project.');
+  }
+
+  let timeoutId: ReturnType<typeof setTimeout> | undefined;
+  try {
+    const storageRef = ref(storage, storagePath);
+    const uploadPromise = (async () => {
+      await uploadBytes(storageRef, file, {
+        contentType: file.type || 'image/png',
+      });
+      return getDownloadURL(storageRef);
+    })();
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      timeoutId = setTimeout(() => reject(new Error('Firebase Storage upload timed out.')), 6000);
+    });
+    const url = await Promise.race([uploadPromise, timeoutPromise]);
+    return { url, storagePath, storageProvider: 'firebase-storage' };
+  } catch (err) {
+    firebaseStorageUnavailable = true;
+    throw err;
+  } finally {
+    if (timeoutId) clearTimeout(timeoutId);
+  }
 }
 
 export async function uploadImageToStorage(
   file: File,
-  folder: 'images' | 'maps' | 'objects' = 'images'
-): Promise<{ url: string; storagePath: string }> {
+  folder: 'images' | 'maps' | 'objects' = 'images',
+  options?: { allowLocalFallback?: boolean }
+): Promise<UploadImageResult> {
   const safeName = (file.name || 'image.png').replace(/[^a-zA-Z0-9._-]/g, '_');
   const storagePath = `${folder}/${Date.now()}_${safeName}`;
+  const allowLocalFallback = options?.allowLocalFallback !== false;
 
   const shouldTryVercelBlob = await isVercelBlobConfigured();
   if (shouldTryVercelBlob) {
@@ -93,17 +139,35 @@ export async function uploadImageToStorage(
       return {
         url: blob.url,
         storagePath: blob.pathname || storagePath,
+        storageProvider: 'vercel-blob',
       };
     } catch (blobErr) {
-      console.warn('Vercel Blob upload unavailable, falling back to server/Firebase storage:', blobErr);
+      console.warn('Vercel Blob upload failed, checking fallback storage:', blobErr);
     }
+  }
+
+  if (!firebaseStorageUnavailable) {
+    try {
+      return await uploadViaFirebaseStorage(file, storagePath);
+    } catch (firebaseErr) {
+      console.warn('Firebase Storage unavailable:', firebaseErr);
+    }
+  }
+
+  if (!allowLocalFallback) {
+    throw new CloudStorageUnavailableError(
+      'Cloud storage (Vercel Blob / Firebase Storage) is not configured in this environment.'
+    );
   }
 
   try {
     return await uploadViaLocalServer(file, safeName, folder);
   } catch (localErr) {
-    console.warn('Local /api/upload unavailable, falling back to Firebase Storage:', localErr);
-    return await uploadViaFirebaseStorage(file, storagePath);
+    throw new CloudStorageUnavailableError(
+      localErr instanceof Error
+        ? `${localErr.message} Configure BLOB_READ_WRITE_TOKEN to upload local files in the published app.`
+        : 'Cloud storage is not configured in the published app.'
+    );
   }
 }
 

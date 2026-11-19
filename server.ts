@@ -12,6 +12,7 @@ import {
   fetchExternalImageAsDataUrl,
   LibrarySearchKind,
   searchLibraryMediaWithGemini,
+  verifyFirebaseBearerToken,
 } from './lib/librarySearch';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -303,39 +304,6 @@ app.post('/api/blob-delete', async (req, res) => {
 const GEMINI_ASPECT_RATIOS = new Set(['1:1', '3:4', '4:3', '9:16', '16:9', '1:4', '1:8', '4:1', '8:1']);
 const GEMINI_IMAGE_SIZES = new Set(['1K', '2K', '4K']);
 
-function readFirebaseWebApiKey(): string {
-  try {
-    const raw = fs.readFileSync(path.join(__dirname, 'firebase-applet-config.json'), 'utf8');
-    const parsed = JSON.parse(raw) as { apiKey?: string };
-    if (parsed.apiKey) return parsed.apiKey;
-  } catch {
-    // ignore missing file
-  }
-  return process.env.VITE_FIREBASE_API_KEY || '';
-}
-
-async function verifyBearerFirebaseToken(authHeader?: string): Promise<boolean> {
-  if (!authHeader || !authHeader.startsWith('Bearer ')) return false;
-  const idToken = authHeader.slice(7).trim();
-  const apiKey = readFirebaseWebApiKey();
-  if (!idToken || !apiKey) return false;
-  try {
-    const res = await fetch(
-      `https://identitytoolkit.googleapis.com/v1/accounts:lookup?key=${encodeURIComponent(apiKey)}`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ idToken }),
-      }
-    );
-    if (!res.ok) return false;
-    const data = (await res.json()) as { users?: Array<{ emailVerified?: boolean }> };
-    return Boolean(data.users && data.users.length > 0 && data.users[0].emailVerified !== false);
-  } catch {
-    return false;
-  }
-}
-
 async function resolveEditSourceImage(
   sourceImageUrl?: string,
   sourceBase64?: string,
@@ -403,7 +371,11 @@ async function resolveEditSourceImage(
 }
 
 app.post('/api/gemini-image', async (req, res) => {
-  const isAuthorized = await verifyBearerFirebaseToken(req.headers.authorization);
+  const isAuthorized = await verifyFirebaseBearerToken(
+    req.headers.authorization,
+    (typeof req.headers.origin === 'string' ? req.headers.origin : undefined) ||
+      (typeof req.headers.referer === 'string' ? req.headers.referer : undefined)
+  );
   if (!isAuthorized) {
     return res.status(401).json({ error: 'Authentication required to generate images.' });
   }
@@ -514,9 +486,16 @@ app.post('/api/gemini-image', async (req, res) => {
 
 // Gemini Search Grounding for Library Image / Map / YouTube Search
 app.post('/api/gemini-search', async (req, res) => {
-  const isAuthorized = await verifyBearerFirebaseToken(req.headers.authorization);
+  const isAuthorized = await verifyFirebaseBearerToken(
+    req.headers.authorization,
+    (typeof req.headers.origin === 'string' ? req.headers.origin : undefined) ||
+      (typeof req.headers.referer === 'string' ? req.headers.referer : undefined)
+  );
   if (!isAuthorized) {
-    return res.status(401).json({ error: 'Authentication required to search web media.' });
+    return res.status(401).json({
+      error: 'Authentication required to search web media.',
+      code: 'UNAUTHORIZED',
+    });
   }
 
   const { kind, query, language, userApiKey } = req.body || {};
@@ -528,6 +507,7 @@ app.post('/api/gemini-search', async (req, res) => {
   if (!resolvedApiKey) {
     return res.status(400).json({
       error: 'Gemini API key is not configured on the server or in your user settings.',
+      code: 'MISSING_API_KEY',
     });
   }
 
@@ -564,7 +544,11 @@ app.post('/api/gemini-search', async (req, res) => {
 
 // External image proxy fetch for CORS-free library import
 app.post('/api/import-image', async (req, res) => {
-  const isAuthorized = await verifyBearerFirebaseToken(req.headers.authorization);
+  const isAuthorized = await verifyFirebaseBearerToken(
+    req.headers.authorization,
+    (typeof req.headers.origin === 'string' ? req.headers.origin : undefined) ||
+      (typeof req.headers.referer === 'string' ? req.headers.referer : undefined)
+  );
   if (!isAuthorized) {
     return res.status(401).json({ error: 'Authentication required to import web images.' });
   }

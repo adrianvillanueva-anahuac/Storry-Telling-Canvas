@@ -317,6 +317,7 @@ export const WorkflowNodeCard: React.FC<WorkflowNodeCardProps> = ({
             <img
               src={node.image}
               alt={node.title}
+              referrerPolicy="no-referrer"
               onError={() => setImageLoadError(true)}
               className="w-full h-full object-cover group-hover/thumb:scale-105 transition-transform duration-300"
             />
@@ -326,11 +327,11 @@ export const WorkflowNodeCard: React.FC<WorkflowNodeCardProps> = ({
           <div
             onClick={handleThumbClick}
             className="aspect-video rounded-lg border-2 border-dashed border-red-500/70 hover:border-red-400 flex flex-col items-center justify-center text-red-400 gap-1 p-2 text-center transition-colors cursor-pointer bg-red-950/25 hover:bg-red-950/40"
-            title={t('node.deletedImageTitle')}
+            title={node.imageDeletedFromAdmin ? t('node.deletedImageTitle') : t('node.unavailableImageTitle')}
           >
             <ShreddedImageIcon className="w-10 h-10 text-red-500" />
             <span className="text-[11px] font-semibold leading-tight text-red-400">
-              {t('node.deletedImage')}
+              {node.imageDeletedFromAdmin ? t('node.deletedImage') : t('node.unavailableImage')}
             </span>
           </div>
         ) : (

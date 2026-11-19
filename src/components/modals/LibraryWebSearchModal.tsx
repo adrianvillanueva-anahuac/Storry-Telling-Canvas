@@ -18,6 +18,7 @@ interface LibraryWebSearchModalProps {
   onClose: () => void;
   onConfirmImages?: (items: ImageSearchResultItem[]) => Promise<void> | void;
   onConfirmVideos?: (items: VideoSearchResultItem[]) => Promise<void> | void;
+  onOpenApiKeyConfig?: () => void;
 }
 
 export const LibraryWebSearchModal: React.FC<LibraryWebSearchModalProps> = ({
@@ -30,6 +31,7 @@ export const LibraryWebSearchModal: React.FC<LibraryWebSearchModalProps> = ({
   onClose,
   onConfirmImages,
   onConfirmVideos,
+  onOpenApiKeyConfig,
 }) => {
   const { t } = useLanguage();
 
@@ -69,6 +71,7 @@ export const LibraryWebSearchModal: React.FC<LibraryWebSearchModalProps> = ({
           importProgress={importProgress}
           onConfirmImages={onConfirmImages}
           onConfirmVideos={onConfirmVideos}
+          onOpenApiKeyConfig={onOpenApiKeyConfig}
         />
       </div>
     </div>

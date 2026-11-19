@@ -30,9 +30,15 @@ function getErrorStatusAndMessage(err: unknown): { status: number; message: stri
 }
 
 export async function POST(request: Request): Promise<Response> {
-  const isAuthorized = await verifyFirebaseBearerToken(request.headers.get('authorization'));
+  const isAuthorized = await verifyFirebaseBearerToken(
+    request.headers.get('authorization'),
+    request.headers.get('origin') || request.headers.get('referer')
+  );
   if (!isAuthorized) {
-    return Response.json({ error: 'Authentication required to search web media.' }, { status: 401 });
+    return Response.json(
+      { error: 'Authentication required to search web media.', code: 'UNAUTHORIZED' },
+      { status: 401 }
+    );
   }
 
   let body: {
@@ -55,7 +61,10 @@ export async function POST(request: Request): Promise<Response> {
 
   if (!resolvedApiKey) {
     return Response.json(
-      { error: 'Gemini API key is not configured on the server or in your user settings.' },
+      {
+        error: 'Gemini API key is not configured on the server or in your user settings.',
+        code: 'MISSING_API_KEY',
+      },
       { status: 400 }
     );
   }

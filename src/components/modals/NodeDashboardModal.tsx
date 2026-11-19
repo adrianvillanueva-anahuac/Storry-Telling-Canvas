@@ -101,6 +101,9 @@ export const NodeDashboardModal: React.FC<NodeDashboardModalProps> = ({
     Boolean(node.imageDeletedFromAdmin && !node.image && !isReadOnly && !isArchived)
   );
   const [confirmPermanentDelete, setConfirmPermanentDelete] = useState(false);
+  const [mainImgError, setMainImgError] = useState(false);
+  const [mapImgError, setMapImgError] = useState(false);
+  const [brokenActorIds, setBrokenActorIds] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     setEnfoqueText(node.enfoque || '');
@@ -119,11 +122,16 @@ export const NodeDashboardModal: React.FC<NodeDashboardModalProps> = ({
   }, [node.id, node.imageDeletedFromAdmin, isReadOnly, isArchived]);
 
   useEffect(() => {
+    setMainImgError(false);
     if (node.image) {
       setShowDeletedImagePrompt(false);
       setConfirmPermanentDelete(false);
     }
-  }, [node.image]);
+  }, [node.id, node.image]);
+
+  useEffect(() => {
+    setMapImgError(false);
+  }, [node.id, node.mapImage]);
 
   const mainFileInputRef = useRef<HTMLInputElement>(null);
   const mapFileInputRef = useRef<HTMLInputElement>(null);
@@ -484,16 +492,31 @@ export const NodeDashboardModal: React.FC<NodeDashboardModalProps> = ({
                 {node.mapImage ? (
                   <div className="space-y-2">
                     <div
-                      onClick={() => onOpenMapViewer(node.id)}
+                      onClick={() => (mapImgError ? !isReadOnly && onOpenMapGalleryPicker() : onOpenMapViewer(node.id))}
                       className="aspect-video rounded-lg overflow-hidden bg-black border border-amber-600/40 dark:border-amber-500/40 cursor-pointer group relative shadow-md"
-                      title={t('dashboard.openFullscreenMapTitle')}
+                      title={mapImgError ? t('dashboard.mapLibrary') : t('dashboard.openFullscreenMapTitle')}
                     >
-                      <img src={node.mapImage} alt={node.mapName} className="w-full h-full object-cover group-hover:scale-105 transition-transform" />
-                      <div className="absolute inset-0 bg-black/20 group-hover:bg-black/0 transition-colors flex items-center justify-center">
-                        <span className="px-2 py-1 rounded bg-black/80 text-amber-300 text-[10px] font-bold opacity-0 group-hover:opacity-100 transition-opacity">
-                          {t('dashboard.openMapViewer')}
-                        </span>
-                      </div>
+                      {mapImgError ? (
+                        <div className="w-full h-full flex flex-col items-center justify-center gap-1.5 p-3 text-center bg-red-950/35 text-red-200">
+                          <ShreddedImageIcon className="w-8 h-8 text-red-400" />
+                          <p className="text-[11px] font-medium leading-snug">{t('dashboard.mapUnavailable')}</p>
+                        </div>
+                      ) : (
+                        <>
+                          <img
+                            src={node.mapImage}
+                            alt={node.mapName}
+                            referrerPolicy="no-referrer"
+                            onError={() => setMapImgError(true)}
+                            className="w-full h-full object-cover group-hover:scale-105 transition-transform"
+                          />
+                          <div className="absolute inset-0 bg-black/20 group-hover:bg-black/0 transition-colors flex items-center justify-center">
+                            <span className="px-2 py-1 rounded bg-black/80 text-amber-300 text-[10px] font-bold opacity-0 group-hover:opacity-100 transition-opacity">
+                              {t('dashboard.openMapViewer')}
+                            </span>
+                          </div>
+                        </>
+                      )}
                     </div>
                     <div className="flex items-center justify-between gap-2 text-xs">
                       <span className="text-[#3a362e] dark:text-neutral-300 font-medium truncate">{node.mapName || t('dashboard.defaultMapName')}</span>
@@ -637,19 +660,42 @@ export const NodeDashboardModal: React.FC<NodeDashboardModalProps> = ({
             {!mapSidePanelOpen && (
               <>
                 <div className="aspect-video rounded-xl overflow-hidden bg-[#dbd6ca] dark:bg-neutral-950 border border-[#c3beb1] dark:border-neutral-800 relative group shadow-inner">
-                  {node.image ? (
+                  {node.image && !mainImgError ? (
                     <div
                       onClick={() => onOpenPinning(node.id)}
                       className="w-full h-full cursor-pointer relative"
                       title={t('dashboard.pinningTooltip')}
                     >
-                      <img src={node.image} alt={node.title} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" />
+                      <img
+                        src={node.image}
+                        alt={node.title}
+                        referrerPolicy="no-referrer"
+                        onError={() => setMainImgError(true)}
+                        className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                      />
                       <div className="absolute inset-0 bg-blue-600/0 group-hover:bg-blue-600/20 transition-colors flex items-center justify-center">
                         <span className="px-3 py-1.5 rounded-lg bg-black/80 border border-white/20 text-white text-xs font-semibold shadow-lg opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1.5">
                           <Edit className="w-3.5 h-3.5 text-blue-400" />
                           <span>{t('dashboard.fullscreenPinning')}</span>
                         </span>
                       </div>
+                    </div>
+                  ) : node.image && mainImgError ? (
+                    <div
+                      onClick={() => !isReadOnly && onOpenGalleryPicker()}
+                      className={`w-full h-full border-2 border-dashed border-amber-600/70 dark:border-amber-500/70 bg-amber-600/10 dark:bg-amber-950/25 flex flex-col items-center justify-center p-4 text-center transition-colors ${
+                        !isReadOnly ? 'hover:border-amber-500 hover:bg-amber-600/15 dark:hover:bg-amber-950/40 cursor-pointer' : ''
+                      }`}
+                    >
+                      <ShreddedImageIcon className="w-10 h-10 text-amber-600 dark:text-amber-400 mb-1.5" />
+                      <p className="text-xs font-semibold text-amber-900 dark:text-amber-200">
+                        {t('dashboard.imageUnavailable')}
+                      </p>
+                      <p className="text-[10px] text-amber-800/90 dark:text-amber-300/80 mt-1 max-w-xs leading-snug">
+                        {node.image.startsWith('/uploads/')
+                          ? t('dashboard.imageUnavailableLocalHint')
+                          : t('dashboard.imageUnavailableHint')}
+                      </p>
                     </div>
                   ) : node.imageDeletedFromAdmin ? (
                     <div
@@ -893,11 +939,18 @@ export const NodeDashboardModal: React.FC<NodeDashboardModalProps> = ({
                                 : 'opacity-60 cursor-default'
                             }`}
                           >
-                            {actor?.thumbnailUrl ? (
+                            {actor?.thumbnailUrl && !brokenActorIds.has(actor.id) ? (
                               <img
                                 src={actor.thumbnailUrl}
                                 alt={actor.name}
                                 referrerPolicy="no-referrer"
+                                onError={() => {
+                                  setBrokenActorIds((prev) => {
+                                    const next = new Set(prev);
+                                    next.add(actor.id);
+                                    return next;
+                                  });
+                                }}
                                 className="w-full h-full object-cover"
                               />
                             ) : (

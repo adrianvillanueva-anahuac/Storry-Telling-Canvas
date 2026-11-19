@@ -1,6 +1,7 @@
 import React, { useRef, useState } from 'react';
 import { GalleryImage } from '../../types/workflow';
 import { Check, Globe, Image as ImageIcon, Map as MapIcon, Sparkles, Trash2, UploadCloud, Wand2, X } from 'lucide-react';
+import { ShreddedImageIcon } from '../icons/ShreddedImageIcon';
 import { useLanguage } from '../../hooks/useLanguage';
 import { ImageSearchResultItem } from '../../services/librarySearchService';
 import { WebMediaSearchPanel } from './WebMediaSearchPanel';
@@ -23,6 +24,7 @@ interface GalleryModalProps {
   onDeleteSelected: (fileIds: string[]) => void;
   onOpenAiCreate?: () => void;
   onOpenAiEdit?: (image: GalleryImage) => void;
+  onOpenApiKeyConfig?: () => void;
 }
 
 export const GalleryModal: React.FC<GalleryModalProps> = ({
@@ -40,10 +42,12 @@ export const GalleryModal: React.FC<GalleryModalProps> = ({
   onDeleteSelected,
   onOpenAiCreate,
   onOpenAiEdit,
+  onOpenApiKeyConfig,
 }) => {
   const { t } = useLanguage();
   const [activeTab, setActiveTab] = useState<'library' | 'search'>('library');
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [brokenImgKeys, setBrokenImgKeys] = useState<Set<string>>(new Set());
   const [isImportingWeb, setIsImportingWeb] = useState(false);
   const [importProgress, setImportProgress] = useState<{ current: number; total: number } | null>(null);
   const [importNotice, setImportNotice] = useState<string | null>(null);
@@ -236,6 +240,7 @@ export const GalleryModal: React.FC<GalleryModalProps> = ({
             isImporting={isImportingWeb}
             importProgress={importProgress}
             onConfirmImages={handleConfirmWebImages}
+            onOpenApiKeyConfig={onOpenApiKeyConfig}
           />
         ) : (
           <>
@@ -281,12 +286,14 @@ export const GalleryModal: React.FC<GalleryModalProps> = ({
                 <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
                   {images.map((img) => {
                     const isSelected = selectedIds.has(img.id);
+                    const imgKey = `${img.id}:${img.url}`;
+                    const isBroken = brokenImgKeys.has(imgKey);
                     return (
                       <div
                         key={img.id}
                         onClick={() => {
                           if (isPicker) {
-                            onSelectImage(img.url);
+                            if (!isBroken) onSelectImage(img.url);
                           } else if (!isReadOnly) {
                             toggleSelect(img.id);
                           }
@@ -297,10 +304,31 @@ export const GalleryModal: React.FC<GalleryModalProps> = ({
                             : 'border-[#c3beb1] dark:border-neutral-800 hover:border-blue-500 hover:scale-[1.02]'
                         }`}
                       >
-                        <img src={img.url} alt={img.name} referrerPolicy="no-referrer" className="w-full h-full object-cover" />
+                        {isBroken ? (
+                          <div className="w-full h-full flex flex-col items-center justify-center gap-1 p-2 text-center bg-red-950/20 dark:bg-red-950/35 text-red-700 dark:text-red-300">
+                            <ShreddedImageIcon className="w-7 h-7 opacity-80" />
+                            <span className="text-[10px] font-semibold leading-tight">
+                              {t('gallery.imageUnavailable')}
+                            </span>
+                          </div>
+                        ) : (
+                          <img
+                            src={img.url}
+                            alt={img.name}
+                            referrerPolicy="no-referrer"
+                            onError={() => {
+                              setBrokenImgKeys((prev) => {
+                                const next = new Set(prev);
+                                next.add(imgKey);
+                                return next;
+                              });
+                            }}
+                            className="w-full h-full object-cover"
+                          />
+                        )}
 
                         {/* Quick AI Edit button on hover when API key is configured */}
-                        {!isReadOnly && hasApiKey && onOpenAiEdit && (
+                        {!isBroken && !isReadOnly && hasApiKey && onOpenAiEdit && (
                           <button
                             type="button"
                             onClick={(e) => {
@@ -323,7 +351,7 @@ export const GalleryModal: React.FC<GalleryModalProps> = ({
                         )}
 
                         {/* Picker hover overlay */}
-                        {isPicker && (
+                        {isPicker && !isBroken && (
                           <div className="absolute inset-0 bg-blue-600/80 text-white flex items-center justify-center text-xs font-bold opacity-0 group-hover:opacity-100 transition-opacity">
                             {t('gallery.applyToScene')}
                           </div>

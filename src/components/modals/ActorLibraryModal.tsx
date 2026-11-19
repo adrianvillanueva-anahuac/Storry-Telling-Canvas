@@ -47,6 +47,7 @@ interface ActorLibraryModalProps {
   onDeleteActor: (actor: ActorItem) => Promise<void>;
   onInspectActor: (actor: ActorItem) => void;
   onPickActorForNode?: (actor: ActorItem, stateOption: ActorStateOption | null) => void;
+  onOpenApiKeyConfig?: () => void;
 }
 
 export const ActorLibraryModal: React.FC<ActorLibraryModalProps> = ({
@@ -64,6 +65,7 @@ export const ActorLibraryModal: React.FC<ActorLibraryModalProps> = ({
   onDeleteActor,
   onInspectActor,
   onPickActorForNode,
+  onOpenApiKeyConfig,
 }) => {
   const { t } = useLanguage();
   const [search, setSearch] = useState('');
@@ -923,6 +925,7 @@ export const ActorLibraryModal: React.FC<ActorLibraryModalProps> = ({
           multiSelect={false}
           isImporting={isUploadingThumb}
           onClose={() => setWebSearchOpen(false)}
+          onOpenApiKeyConfig={onOpenApiKeyConfig}
           onConfirmImages={async (items) => {
             const chosen = items[0];
             if (!chosen) return;
@@ -930,7 +933,9 @@ export const ActorLibraryModal: React.FC<ActorLibraryModalProps> = ({
             setIsUploadingThumb(true);
             try {
               const file = await importExternalImageAsFile(chosen.imageUrl, chosen.title);
-              await handleUploadThumbnail(file);
+              const res = await uploadImageToStorage(file, 'objects', { allowLocalFallback: false });
+              setThumbnailUrl(res.url);
+              setThumbnailPath(res.storagePath);
               setWebSearchOpen(false);
             } catch (err) {
               setThumbnailUrl(chosen.imageUrl);

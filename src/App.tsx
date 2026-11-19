@@ -781,7 +781,12 @@ export default function App() {
 
     const normalizeUrl = (u?: string | null) => (u ? u.split('?')[0].trim() : '');
     const isManagedMediaUrl = (u?: string | null) =>
-      Boolean(u && (u.includes('.blob.vercel-storage.com') || u.startsWith('/uploads/')));
+      Boolean(
+        u &&
+          (u.includes('.blob.vercel-storage.com') ||
+            u.includes('firebasestorage.googleapis.com') ||
+            u.startsWith('/uploads/'))
+      );
 
     const dbUrls = new Set(imagesDbList.map((img) => normalizeUrl(img.url)).filter(Boolean));
     const orphanUrls: string[] = [];
@@ -3331,7 +3336,7 @@ export default function App() {
         const safeDisplayName = (item.title || 'Web Image').trim().slice(0, 200) || 'Web Image';
         try {
           const file = await importExternalImageAsFile(item.imageUrl, safeDisplayName);
-          const res = await uploadImageToStorage(file, folder);
+          const res = await uploadImageToStorage(file, folder, { allowLocalFallback: false });
           const normUrl = res.url.split('?')[0].trim();
           recentlyUploadedUrlsRef.current.add(normUrl);
 
@@ -4636,6 +4641,7 @@ export default function App() {
               onProgress
             )
           }
+          onOpenApiKeyConfig={() => setApiKeyModalOpen(true)}
           onOpenAiCreate={() => {
             if (!hasApiKey) return;
             const targetKind = galleryModalState.mode.includes('maps') ? 'map' : 'image';
@@ -4695,6 +4701,7 @@ export default function App() {
           isReadOnly={isReadOnly}
           userApiKey={userGeminiApiKey}
           author={currentUser.name}
+          onOpenApiKeyConfig={() => setApiKeyModalOpen(true)}
           onClose={() => setGlobalVideoModalOpen(false)}
           onAddVideo={(video) => {
             if (activeProjectId) {
@@ -4727,6 +4734,7 @@ export default function App() {
                 null
               : null
           }
+          onOpenApiKeyConfig={() => setApiKeyModalOpen(true)}
           onClose={() => setActorLibraryState({ open: false })}
           onSaveActor={async (actor) => {
             await saveProjectActor(activeProjectId, actor);

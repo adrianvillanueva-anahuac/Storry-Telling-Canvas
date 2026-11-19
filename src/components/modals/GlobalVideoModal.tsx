@@ -14,6 +14,7 @@ interface GlobalVideoModalProps {
   onClose: () => void;
   onAddVideo: (video: GlobalVideo) => void;
   onDeleteVideo: (id: string) => void;
+  onOpenApiKeyConfig?: () => void;
 }
 
 export function extractYouTubeId(url: string): string | null {
@@ -31,6 +32,7 @@ export const GlobalVideoModal: React.FC<GlobalVideoModalProps> = ({
   onClose,
   onAddVideo,
   onDeleteVideo,
+  onOpenApiKeyConfig,
 }) => {
   const { t, locale } = useLanguage();
   const [activeTab, setActiveTab] = useState<'library' | 'search'>('library');
@@ -153,6 +155,7 @@ export const GlobalVideoModal: React.FC<GlobalVideoModalProps> = ({
             multiSelect={true}
             existingVideoIds={existingVideoIds}
             onConfirmVideos={handleConfirmSearchedVideos}
+            onOpenApiKeyConfig={onOpenApiKeyConfig}
           />
         ) : (
           <>

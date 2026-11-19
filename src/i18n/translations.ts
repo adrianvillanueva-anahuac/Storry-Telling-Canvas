@@ -144,6 +144,8 @@ const en = {
   'node.doubleTapRename': 'Double-click or double-tap to rename',
   'node.deletedImageTitle': 'Image deleted from Admin. Click to decide what to do.',
   'node.deletedImage': 'Image Deleted',
+  'node.unavailableImage': 'Image Unavailable',
+  'node.unavailableImageTitle': 'This image could not be loaded here. Click to replace or re-import it.',
   'node.pasteOrDrop': 'Paste or Drop Image',
   'node.commentsBadgeTitle': '{count} comments & tasks',
   'node.labelBtn': 'Assign Label',
@@ -295,6 +297,10 @@ const en = {
   'dashboard.pinningTooltip': 'Click to open Fullscreen Pinning and Drawing Tools',
   'dashboard.fullscreenPinning': 'Fullscreen Pinning & Drawings',
   'dashboard.imageDeletedAdmin': 'Image deleted from administration',
+  'dashboard.imageUnavailable': 'Could not load scene image',
+  'dashboard.imageUnavailableLocalHint': 'Saved locally in Preview and unavailable in the published app. Click to pick or search a new image.',
+  'dashboard.imageUnavailableHint': 'The remote host blocked or removed this image. Click to pick or search another.',
+  'dashboard.mapUnavailable': 'Could not load map image. Use Map Library to replace it.',
   'dashboard.clickToDecide': 'Click to upload image, archive or delete node',
   'dashboard.pasteDropScene': 'Paste or drop scene image',
   'dashboard.clickBrowseDevice': 'Click to browse your device',
@@ -461,6 +467,7 @@ const en = {
   'gallery.tabSearchWeb': 'Search Web',
   'gallery.searchMapsBtn': 'Search Maps',
   'gallery.searchImagesBtn': 'Search Images',
+  'gallery.imageUnavailable': 'Unavailable here',
 
   // Global Video Modal
   'videoLib.title': 'Project Video Reference Library',
@@ -498,6 +505,9 @@ const en = {
   'webSearch.modalTitleImages': 'Search Web Images',
   'webSearch.modalTitleMaps': 'Search Web Maps',
   'webSearch.modalTitleVideos': 'Search YouTube Videos',
+  'webSearch.missingApiKeyHint': 'This published app needs a Gemini API Key to search images or videos.',
+  'webSearch.configureApiKey': 'Config API Key',
+  'webSearch.signInRequired': 'Please sign in with your Google account to search media.',
 
   // Video Selection Modal
   'videoSelect.title': 'Select Reference Video',
@@ -616,6 +626,7 @@ const en = {
   'pinning.byAuthor': 'by {author}',
   'pinning.notePlaceholder': 'Write your scene comment or task...',
   'pinning.savePin': 'Save Pin',
+  'pinning.imageUnavailable': 'Could not load scene image. Use Replace Image above to choose a valid image.',
 
   // Map Viewer Modal
   'mapViewer.defaultTitle': 'Map Viewer',
@@ -624,6 +635,7 @@ const en = {
   'mapViewer.byAuthor': 'by {author}',
   'mapViewer.notePlaceholder': 'Write your map annotation comment or task...',
   'mapViewer.savePin': 'Save Pin',
+  'mapViewer.imageUnavailable': 'Could not load map image. Use Replace Map above to choose a valid map.',
 
   // Sketch Studio Modal
   'sketch.title': 'Sketch Studio',
@@ -1115,6 +1127,8 @@ const es: Record<TranslationKey, string> = {
   'node.doubleTapRename': 'Doble clic o doble toque para renombrar',
   'node.deletedImageTitle': 'Imagen eliminada desde administración. Haz clic para decidir qué hacer.',
   'node.deletedImage': 'Imagen eliminada',
+  'node.unavailableImage': 'Imagen no disponible',
+  'node.unavailableImageTitle': 'No se pudo cargar esta imagen aquí. Haz clic para reemplazarla o volver a importarla.',
   'node.pasteOrDrop': 'Pega o suelta una imagen',
   'node.commentsBadgeTitle': '{count} comentarios y tareas',
   'node.labelBtn': 'Asignar etiqueta',
@@ -1266,6 +1280,10 @@ const es: Record<TranslationKey, string> = {
   'dashboard.pinningTooltip': 'Clic para abrir pines y herramientas de dibujo en pantalla completa',
   'dashboard.fullscreenPinning': 'Pines y dibujos en pantalla completa',
   'dashboard.imageDeletedAdmin': 'Imagen eliminada desde administración',
+  'dashboard.imageUnavailable': 'No se pudo cargar la imagen de escena',
+  'dashboard.imageUnavailableLocalHint': 'Se guardó localmente en Preview y no existe en la versión publicada. Haz clic para elegir o buscar una nueva.',
+  'dashboard.imageUnavailableHint': 'El servidor de origen bloqueó o eliminó esta imagen. Haz clic para elegir o buscar otra.',
+  'dashboard.mapUnavailable': 'No se pudo cargar la imagen del mapa. Usa Biblioteca de mapas para reemplazarlo.',
   'dashboard.clickToDecide': 'Haz clic para subir imagen, archivar o eliminar nodo',
   'dashboard.pasteDropScene': 'Pega o suelta la imagen de escena',
   'dashboard.clickBrowseDevice': 'Haz clic para explorar tu dispositivo',
@@ -1432,6 +1450,7 @@ const es: Record<TranslationKey, string> = {
   'gallery.tabSearchWeb': 'Buscar en la web',
   'gallery.searchMapsBtn': 'Buscar mapas',
   'gallery.searchImagesBtn': 'Buscar imágenes',
+  'gallery.imageUnavailable': 'No disponible aquí',
 
   // Global Video Modal
   'videoLib.title': 'Biblioteca de videos de referencia',
@@ -1469,6 +1488,9 @@ const es: Record<TranslationKey, string> = {
   'webSearch.modalTitleImages': 'Buscar imágenes en la web',
   'webSearch.modalTitleMaps': 'Buscar mapas en la web',
   'webSearch.modalTitleVideos': 'Buscar videos en YouTube',
+  'webSearch.missingApiKeyHint': 'La versión publicada necesita una API Key de Gemini para buscar imágenes o videos.',
+  'webSearch.configureApiKey': 'Configurar API Key',
+  'webSearch.signInRequired': 'Inicia sesión con tu cuenta de Google para buscar medios.',
 
   // Video Selection Modal
   'videoSelect.title': 'Seleccionar video de referencia',
@@ -1587,6 +1609,7 @@ const es: Record<TranslationKey, string> = {
   'pinning.byAuthor': 'por {author}',
   'pinning.notePlaceholder': 'Escribe tu comentario o tarea de escena...',
   'pinning.savePin': 'Guardar pin',
+  'pinning.imageUnavailable': 'No se pudo cargar la imagen de la escena. Usa Reemplazar imagen arriba para elegir una válida.',
 
   // Map Viewer Modal
   'mapViewer.defaultTitle': 'Visor de mapa',
@@ -1595,6 +1618,7 @@ const es: Record<TranslationKey, string> = {
   'mapViewer.byAuthor': 'por {author}',
   'mapViewer.notePlaceholder': 'Escribe tu anotación o tarea en el mapa...',
   'mapViewer.savePin': 'Guardar pin',
+  'mapViewer.imageUnavailable': 'No se pudo cargar la imagen del mapa. Usa Reemplazar mapa arriba para elegir uno válido.',
 
   // Sketch Studio Modal
   'sketch.title': 'Estudio de boceto',

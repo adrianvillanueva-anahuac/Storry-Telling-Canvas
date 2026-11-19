@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import net from 'node:net';
+import { fileURLToPath } from 'node:url';
 import { GoogleGenAI, ThinkingLevel } from '@google/genai';
 
 export type LibrarySearchKind = 'images' | 'maps' | 'videos';
@@ -40,28 +41,44 @@ const REQUEST_UA =
   'Mozilla/5.0 (compatible; VisualWorkflowCanvas/1.0; +https://vercel.app)';
 
 export function getFirebaseWebApiKey(): string {
-  try {
-    const raw = fs.readFileSync(path.join(process.cwd(), 'firebase-applet-config.json'), 'utf8');
-    const parsed = JSON.parse(raw) as { apiKey?: string };
-    if (parsed.apiKey) return parsed.apiKey;
-  } catch {
-    // Fallback to environment variable
+  const candidates = [
+    path.join(process.cwd(), 'firebase-applet-config.json'),
+    path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../firebase-applet-config.json'),
+  ];
+  for (const configPath of candidates) {
+    try {
+      if (fs.existsSync(configPath)) {
+        const raw = fs.readFileSync(configPath, 'utf8');
+        const parsed = JSON.parse(raw) as { apiKey?: string };
+        if (parsed.apiKey) return parsed.apiKey;
+      }
+    } catch {
+      // Try next candidate
+    }
   }
-  return process.env.VITE_FIREBASE_API_KEY || '';
+  return process.env.VITE_FIREBASE_API_KEY || process.env.FIREBASE_WEB_API_KEY || '';
 }
 
-export async function verifyFirebaseBearerToken(authHeader?: string | null): Promise<boolean> {
+export async function verifyFirebaseBearerToken(
+  authHeader?: string | null,
+  requestRefererOrOrigin?: string | null
+): Promise<boolean> {
   if (!authHeader || !authHeader.startsWith('Bearer ')) return false;
   const idToken = authHeader.slice(7).trim();
   const apiKey = getFirebaseWebApiKey();
   if (!idToken || !apiKey) return false;
+
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  if (requestRefererOrOrigin) {
+    headers['Referer'] = requestRefererOrOrigin;
+  }
 
   try {
     const res = await fetch(
       `https://identitytoolkit.googleapis.com/v1/accounts:lookup?key=${encodeURIComponent(apiKey)}`,
       {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers,
         body: JSON.stringify({ idToken }),
       }
     );
@@ -270,13 +287,13 @@ async function verifyImageUrl(
     let res = await fetchWithTimeout(safe.toString(), {
       method: 'HEAD',
       redirect: 'follow',
-      timeoutMs: 4000,
+      timeoutMs: 3000,
     });
     if (res.status === 405 || res.status === 403 || !res.ok) {
       res = await fetchWithTimeout(safe.toString(), {
         method: 'GET',
         redirect: 'follow',
-        timeoutMs: 4500,
+        timeoutMs: 3500,
         headers: { Range: 'bytes=0-2047' },
       });
       await res.body?.cancel().catch(() => {});
@@ -375,10 +392,13 @@ async function resolveCandidateToImage(candidate: {
     const html = (await pageRes.text()).slice(0, 260_000);
     const finalPageUrl = pageRes.url || pageUrlToFetch;
     const extracted = extractMetaImagesFromHtml(html, finalPageUrl);
+    const imgChecks = await Promise.allSettled(
+      extracted.imageUrls.slice(0, 4).map((imgCandidate) => verifyImageUrl(imgCandidate))
+    );
 
-    for (const imgCandidate of extracted.imageUrls.slice(0, 4)) {
-      const verified = await verifyImageUrl(imgCandidate);
-      if (verified) {
+    for (const check of imgChecks) {
+      if (check.status === 'fulfilled' && check.value) {
+        const verified = check.value;
         const pageDomain = new URL(finalPageUrl).hostname.replace(/^www\./, '');
         return {
           id: `sr-${Buffer.from(verified.url).toString('base64url').slice(0, 20)}`,

@@ -4,7 +4,10 @@ import {
 } from '../lib/librarySearch';
 
 export async function POST(request: Request): Promise<Response> {
-  const isAuthorized = await verifyFirebaseBearerToken(request.headers.get('authorization'));
+  const isAuthorized = await verifyFirebaseBearerToken(
+    request.headers.get('authorization'),
+    request.headers.get('origin') || request.headers.get('referer')
+  );
   if (!isAuthorized) {
     return Response.json({ error: 'Authentication required to import web images.' }, { status: 401 });
   }

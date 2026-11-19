@@ -34,13 +34,28 @@ export interface LibrarySearchResult {
   searchQueries: string[];
 }
 
+export class LibrarySearchError extends Error {
+  code?: string;
+  status?: number;
+
+  constructor(message: string, code?: string, status?: number) {
+    super(message);
+    this.name = 'LibrarySearchError';
+    this.code = code;
+    this.status = status;
+  }
+}
+
 export async function searchLibraryMedia(params: {
   kind: LibrarySearchKind;
   query: string;
   language?: 'en' | 'es';
   userApiKey?: string | null;
 }): Promise<LibrarySearchResult> {
-  const idToken = auth.currentUser ? await auth.currentUser.getIdToken() : '';
+  if (!auth.currentUser) {
+    throw new LibrarySearchError('Sign in required to search media.', 'UNAUTHORIZED', 401);
+  }
+  const idToken = await auth.currentUser.getIdToken();
 
   const res = await fetch('/api/gemini-search', {
     method: 'POST',
@@ -56,12 +71,26 @@ export async function searchLibraryMedia(params: {
     }),
   });
 
+  const contentType = res.headers.get('content-type') || '';
+  if (!contentType.includes('application/json')) {
+    throw new LibrarySearchError(
+      `Search endpoint returned an invalid response (${res.status}).`,
+      res.status === 504 ? 'TIMEOUT' : 'INVALID_RESPONSE',
+      res.status
+    );
+  }
+
   const data = (await res.json().catch(() => ({}))) as Partial<LibrarySearchResult> & {
     error?: string;
+    code?: string;
   };
 
   if (!res.ok) {
-    throw new Error(data.error || `Search failed (${res.status}).`);
+    throw new LibrarySearchError(
+      data.error || `Search failed (${res.status}).`,
+      data.code,
+      res.status
+    );
   }
 
   return {
@@ -76,7 +105,10 @@ export async function importExternalImageAsFile(
   imageUrl: string,
   suggestedTitle?: string
 ): Promise<File> {
-  const idToken = auth.currentUser ? await auth.currentUser.getIdToken() : '';
+  if (!auth.currentUser) {
+    throw new LibrarySearchError('Sign in required to import image.', 'UNAUTHORIZED', 401);
+  }
+  const idToken = await auth.currentUser.getIdToken();
 
   const res = await fetch('/api/import-image', {
     method: 'POST',
@@ -90,6 +122,15 @@ export async function importExternalImageAsFile(
     }),
   });
 
+  const contentType = res.headers.get('content-type') || '';
+  if (!contentType.includes('application/json')) {
+    throw new LibrarySearchError(
+      `Image proxy returned an invalid response (${res.status}).`,
+      'INVALID_RESPONSE',
+      res.status
+    );
+  }
+
   const data = (await res.json().catch(() => ({}))) as {
     dataUrl?: string;
     mimeType?: string;
@@ -98,7 +139,11 @@ export async function importExternalImageAsFile(
   };
 
   if (!res.ok || !data.dataUrl) {
-    throw new Error(data.error || `Could not download image (${res.status}).`);
+    throw new LibrarySearchError(
+      data.error || `Could not download image (${res.status}).`,
+      undefined,
+      res.status
+    );
   }
 
   const file = dataUrlToImageFile(data.dataUrl, suggestedTitle || 'web-image');

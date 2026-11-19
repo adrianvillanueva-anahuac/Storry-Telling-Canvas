@@ -4,6 +4,7 @@ import {
   ExternalLink,
   Globe,
   Image as ImageIcon,
+  KeyRound,
   Loader2,
   Map as MapIcon,
   Plus,
@@ -14,6 +15,7 @@ import { useLanguage } from '../../hooks/useLanguage';
 import {
   GroundingSource,
   ImageSearchResultItem,
+  LibrarySearchError,
   LibrarySearchKind,
   searchLibraryMedia,
   VideoSearchResultItem,
@@ -28,6 +30,7 @@ interface WebMediaSearchPanelProps {
   importProgress?: { current: number; total: number } | null;
   onConfirmImages?: (items: ImageSearchResultItem[]) => Promise<void> | void;
   onConfirmVideos?: (items: VideoSearchResultItem[]) => Promise<void> | void;
+  onOpenApiKeyConfig?: () => void;
 }
 
 export const WebMediaSearchPanel: React.FC<WebMediaSearchPanelProps> = ({
@@ -39,12 +42,14 @@ export const WebMediaSearchPanel: React.FC<WebMediaSearchPanelProps> = ({
   importProgress = null,
   onConfirmImages,
   onConfirmVideos,
+  onOpenApiKeyConfig,
 }) => {
   const { language, t } = useLanguage();
   const [query, setQuery] = useState('');
   const [lastQuery, setLastQuery] = useState('');
   const [isSearching, setIsSearching] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [errorCode, setErrorCode] = useState<string | null>(null);
   const [imageResults, setImageResults] = useState<ImageSearchResultItem[]>([]);
   const [videoResults, setVideoResults] = useState<VideoSearchResultItem[]>([]);
   const [groundingSources, setGroundingSources] = useState<GroundingSource[]>([]);
@@ -72,6 +77,7 @@ export const WebMediaSearchPanel: React.FC<WebMediaSearchPanelProps> = ({
 
     setIsSearching(true);
     setError(null);
+    setErrorCode(null);
     setSelectedIds(new Set());
     setBrokenImgIds(new Set());
     setLastQuery(trimmed);
@@ -93,6 +99,7 @@ export const WebMediaSearchPanel: React.FC<WebMediaSearchPanelProps> = ({
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : t('common.error'));
+      setErrorCode(err instanceof LibrarySearchError ? err.code || null : null);
       setImageResults([]);
       setVideoResults([]);
       setGroundingSources([]);
@@ -245,8 +252,24 @@ export const WebMediaSearchPanel: React.FC<WebMediaSearchPanelProps> = ({
         )}
 
         {error && (
-          <div className="p-2.5 rounded-lg bg-red-600/12 dark:bg-red-950/50 border border-red-600/35 dark:border-red-800/60 text-[11px] text-red-800 dark:text-red-300">
-            {error}
+          <div className="p-2.5 rounded-lg bg-red-600/12 dark:bg-red-950/50 border border-red-600/35 dark:border-red-800/60 text-[11px] text-red-800 dark:text-red-300 flex flex-wrap items-center justify-between gap-2">
+            <span>
+              {errorCode === 'MISSING_API_KEY'
+                ? t('webSearch.missingApiKeyHint')
+                : errorCode === 'UNAUTHORIZED'
+                ? t('webSearch.signInRequired')
+                : error}
+            </span>
+            {errorCode === 'MISSING_API_KEY' && onOpenApiKeyConfig && (
+              <button
+                type="button"
+                onClick={onOpenApiKeyConfig}
+                className="px-2.5 py-1 rounded-md bg-blue-600 hover:bg-blue-500 text-white text-[11px] font-semibold inline-flex items-center gap-1.5 shrink-0 transition-colors cursor-pointer"
+              >
+                <KeyRound className="w-3 h-3" />
+                <span>{t('webSearch.configureApiKey')}</span>
+              </button>
+            )}
           </div>
         )}
       </form>

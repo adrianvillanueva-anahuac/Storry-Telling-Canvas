@@ -78,6 +78,11 @@ export const MapViewerModal: React.FC<MapViewerModalProps> = ({
     width: node.mapImageWidth || 0,
     height: node.mapImageHeight || 0,
   });
+  const [mapLoadError, setMapLoadError] = useState(false);
+
+  useEffect(() => {
+    setMapLoadError(false);
+  }, [node.mapImage]);
 
   const initialTransformRef = useRef<{
     x: number;
@@ -779,13 +784,21 @@ export const MapViewerModal: React.FC<MapViewerModalProps> = ({
           activeTool !== 'none' ? 'cursor-crosshair' : ''
         }`}
       >
-        <img
-          ref={fullSizeMapImageRef}
-          src={node.mapImage || ''}
-          alt={node.mapName}
-          onLoad={handleImageLoad}
-          className="block max-w-[92vw] sm:max-w-[88vw] max-h-[75vh] sm:max-h-[78vh] object-contain select-none pointer-events-none"
-        />
+        {mapLoadError ? (
+          <div className="w-[70vw] max-w-xl aspect-video rounded-xl bg-neutral-900 border border-amber-500/50 flex items-center justify-center p-6 text-center text-xs text-amber-200">
+            {t('mapViewer.imageUnavailable')}
+          </div>
+        ) : (
+          <img
+            ref={fullSizeMapImageRef}
+            src={node.mapImage || ''}
+            alt={node.mapName}
+            referrerPolicy="no-referrer"
+            onLoad={handleImageLoad}
+            onError={() => setMapLoadError(true)}
+            className="block max-w-[92vw] sm:max-w-[88vw] max-h-[75vh] sm:max-h-[78vh] object-contain select-none pointer-events-none"
+          />
+        )}
 
         <svg
           ref={svgOverlayRef}
