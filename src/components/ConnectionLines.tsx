@@ -60,6 +60,18 @@ interface LiveDragOverride {
   curveOffset?: { x: number; y: number };
 }
 
+function getFlowOverlayStroke(color: string): string {
+  const clean = color.trim().replace('#', '');
+  if (/^[0-9a-fA-F]{6}$/.test(clean)) {
+    const r = parseInt(clean.slice(0, 2), 16) / 255;
+    const g = parseInt(clean.slice(2, 4), 16) / 255;
+    const b = parseInt(clean.slice(4, 6), 16) / 255;
+    const lum = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+    return lum > 0.75 ? '#0f172a' : '#ffffff';
+  }
+  return '#ffffff';
+}
+
 export const ConnectionLines: React.FC<ConnectionLinesProps> = ({
   connections,
   nodes,
@@ -373,18 +385,53 @@ export const ConnectionLines: React.FC<ConnectionLinesProps> = ({
           : null;
         const pa = effectiveConn.parallelArrows || { first: 'forward', second: 'backward' };
         const ps = effectiveConn.parallelStyles || { first: 'solid', second: 'solid' };
-        const getStrokeStyle = (pattern?: string) => {
+        const getStrokeStyle = (
+          pattern?: string,
+          dir: 'forward' | 'backward' = 'forward'
+        ) => {
           if (pattern === 'dotted') {
-            return { strokeDasharray: '1 6', strokeLinecap: 'round' as const };
+            return {
+              strokeDasharray: '1 6',
+              strokeLinecap: 'round' as const,
+              flowClass:
+                dir === 'backward'
+                  ? 'connection-flow-dotted-backward'
+                  : 'connection-flow-dotted-forward',
+              isSolid: false,
+            };
           }
           if (pattern === 'dashed') {
-            return { strokeDasharray: '10 6', strokeLinecap: 'butt' as const };
+            return {
+              strokeDasharray: '10 6',
+              strokeLinecap: 'butt' as const,
+              flowClass:
+                dir === 'backward'
+                  ? 'connection-flow-dashed-backward'
+                  : 'connection-flow-dashed-forward',
+              isSolid: false,
+            };
           }
-          return { strokeDasharray: undefined, strokeLinecap: 'butt' as const };
+          return {
+            strokeDasharray: undefined,
+            strokeLinecap: 'butt' as const,
+            flowClass:
+              dir === 'backward'
+                ? 'connection-flow-pulse-backward'
+                : 'connection-flow-pulse-forward',
+            isSolid: true,
+          };
         };
-        const singleStroke = getStrokeStyle(effectiveConn.style);
-        const line1Stroke = getStrokeStyle(ps.first);
-        const line2Stroke = getStrokeStyle(ps.second);
+        const singleDir: 'forward' | 'backward' =
+          effectiveConn.arrows === 'start' ? 'backward' : 'forward';
+        const line1Dir: 'forward' | 'backward' =
+          pa.first === 'backward' ? 'backward' : 'forward';
+        const line2Dir: 'forward' | 'backward' =
+          pa.second === 'backward' ? 'backward' : 'forward';
+
+        const singleStroke = getStrokeStyle(effectiveConn.style, singleDir);
+        const line1Stroke = getStrokeStyle(ps.first, line1Dir);
+        const line2Stroke = getStrokeStyle(ps.second, line2Dir);
+        const flowOverlayStroke = getFlowOverlayStroke(lineColor);
 
         const isSeparateLabels = isParallel && effectiveConn.parallelLabelMode === 'separate';
         const label1Text = effectiveConn.parallelLabels?.first ?? '';
@@ -421,6 +468,7 @@ export const ConnectionLines: React.FC<ConnectionLinesProps> = ({
 
         const isHovered = hoveredConnectionId === conn.id;
         const isSelected = selectedConnectionId === conn.id;
+        const flowOverlayOpacity = isHovered || isSelected ? 0.54 : 0.34;
         const showBendHandle =
           !isReadOnly && !isPanMode && (isHovered || isSelected || isDraggingThis);
         const isCustomBent =
@@ -455,6 +503,7 @@ export const ConnectionLines: React.FC<ConnectionLinesProps> = ({
                   strokeWidth="2"
                   strokeDasharray={line1Stroke.strokeDasharray}
                   strokeLinecap={line1Stroke.strokeLinecap}
+                  className={!line1Stroke.isSolid ? line1Stroke.flowClass : undefined}
                   fill="none"
                   markerEnd={
                     pa.first === 'forward' || pa.first === 'both'
@@ -467,12 +516,25 @@ export const ConnectionLines: React.FC<ConnectionLinesProps> = ({
                       : undefined
                   }
                 />
+                {line1Stroke.isSolid && (
+                  <path
+                    d={parallelLine1.d}
+                    stroke={flowOverlayStroke}
+                    strokeOpacity={flowOverlayOpacity}
+                    strokeWidth="1.4"
+                    strokeDasharray="8 22"
+                    strokeLinecap="round"
+                    fill="none"
+                    className={`pointer-events-none ${line1Stroke.flowClass}`}
+                  />
+                )}
                 <path
                   d={parallelLine2.d}
                   stroke={lineColor}
                   strokeWidth="2"
                   strokeDasharray={line2Stroke.strokeDasharray}
                   strokeLinecap={line2Stroke.strokeLinecap}
+                  className={!line2Stroke.isSolid ? line2Stroke.flowClass : undefined}
                   fill="none"
                   markerEnd={
                     pa.second === 'forward' || pa.second === 'both'
@@ -485,18 +547,45 @@ export const ConnectionLines: React.FC<ConnectionLinesProps> = ({
                       : undefined
                   }
                 />
+                {line2Stroke.isSolid && (
+                  <path
+                    d={parallelLine2.d}
+                    stroke={flowOverlayStroke}
+                    strokeOpacity={flowOverlayOpacity}
+                    strokeWidth="1.4"
+                    strokeDasharray="8 22"
+                    strokeLinecap="round"
+                    fill="none"
+                    className={`pointer-events-none ${line2Stroke.flowClass}`}
+                  />
+                )}
               </>
             ) : (
-              <path
-                d={pathD}
-                stroke={lineColor}
-                strokeWidth="2.5"
-                strokeDasharray={singleStroke.strokeDasharray}
-                strokeLinecap={singleStroke.strokeLinecap}
-                fill="none"
-                markerEnd={markerEnd}
-                markerStart={markerStart}
-              />
+              <>
+                <path
+                  d={pathD}
+                  stroke={lineColor}
+                  strokeWidth="2.5"
+                  strokeDasharray={singleStroke.strokeDasharray}
+                  strokeLinecap={singleStroke.strokeLinecap}
+                  className={!singleStroke.isSolid ? singleStroke.flowClass : undefined}
+                  fill="none"
+                  markerEnd={markerEnd}
+                  markerStart={markerStart}
+                />
+                {singleStroke.isSolid && (
+                  <path
+                    d={pathD}
+                    stroke={flowOverlayStroke}
+                    strokeOpacity={flowOverlayOpacity}
+                    strokeWidth="1.6"
+                    strokeDasharray="8 22"
+                    strokeLinecap="round"
+                    fill="none"
+                    className={`pointer-events-none ${singleStroke.flowClass}`}
+                  />
+                )}
+              </>
             )}
 
             {isParallel && parallelLine1 && parallelLine2 ? (
@@ -805,7 +894,8 @@ export const ConnectionLines: React.FC<ConnectionLinesProps> = ({
                 }
                 stroke="#3b82f6"
                 strokeWidth="2.5"
-                strokeDasharray={isReadyTarget ? undefined : '6 6'}
+                strokeDasharray={isReadyTarget ? undefined : '10 6'}
+                className={isReadyTarget ? undefined : 'connection-flow-dashed-forward'}
                 fill="none"
               />
             </g>

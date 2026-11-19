@@ -132,3 +132,94 @@ h1, h2, h3, h4, h5, h6, .font-display {
   pointer-events: none !important;
 }
 
+/* Subtle workflow direction flow animations on SVG connection lines */
+@keyframes connection-flow-pulse-forward {
+  from {
+    stroke-dashoffset: 0;
+  }
+  to {
+    stroke-dashoffset: -30;
+  }
+}
+
+@keyframes connection-flow-pulse-backward {
+  from {
+    stroke-dashoffset: 0;
+  }
+  to {
+    stroke-dashoffset: 30;
+  }
+}
+
+@keyframes connection-flow-dashed-forward {
+  from {
+    stroke-dashoffset: 0;
+  }
+  to {
+    stroke-dashoffset: -16;
+  }
+}
+
+@keyframes connection-flow-dashed-backward {
+  from {
+    stroke-dashoffset: 0;
+  }
+  to {
+    stroke-dashoffset: 16;
+  }
+}
+
+@keyframes connection-flow-dotted-forward {
+  from {
+    stroke-dashoffset: 0;
+  }
+  to {
+    stroke-dashoffset: -14;
+  }
+}
+
+@keyframes connection-flow-dotted-backward {
+  from {
+    stroke-dashoffset: 0;
+  }
+  to {
+    stroke-dashoffset: 14;
+  }
+}
+
+.connection-flow-pulse-forward {
+  animation: connection-flow-pulse-forward 1.6s linear infinite;
+}
+
+.connection-flow-pulse-backward {
+  animation: connection-flow-pulse-backward 1.6s linear infinite;
+}
+
+.connection-flow-dashed-forward {
+  animation: connection-flow-dashed-forward 1.15s linear infinite;
+}
+
+.connection-flow-dashed-backward {
+  animation: connection-flow-dashed-backward 1.15s linear infinite;
+}
+
+.connection-flow-dotted-forward {
+  animation: connection-flow-dotted-forward 1.15s linear infinite;
+}
+
+.connection-flow-dotted-backward {
+  animation: connection-flow-dotted-backward 1.15s linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .connection-flow-pulse-forward,
+  .connection-flow-pulse-backward,
+  .connection-flow-dashed-forward,
+  .connection-flow-dashed-backward,
+  .connection-flow-dotted-forward,
+  .connection-flow-dotted-backward {
+    animation: none !important;
+  }
+}
+
+
