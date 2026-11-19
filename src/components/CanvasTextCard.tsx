@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { TextElement, LabelItem } from '../types/workflow';
-import { Maximize2, Pencil, Settings, Trash2, Unlink } from 'lucide-react';
+import { Maximize2, Settings, Trash2, Unlink } from 'lucide-react';
 import { useLanguage } from '../hooks/useLanguage';
 
 type ResizeDirection = 'nw' | 'n' | 'ne' | 'e' | 'se' | 's' | 'sw' | 'w';
@@ -434,60 +434,49 @@ export const CanvasTextCard: React.FC<CanvasTextCardProps> = ({
           </div>
         )}
 
-        {/* Hover / Selected Touch Action Controls */}
+        {/* Hover / Selected Touch Action Controls (Outside Upper Right) */}
         {!isReadOnly && (
-          <div className="touch-action-bar absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1 bg-[#ebe7de]/95 dark:bg-neutral-900/90 rounded-lg p-1 border border-[#c3beb1] dark:border-neutral-700 shadow-lg">
-            <button
-              onPointerDown={(e) => { if (e.button !== 1) e.stopPropagation(); }}
-              onClick={(e) => {
-                e.stopPropagation();
-                setTitleValue(element.text);
-                setIsEditingTitle(true);
-              }}
-              onDoubleClick={(e) => e.stopPropagation()}
-              className="p-1.5 text-[#5c584e] hover:text-[#1f1d18] hover:bg-[#d8d3c8] dark:text-neutral-400 dark:hover:text-neutral-100 dark:hover:bg-neutral-800 rounded cursor-pointer"
-              title={t('textCard.renameContainer')}
-            >
-              <Pencil className="w-3.5 h-3.5" />
-            </button>
-            {onFitContainer && (
+          <div className="touch-action-bar absolute -top-10 right-0 pb-2.5 opacity-0 group-hover:opacity-100 transition-opacity z-30 pointer-events-none group-hover:pointer-events-auto">
+            <div className="flex items-center gap-1 bg-[#ebe7de]/95 dark:bg-neutral-900/95 rounded-full py-1 px-2 border border-[#c3beb1] dark:border-neutral-700 shadow-lg backdrop-blur-sm">
+              {onFitContainer && (
+                <button
+                  onPointerDown={(e) => { if (e.button !== 1) e.stopPropagation(); }}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onFitContainer(element.id);
+                  }}
+                  onDoubleClick={(e) => e.stopPropagation()}
+                  className="p-1.5 text-[#5c584e] hover:text-[#1f1d18] hover:bg-[#d8d3c8] dark:text-neutral-400 dark:hover:text-neutral-100 dark:hover:bg-neutral-800 rounded-full cursor-pointer"
+                  title={t('textCard.fitContainer')}
+                >
+                  <Maximize2 className="w-3.5 h-3.5" />
+                </button>
+              )}
               <button
                 onPointerDown={(e) => { if (e.button !== 1) e.stopPropagation(); }}
                 onClick={(e) => {
                   e.stopPropagation();
-                  onFitContainer(element.id);
+                  onOpenSettings(element.id, e);
                 }}
                 onDoubleClick={(e) => e.stopPropagation()}
-                className="p-1.5 text-[#5c584e] hover:text-[#1f1d18] hover:bg-[#d8d3c8] dark:text-neutral-400 dark:hover:text-neutral-100 dark:hover:bg-neutral-800 rounded cursor-pointer"
-                title={t('textCard.fitContainer')}
+                className="p-1.5 text-[#5c584e] hover:text-[#1f1d18] hover:bg-[#d8d3c8] dark:text-neutral-400 dark:hover:text-neutral-100 dark:hover:bg-neutral-800 rounded-full cursor-pointer"
+                title={t('textCard.containerSettings')}
               >
-                <Maximize2 className="w-3.5 h-3.5" />
+                <Settings className="w-3.5 h-3.5" />
               </button>
-            )}
-            <button
-              onPointerDown={(e) => { if (e.button !== 1) e.stopPropagation(); }}
-              onClick={(e) => {
-                e.stopPropagation();
-                onOpenSettings(element.id, e);
-              }}
-              onDoubleClick={(e) => e.stopPropagation()}
-              className="p-1.5 text-[#5c584e] hover:text-[#1f1d18] hover:bg-[#d8d3c8] dark:text-neutral-400 dark:hover:text-neutral-100 dark:hover:bg-neutral-800 rounded cursor-pointer"
-              title={t('textCard.containerSettings')}
-            >
-              <Settings className="w-3.5 h-3.5" />
-            </button>
-            <button
-              onPointerDown={(e) => { if (e.button !== 1) e.stopPropagation(); }}
-              onClick={(e) => {
-                e.stopPropagation();
-                onDelete(element.id);
-              }}
-              onDoubleClick={(e) => e.stopPropagation()}
-              className="p-1.5 text-[#5c584e] hover:text-red-700 hover:bg-[#d8d3c8] dark:text-neutral-400 dark:hover:text-red-400 dark:hover:bg-neutral-800 rounded cursor-pointer"
-              title={t('textCard.deleteContainer')}
-            >
-              <Trash2 className="w-3.5 h-3.5" />
-            </button>
+              <button
+                onPointerDown={(e) => { if (e.button !== 1) e.stopPropagation(); }}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onDelete(element.id);
+                }}
+                onDoubleClick={(e) => e.stopPropagation()}
+                className="p-1.5 text-[#5c584e] hover:text-red-700 hover:bg-[#d8d3c8] dark:text-neutral-400 dark:hover:text-red-400 dark:hover:bg-neutral-800 rounded-full cursor-pointer"
+                title={t('textCard.deleteContainer')}
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+              </button>
+            </div>
           </div>
         )}
       </div>
@@ -540,18 +529,6 @@ export const CanvasTextCard: React.FC<CanvasTextCardProps> = ({
         {/* Controls */}
         {!isReadOnly && (
           <div className="touch-action-bar absolute -top-7 right-2 z-30 opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1 bg-[#ebe7de] dark:bg-neutral-900 rounded-full p-0.5 border border-[#c3beb1] dark:border-neutral-700 shadow-md">
-            <button
-              onPointerDown={(e) => { if (e.button !== 1) e.stopPropagation(); }}
-              onClick={(e) => {
-                e.stopPropagation();
-                setBodyValue(element.body || '');
-                setIsEditingBody(true);
-              }}
-              className="p-1.5 text-[#5c584e] hover:text-[#1f1d18] dark:text-neutral-400 dark:hover:text-white rounded-full"
-              title={t('textCard.editNote')}
-            >
-              <Pencil className="w-3 h-3" />
-            </button>
             {element.containerId && (
               <button
                 onPointerDown={(e) => { if (e.button !== 1) e.stopPropagation(); }}
@@ -714,18 +691,6 @@ export const CanvasTextCard: React.FC<CanvasTextCardProps> = ({
 
       {!isReadOnly && (
         <div className="touch-action-bar absolute -top-7 right-2 z-30 opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1 bg-[#ebe7de] dark:bg-neutral-900 rounded-full p-0.5 border border-[#c3beb1] dark:border-neutral-700 shadow-md">
-          <button
-            onPointerDown={(e) => { if (e.button !== 1) e.stopPropagation(); }}
-            onClick={(e) => {
-              e.stopPropagation();
-              setTitleValue(element.text);
-              setIsEditingTitle(true);
-            }}
-            className="p-1.5 text-[#5c584e] hover:text-[#1f1d18] dark:text-neutral-400 dark:hover:text-white rounded-full"
-            title={t('textCard.editText')}
-          >
-            <Pencil className="w-3 h-3" />
-          </button>
           {element.containerId && (
             <button
               onPointerDown={(e) => { if (e.button !== 1) e.stopPropagation(); }}

@@ -1,6 +1,6 @@
 import React, { useRef, useState } from 'react';
 import { WorkflowNode } from '../types/workflow';
-import { Unlink, Trash2, MessageSquare, Image as ImageIcon, Pencil } from 'lucide-react';
+import { Unlink, Trash2, MessageSquare, Image as ImageIcon } from 'lucide-react';
 import { ShreddedImageIcon } from './icons/ShreddedImageIcon';
 import { useLanguage } from '../hooks/useLanguage';
 
@@ -114,18 +114,6 @@ export const WorkflowNodeCard: React.FC<WorkflowNodeCardProps> = ({
       {!isReadOnly && (
         <div className="touch-action-bar absolute -top-9 right-0 pb-2 opacity-0 group-hover:opacity-100 transition-opacity z-30 pointer-events-none group-hover:pointer-events-auto">
           <div className="bg-[#ebe7de]/95 dark:bg-neutral-900/95 border border-[#c3beb1] dark:border-neutral-700 rounded-full py-1 px-2 flex items-center gap-1 shadow-lg dark:shadow-xl backdrop-blur-sm">
-            <button
-              onPointerDown={(e) => { if (e.button !== 1) e.stopPropagation(); }}
-              onClick={(e) => {
-                e.stopPropagation();
-                setTitleValue(node.title || t('node.defaultScene'));
-                setIsEditingTitle(true);
-              }}
-              className="p-1.5 hover:bg-blue-500/15 dark:hover:bg-blue-500/20 text-[#5c584e] hover:text-blue-700 dark:text-neutral-400 dark:hover:text-blue-300 rounded-full transition-colors cursor-pointer"
-              title={t('node.renameNode')}
-            >
-              <Pencil className="w-3.5 h-3.5" />
-            </button>
 
             {node.containerId && (
               <button
