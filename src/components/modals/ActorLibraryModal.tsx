@@ -4,6 +4,7 @@ import { uploadImageToStorage } from '../../services/storageService';
 import {
   Box,
   Check,
+  Globe,
   Layers,
   Pencil,
   Plus,
@@ -17,6 +18,8 @@ import {
 } from 'lucide-react';
 import { useLanguage } from '../../hooks/useLanguage';
 import { AiImagePromptModal } from './AiImagePromptModal';
+import { LibraryWebSearchModal } from './LibraryWebSearchModal';
+import { importExternalImageAsFile } from '../../services/librarySearchService';
 
 const STATE_COLOR_PALETTE = [
   '#3b82f6',
@@ -82,6 +85,7 @@ export const ActorLibraryModal: React.FC<ActorLibraryModalProps> = ({
 
   const [isUploadingThumb, setIsUploadingThumb] = useState(false);
   const [aiModalOpen, setAiModalOpen] = useState(false);
+  const [webSearchOpen, setWebSearchOpen] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -625,6 +629,17 @@ export const ActorLibraryModal: React.FC<ActorLibraryModalProps> = ({
                   </span>
                 </button>
 
+                <button
+                  type="button"
+                  disabled={isUploadingThumb}
+                  onClick={() => setWebSearchOpen(true)}
+                  title={t('actorLib.searchWebImageTooltip')}
+                  className="w-full py-1.5 px-2.5 rounded-lg bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white border border-blue-500/40 text-xs font-semibold flex items-center justify-center gap-1.5 shadow-sm transition-colors whitespace-nowrap cursor-pointer"
+                >
+                  <Globe className="w-3.5 h-3.5 shrink-0" />
+                  <span>{t('actorLib.searchWebImageBtn')}</span>
+                </button>
+
                 <input
                   type="text"
                   value={thumbnailUrl || ''}
@@ -898,6 +913,36 @@ export const ActorLibraryModal: React.FC<ActorLibraryModalProps> = ({
           applyButtonLabel={t('actorLib.nanoBananaApplyLabel')}
           onApplyFile={handleUploadThumbnail}
           onClose={() => setAiModalOpen(false)}
+        />
+      )}
+
+      {webSearchOpen && (
+        <LibraryWebSearchModal
+          kind="images"
+          userApiKey={userApiKey}
+          multiSelect={false}
+          isImporting={isUploadingThumb}
+          onClose={() => setWebSearchOpen(false)}
+          onConfirmImages={async (items) => {
+            const chosen = items[0];
+            if (!chosen) return;
+            setFormError(null);
+            setIsUploadingThumb(true);
+            try {
+              const file = await importExternalImageAsFile(chosen.imageUrl, chosen.title);
+              await handleUploadThumbnail(file);
+              setWebSearchOpen(false);
+            } catch (err) {
+              setThumbnailUrl(chosen.imageUrl);
+              setThumbnailPath(undefined);
+              setWebSearchOpen(false);
+              if (err instanceof Error && !/4 MB/i.test(err.message)) {
+                console.warn('Imported web image by direct URL fallback:', err.message);
+              }
+            } finally {
+              setIsUploadingThumb(false);
+            }
+          }}
         />
       )}
     </>

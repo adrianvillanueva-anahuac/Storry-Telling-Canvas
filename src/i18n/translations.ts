@@ -90,6 +90,8 @@ const en = {
   'header.zoomFitAll': 'Fit All Nodes',
   'header.styleTitle': 'Configure canvas style & background',
   'header.style': 'Style',
+  'header.labels': 'Labels',
+  'header.labelsTitle': 'Manage color-coded labels & canvas filters',
   'header.roleSummary': 'Role: {role}',
   'header.roleGlobalSuffix': ' (Global: {role})',
   'header.adminConsoleTitle': 'Open Web Admin Console to manage projects and user roles',
@@ -144,6 +146,8 @@ const en = {
   'node.deletedImage': 'Image Deleted',
   'node.pasteOrDrop': 'Paste or Drop Image',
   'node.commentsBadgeTitle': '{count} comments & tasks',
+  'node.labelBtn': 'Assign Label',
+  'node.noLabel': 'No Label',
 
   // Canvas Text Card
   'textCard.defaultText': 'Text',
@@ -249,6 +253,8 @@ const en = {
 
   // Node Dashboard Modal
   'dashboard.titlePlaceholder': 'Scene Dashboard',
+  'dashboard.labelField': 'Label:',
+  'dashboard.manageLabels': 'Manage',
   'dashboard.promptReply': 'Type your reply:',
   'dashboard.promptEditComment': 'Edit your comment:',
   'dashboard.confirmDeletePin': 'Are you sure you want to delete this pin?',
@@ -367,10 +373,43 @@ const en = {
   'archive.deletePermanent': 'Permanently Delete',
 
   // Label Manager Modal
-  'labels.title': 'Manage Category Labels',
-  'labels.newPlaceholder': 'e.g. Act I, Needs Review, Approved',
+  'labels.title': 'Label Manager',
+  'labels.subtitle': 'Create color-coded labels to group and filter nodes and text elements across this project.',
+  'labels.newPlaceholder': 'e.g. Act I, Needs Review, VFX Pass',
+  'labels.presets': 'Color presets',
+  'labels.customColor': 'Custom color',
+  'labels.previewBadge': 'Preview',
   'labels.empty': 'No custom labels yet.',
+  'labels.addStarters': 'Add Starter Labels',
+  'labels.editTitle': 'Edit Label',
   'labels.deleteTitle': 'Delete Label',
+  'labels.filterBtn': 'Filter on canvas',
+  'labels.activeFilterBtn': 'Filtering',
+  'labels.clearFilter': 'Clear filter',
+  'labels.usageCount': '{nodes} nodes · {texts} texts',
+  'labels.usageNone': 'Unused',
+  'labels.readOnlyNotice': 'Read-only mode: you can filter labels on canvas, while Editors & Admins can manage them.',
+
+  // Label Picker Popover
+  'labelPicker.title': 'Assign Label',
+  'labelPicker.batchTitle': 'Label {count} Selected',
+  'labelPicker.none': 'No Label (Clear)',
+  'labelPicker.manage': 'Open Label Manager',
+  'labelPicker.empty': 'No labels created yet.',
+
+  // Label Filter Bar
+  'labelFilter.title': 'Labels',
+  'labelFilter.all': 'All',
+  'labelFilter.unlabeled': 'Unlabeled',
+  'labelFilter.dim': 'Dim',
+  'labelFilter.isolate': 'Isolate',
+  'labelFilter.fit': 'Fit',
+  'labelFilter.fitTitle': 'Fit filtered items into view',
+  'labelFilter.clear': 'Clear',
+  'labelFilter.manage': 'Manage',
+  'labelFilter.collapse': 'Collapse label filters',
+  'labelFilter.expand': 'Expand label filters',
+  'labelFilter.matchSummary': '{nodes} nodes · {texts} texts',
 
   // Export Modal
   'exportModal.title': 'Export Storyboard',
@@ -418,6 +457,10 @@ const en = {
   'gallery.empty': 'No images uploaded yet. Drop files above to populate the library.',
   'gallery.aiEditCardTooltip': 'Edit {kind} with AI',
   'gallery.applyToScene': 'Apply to Scene',
+  'gallery.tabLibrary': 'Library ({count})',
+  'gallery.tabSearchWeb': 'Search Web',
+  'gallery.searchMapsBtn': 'Search Maps',
+  'gallery.searchImagesBtn': 'Search Images',
 
   // Global Video Modal
   'videoLib.title': 'Project Video Reference Library',
@@ -426,9 +469,35 @@ const en = {
   'videoLib.defaultUser': 'User',
   'videoLib.urlPlaceholder': 'Paste YouTube Video URL...',
   'videoLib.titlePlaceholder': 'Video Title...',
-  'videoLib.empty': 'No YouTube links added to this project yet. Add a YouTube URL above.',
+  'videoLib.empty': 'No YouTube links added to this project yet. Add a YouTube URL above or search YouTube.',
   'videoLib.addedByMeta': 'Added by {author} · {date}',
   'videoLib.removeTooltip': 'Remove from Project Library',
+  'videoLib.tabAddUrl': 'Paste URL',
+  'videoLib.tabSearchYouTube': 'Search YouTube',
+  'videoLib.alreadyInLib': 'In library',
+
+  // Web Media Search (Google Search Grounding)
+  'webSearch.placeholderImages': 'Search reference photos, scenes, lighting, props...',
+  'webSearch.placeholderMaps': 'Search architectural floorplans, overhead maps, blueprints...',
+  'webSearch.placeholderVideos': 'Search YouTube cinematography, VFX, camera references...',
+  'webSearch.searchBtn': 'Search',
+  'webSearch.searching': 'Searching Google...',
+  'webSearch.emptyPrompt': 'Enter a query above to search real media results with Google Search.',
+  'webSearch.noResults': 'No verified previews found for "{query}". Try broader keywords.',
+  'webSearch.selectAll': 'Select all',
+  'webSearch.clearSelection': 'Clear',
+  'webSearch.selectedCount': '{count} selected',
+  'webSearch.addSelectedToLib': 'Add to Library ({count})',
+  'webSearch.useSelectedImage': 'Use Selected Image',
+  'webSearch.importing': 'Importing {current}/{total}...',
+  'webSearch.importedSuccess': 'Added {count} to library.',
+  'webSearch.importedPartial': 'Added {added} to library ({failed} failed).',
+  'webSearch.sourcesLabel': 'Google Search sources:',
+  'webSearch.openSource': 'Open source',
+  'webSearch.watchOnYouTube': 'Open YouTube',
+  'webSearch.modalTitleImages': 'Search Web Images',
+  'webSearch.modalTitleMaps': 'Search Web Maps',
+  'webSearch.modalTitleVideos': 'Search YouTube Videos',
 
   // Video Selection Modal
   'videoSelect.title': 'Select Reference Video',
@@ -783,6 +852,8 @@ const en = {
   'app.deleteSelected': 'Delete ({count})',
   'app.deleteSelectedTitle': 'Delete all selected items (Delete / Backspace)',
   'app.clearSelectionTitle': 'Clear selection (Esc)',
+  'app.batchLabel': 'Label',
+  'app.batchLabelTitle': 'Assign a color-coded label to all selected nodes and text elements',
   'app.defaultStoryboardTitle': 'Storyboard',
   'app.confirmDeleteAllArchived': 'Permanently delete all archived scenes in this project?',
   'app.pickedMapName': 'Picked Map',
@@ -843,6 +914,8 @@ const en = {
   'actorLib.nanoBananaCreateTooltip': 'Generate actor thumbnail with AI (Nano Banana 2.1)',
   'actorLib.nanoBananaEditTooltip': 'Edit current thumbnail with AI (Nano Banana 2.1)',
   'actorLib.nanoBananaApplyLabel': 'Use as Thumbnail',
+  'actorLib.searchWebImageBtn': 'Search Web Image',
+  'actorLib.searchWebImageTooltip': 'Search Google for an image and use it as thumbnail',
 
   // Actor Detail Modal
   'actorDetail.title': 'Actor Details',
@@ -988,6 +1061,8 @@ const es: Record<TranslationKey, string> = {
   'header.zoomFitAll': 'Ajustar todos los nodos',
   'header.styleTitle': 'Configurar estilo del lienzo y fondo',
   'header.style': 'Estilo',
+  'header.labels': 'Etiquetas',
+  'header.labelsTitle': 'Gestionar etiquetas de color y filtros del lienzo',
   'header.roleSummary': 'Rol: {role}',
   'header.roleGlobalSuffix': ' (Global: {role})',
   'header.adminConsoleTitle': 'Abrir consola de administración para gestionar proyectos y roles',
@@ -1042,6 +1117,8 @@ const es: Record<TranslationKey, string> = {
   'node.deletedImage': 'Imagen eliminada',
   'node.pasteOrDrop': 'Pega o suelta una imagen',
   'node.commentsBadgeTitle': '{count} comentarios y tareas',
+  'node.labelBtn': 'Asignar etiqueta',
+  'node.noLabel': 'Sin etiqueta',
 
   // Canvas Text Card
   'textCard.defaultText': 'Texto',
@@ -1147,6 +1224,8 @@ const es: Record<TranslationKey, string> = {
 
   // Node Dashboard Modal
   'dashboard.titlePlaceholder': 'Panel de escena',
+  'dashboard.labelField': 'Etiqueta:',
+  'dashboard.manageLabels': 'Gestionar',
   'dashboard.promptReply': 'Escribe tu respuesta:',
   'dashboard.promptEditComment': 'Edita tu comentario:',
   'dashboard.confirmDeletePin': '¿Seguro que deseas eliminar este pin?',
@@ -1265,10 +1344,43 @@ const es: Record<TranslationKey, string> = {
   'archive.deletePermanent': 'Eliminar permanentemente',
 
   // Label Manager Modal
-  'labels.title': 'Gestionar etiquetas de categoría',
-  'labels.newPlaceholder': 'ej. Acto I, Por revisar, Aprobado',
+  'labels.title': 'Gestor de Etiquetas',
+  'labels.subtitle': 'Crea etiquetas de color para agrupar y filtrar nodos y elementos de texto en este proyecto.',
+  'labels.newPlaceholder': 'ej. Acto I, Por revisar, Pase VFX',
+  'labels.presets': 'Colores sugeridos',
+  'labels.customColor': 'Color personalizado',
+  'labels.previewBadge': 'Vista previa',
   'labels.empty': 'Aún no hay etiquetas personalizadas.',
+  'labels.addStarters': 'Agregar etiquetas iniciales',
+  'labels.editTitle': 'Editar etiqueta',
   'labels.deleteTitle': 'Eliminar etiqueta',
+  'labels.filterBtn': 'Filtrar en el lienzo',
+  'labels.activeFilterBtn': 'Filtrando',
+  'labels.clearFilter': 'Quitar filtro',
+  'labels.usageCount': '{nodes} nodos · {texts} textos',
+  'labels.usageNone': 'Sin uso',
+  'labels.readOnlyNotice': 'Modo solo lectura: puedes filtrar etiquetas en el lienzo; Editores y Admins pueden gestionarlas.',
+
+  // Label Picker Popover
+  'labelPicker.title': 'Asignar etiqueta',
+  'labelPicker.batchTitle': 'Etiquetar {count} elementos',
+  'labelPicker.none': 'Sin etiqueta (Quitar)',
+  'labelPicker.manage': 'Abrir Gestor de Etiquetas',
+  'labelPicker.empty': 'Aún no hay etiquetas creadas.',
+
+  // Label Filter Bar
+  'labelFilter.title': 'Etiquetas',
+  'labelFilter.all': 'Todas',
+  'labelFilter.unlabeled': 'Sin etiqueta',
+  'labelFilter.dim': 'Atenuar',
+  'labelFilter.isolate': 'Aislar',
+  'labelFilter.fit': 'Encuadrar',
+  'labelFilter.fitTitle': 'Ajustar vista a los elementos filtrados',
+  'labelFilter.clear': 'Limpiar',
+  'labelFilter.manage': 'Gestionar',
+  'labelFilter.collapse': 'Contraer filtros de etiquetas',
+  'labelFilter.expand': 'Expandir filtros de etiquetas',
+  'labelFilter.matchSummary': '{nodes} nodos · {texts} textos',
 
   // Export Modal
   'exportModal.title': 'Exportar storyboard',
@@ -1316,6 +1428,10 @@ const es: Record<TranslationKey, string> = {
   'gallery.empty': 'Aún no hay imágenes subidas. Suelta archivos arriba para llenar la biblioteca.',
   'gallery.aiEditCardTooltip': 'Editar {kind} con IA',
   'gallery.applyToScene': 'Aplicar a escena',
+  'gallery.tabLibrary': 'Biblioteca ({count})',
+  'gallery.tabSearchWeb': 'Buscar en la web',
+  'gallery.searchMapsBtn': 'Buscar mapas',
+  'gallery.searchImagesBtn': 'Buscar imágenes',
 
   // Global Video Modal
   'videoLib.title': 'Biblioteca de videos de referencia',
@@ -1324,9 +1440,35 @@ const es: Record<TranslationKey, string> = {
   'videoLib.defaultUser': 'Usuario',
   'videoLib.urlPlaceholder': 'Pega la URL del video de YouTube...',
   'videoLib.titlePlaceholder': 'Título del video...',
-  'videoLib.empty': 'Aún no hay enlaces de YouTube en este proyecto. Agrega una URL arriba.',
+  'videoLib.empty': 'Aún no hay enlaces de YouTube en este proyecto. Agrega una URL arriba o busca en YouTube.',
   'videoLib.addedByMeta': 'Agregado por {author} · {date}',
   'videoLib.removeTooltip': 'Quitar de la biblioteca del proyecto',
+  'videoLib.tabAddUrl': 'Pegar enlace',
+  'videoLib.tabSearchYouTube': 'Buscar en YouTube',
+  'videoLib.alreadyInLib': 'En biblioteca',
+
+  // Web Media Search (Google Search Grounding)
+  'webSearch.placeholderImages': 'Buscar fotos de referencia, escenas, iluminación, objetos...',
+  'webSearch.placeholderMaps': 'Buscar planos arquitectónicos, mapas cenitales, topográficos...',
+  'webSearch.placeholderVideos': 'Buscar videos de YouTube, cinematografía, VFX, cámara...',
+  'webSearch.searchBtn': 'Buscar',
+  'webSearch.searching': 'Buscando en Google...',
+  'webSearch.emptyPrompt': 'Escribe lo que buscas para encontrar imágenes o videos reales con Google Search.',
+  'webSearch.noResults': 'No se encontraron vistas previas válidas para "{query}". Prueba con palabras más amplias.',
+  'webSearch.selectAll': 'Seleccionar todo',
+  'webSearch.clearSelection': 'Limpiar',
+  'webSearch.selectedCount': '{count} seleccionados',
+  'webSearch.addSelectedToLib': 'Agregar a la librería ({count})',
+  'webSearch.useSelectedImage': 'Usar imagen seleccionada',
+  'webSearch.importing': 'Importando {current}/{total}...',
+  'webSearch.importedSuccess': 'Se agregaron {count} elementos a la librería.',
+  'webSearch.importedPartial': 'Se agregaron {added} a la librería ({failed} fallaron).',
+  'webSearch.sourcesLabel': 'Fuentes de Google Search:',
+  'webSearch.openSource': 'Ver fuente',
+  'webSearch.watchOnYouTube': 'Ver en YouTube',
+  'webSearch.modalTitleImages': 'Buscar imágenes en la web',
+  'webSearch.modalTitleMaps': 'Buscar mapas en la web',
+  'webSearch.modalTitleVideos': 'Buscar videos en YouTube',
 
   // Video Selection Modal
   'videoSelect.title': 'Seleccionar video de referencia',
@@ -1681,6 +1823,8 @@ const es: Record<TranslationKey, string> = {
   'app.deleteSelected': 'Eliminar ({count})',
   'app.deleteSelectedTitle': 'Eliminar todos los elementos seleccionados (Supr / Retroceso)',
   'app.clearSelectionTitle': 'Limpiar selección (Esc)',
+  'app.batchLabel': 'Etiqueta',
+  'app.batchLabelTitle': 'Asignar una etiqueta de color a todos los nodos y textos seleccionados',
   'app.defaultStoryboardTitle': 'Storyboard',
   'app.confirmDeleteAllArchived': '¿Eliminar permanentemente todas las escenas archivadas de este proyecto?',
   'app.pickedMapName': 'Mapa seleccionado',
@@ -1741,6 +1885,8 @@ const es: Record<TranslationKey, string> = {
   'actorLib.nanoBananaCreateTooltip': 'Generar miniatura con IA (Nano Banana 2.1)',
   'actorLib.nanoBananaEditTooltip': 'Editar miniatura actual con IA (Nano Banana 2.1)',
   'actorLib.nanoBananaApplyLabel': 'Usar como miniatura',
+  'actorLib.searchWebImageBtn': 'Buscar imagen web',
+  'actorLib.searchWebImageTooltip': 'Buscar imagen en Google y usarla como miniatura',
 
   // Actor Detail Modal
   'actorDetail.title': 'Detalle del Actor',

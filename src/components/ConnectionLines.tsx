@@ -40,6 +40,7 @@ interface ConnectionLinesProps {
   isReadOnly?: boolean;
   isSearchActive?: boolean;
   matchedNodeIds?: Set<string>;
+  hiddenNodeIds?: Set<string>;
   onCommitConnectionShape?: (
     connectionId: string,
     updates: Partial<Pick<Connection, 'angleOffset' | 'curveOffset'>>
@@ -65,6 +66,7 @@ export const ConnectionLines: React.FC<ConnectionLinesProps> = ({
   isReadOnly = false,
   isSearchActive = false,
   matchedNodeIds,
+  hiddenNodeIds,
   onCommitConnectionShape,
   onSnapGuidesChange,
 }) => {
@@ -299,6 +301,7 @@ export const ConnectionLines: React.FC<ConnectionLinesProps> = ({
       </defs>
 
       {connections.map((conn) => {
+        if (hiddenNodeIds?.has(conn.source) || hiddenNodeIds?.has(conn.target)) return null;
         const start = getNodePortCoords(nodes, conn.source, conn.sourcePort);
         const end = getNodePortCoords(nodes, conn.target, conn.targetPort);
         if (!start || !end) return null;

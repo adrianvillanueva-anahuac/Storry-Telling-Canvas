@@ -115,6 +115,7 @@ export interface WorkflowNode {
   pinCounter: number;
   mapPinCounter?: number;
   containerId: string | null;
+  labelId?: string;
   storedAt?: string;
   storedBy?: string;
   storeNote?: string;
@@ -175,8 +176,12 @@ export interface TextElement {
 }
 
 export interface LabelItem {
+  id?: string;
+  projectId?: string;
   name: string;
   color: string;
+  createdAt?: string;
+  updatedAt?: string;
 }
 
 export interface GlobalVideo {

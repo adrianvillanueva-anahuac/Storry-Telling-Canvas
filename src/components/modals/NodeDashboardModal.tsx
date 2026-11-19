@@ -3,6 +3,7 @@ import {
   ActorItem,
   CommentPin,
   GlobalVideo,
+  LabelItem,
   NodeActorAssignment,
   WorkflowNode,
 } from '../../types/workflow';
@@ -19,7 +20,9 @@ import {
   MessageSquare,
   PenTool,
   Plus,
+  Settings2,
   Sparkles,
+  Tag,
   Trash2,
   UploadCloud,
   Wand2,
@@ -27,11 +30,13 @@ import {
 } from 'lucide-react';
 import { ShreddedImageIcon } from '../icons/ShreddedImageIcon';
 import { useLanguage } from '../../hooks/useLanguage';
+import { getContrastTextColor } from '../../utils/colorContrast';
 
 interface NodeDashboardModalProps {
   node: WorkflowNode;
   globalVideos: GlobalVideo[];
   actors: ActorItem[];
+  labels?: Record<string, LabelItem>;
   isReadOnly: boolean;
   isArchived?: boolean;
   hasApiKey: boolean;
@@ -53,12 +58,14 @@ interface NodeDashboardModalProps {
   onUploadMainImage: (file: File) => void;
   onUploadMapImage: (file: File) => void;
   onRemoveMap: () => void;
+  onOpenLabelManager?: () => void;
 }
 
 export const NodeDashboardModal: React.FC<NodeDashboardModalProps> = ({
   node,
   globalVideos,
   actors,
+  labels = {},
   isReadOnly,
   isArchived = false,
   hasApiKey,
@@ -80,6 +87,7 @@ export const NodeDashboardModal: React.FC<NodeDashboardModalProps> = ({
   onUploadMainImage,
   onUploadMapImage,
   onRemoveMap,
+  onOpenLabelManager,
 }) => {
   const { t, tColumn } = useLanguage();
   const [mapSidePanelOpen, setMapSidePanelOpen] = useState(false);
@@ -350,12 +358,72 @@ export const NodeDashboardModal: React.FC<NodeDashboardModalProps> = ({
           </div>
         )}
         {/* Header */}
-        <div className="p-4 border-b border-[#d4cfc3] dark:border-neutral-800 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <h2 className="text-base font-bold text-[#2b2924] dark:text-neutral-100">{node.title || t('dashboard.titlePlaceholder')}</h2>
-            <span className="text-xs font-mono text-[#5c584e] dark:text-neutral-500 bg-[#dcd7cc] dark:bg-neutral-800 px-2 py-0.5 rounded border border-[#c3beb1] dark:border-neutral-700">
+        <div className="p-4 border-b border-[#d4cfc3] dark:border-neutral-800 flex items-center justify-between gap-3 flex-wrap">
+          <div className="flex items-center gap-3 min-w-0 flex-wrap">
+            <h2 className="text-base font-bold text-[#2b2924] dark:text-neutral-100 truncate">{node.title || t('dashboard.titlePlaceholder')}</h2>
+            <span className="text-xs font-mono text-[#5c584e] dark:text-neutral-500 bg-[#dcd7cc] dark:bg-neutral-800 px-2 py-0.5 rounded border border-[#c3beb1] dark:border-neutral-700 shrink-0">
               ID: {node.id}
             </span>
+
+            {/* Color-Coded Label Control */}
+            {isReadOnly ? (
+              node.labelId && labels[node.labelId] ? (
+                <span
+                  style={{
+                    backgroundColor: labels[node.labelId].color,
+                    color: getContrastTextColor(labels[node.labelId].color),
+                  }}
+                  className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-semibold shadow-sm shrink-0"
+                >
+                  <Tag className="w-3 h-3" />
+                  <span>{labels[node.labelId].name}</span>
+                </span>
+              ) : null
+            ) : (
+              <div className="flex items-center gap-1.5 bg-[#e0dbd0] dark:bg-neutral-950 border border-[#c3beb1] dark:border-neutral-800 rounded-lg px-2 py-1 text-[11px] shrink-0">
+                <Tag className="w-3 h-3 text-[#5c584e] dark:text-neutral-400 shrink-0" />
+                <span className="text-[#5c584e] dark:text-neutral-400 font-medium hidden sm:inline">
+                  {t('dashboard.labelField')}
+                </span>
+                {node.labelId && labels[node.labelId] && (
+                  <span
+                    style={{ backgroundColor: labels[node.labelId].color }}
+                    className="w-2.5 h-2.5 rounded-full shrink-0 border border-black/15 dark:border-white/20"
+                  />
+                )}
+                <select
+                  value={node.labelId || ''}
+                  onChange={(e) => onUpdateNode(node.id, { labelId: e.target.value })}
+                  className="bg-transparent text-[#2b2924] dark:text-neutral-100 font-medium outline-none cursor-pointer max-w-[140px]"
+                >
+                  <option value="" className="bg-[#ebe7de] text-[#2b2924] dark:bg-neutral-900 dark:text-neutral-200">
+                    {t('node.noLabel')}
+                  </option>
+                  {Object.entries(labels)
+                    .sort(([, a], [, b]) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }))
+                    .map(([id, lbl]) => (
+                      <option
+                        key={id}
+                        value={id}
+                        className="bg-[#ebe7de] text-[#2b2924] dark:bg-neutral-900 dark:text-neutral-200"
+                      >
+                        {lbl.name}
+                      </option>
+                    ))}
+                </select>
+                {onOpenLabelManager && (
+                  <button
+                    type="button"
+                    onClick={onOpenLabelManager}
+                    className="pl-1.5 ml-0.5 border-l border-[#c3beb1] dark:border-neutral-800 text-blue-700 dark:text-blue-400 hover:underline font-semibold flex items-center gap-0.5 cursor-pointer whitespace-nowrap"
+                    title={t('textPopover.manageLabels')}
+                  >
+                    <Settings2 className="w-3 h-3" />
+                    <span className="hidden md:inline">{t('dashboard.manageLabels')}</span>
+                  </button>
+                )}
+              </div>
+            )}
           </div>
 
           <button
@@ -363,7 +431,7 @@ export const NodeDashboardModal: React.FC<NodeDashboardModalProps> = ({
               handleSaveTextChanges();
               onClose();
             }}
-            className="w-7 h-7 rounded-full bg-[#dcd7cc] hover:bg-[#d2ccbf] dark:bg-neutral-800 dark:hover:bg-neutral-700 flex items-center justify-center text-[#5c584e] hover:text-[#1f1d18] dark:text-neutral-400 dark:hover:text-white cursor-pointer"
+            className="w-7 h-7 rounded-full bg-[#dcd7cc] hover:bg-[#d2ccbf] dark:bg-neutral-800 dark:hover:bg-neutral-700 flex items-center justify-center text-[#5c584e] hover:text-[#1f1d18] dark:text-neutral-400 dark:hover:text-white shrink-0 cursor-pointer"
           >
             <X className="w-4 h-4" />
           </button>

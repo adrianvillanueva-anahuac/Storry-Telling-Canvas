@@ -25,9 +25,14 @@ interface HeaderSearchProps {
   onSelectTarget: (target: SearchTarget) => void;
 }
 
-export function getNodeSearchFields(node: WorkflowNode): { title: string; content: string[] } {
+export function getNodeSearchFields(
+  node: WorkflowNode,
+  labels?: Record<string, LabelItem>
+): { title: string; content: string[] } {
   const title = node.title || '';
+  const labelName = node.labelId ? labels?.[node.labelId]?.name : undefined;
   const content = [
+    labelName,
     node.enfoque,
     node.accion,
     node.descripcion,
@@ -39,10 +44,14 @@ export function getNodeSearchFields(node: WorkflowNode): { title: string; conten
   return { title, content };
 }
 
-export function doesNodeMatchQuery(node: WorkflowNode, rawQuery: string): boolean {
+export function doesNodeMatchQuery(
+  node: WorkflowNode,
+  rawQuery: string,
+  labels?: Record<string, LabelItem>
+): boolean {
   const q = rawQuery.trim().toLowerCase();
   if (!q) return false;
-  const { title, content } = getNodeSearchFields(node);
+  const { title, content } = getNodeSearchFields(node, labels);
   if (title.toLowerCase().includes(q)) return true;
   return content.some((s) => s.toLowerCase().includes(q));
 }
@@ -123,7 +132,7 @@ export const HeaderSearch: React.FC<HeaderSearchProps> = ({
     const scored: { item: SearchTarget; score: number }[] = [];
 
     Object.values(nodes).forEach((node) => {
-      const { title: rawTitle, content: contentSources } = getNodeSearchFields(node);
+      const { title: rawTitle, content: contentSources } = getNodeSearchFields(node, labels);
       const displayTitle = rawTitle || t('search.untitledScene');
       const lowerTitle = rawTitle.toLowerCase();
 

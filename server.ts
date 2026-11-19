@@ -8,6 +8,11 @@ import { createServer as createViteServer } from 'vite';
 import { del } from '@vercel/blob';
 import { handleUpload, type HandleUploadBody } from '@vercel/blob/client';
 import { GoogleGenAI, Part } from '@google/genai';
+import {
+  fetchExternalImageAsDataUrl,
+  LibrarySearchKind,
+  searchLibraryMediaWithGemini,
+} from './lib/librarySearch';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -504,6 +509,82 @@ app.post('/api/gemini-image', async (req, res) => {
       else if (/RESOURCE_EXHAUSTED|quota|429/i.test(rawMsg)) status = 429;
     }
     return res.status(status).json({ error: rawMsg });
+  }
+});
+
+// Gemini Search Grounding for Library Image / Map / YouTube Search
+app.post('/api/gemini-search', async (req, res) => {
+  const isAuthorized = await verifyBearerFirebaseToken(req.headers.authorization);
+  if (!isAuthorized) {
+    return res.status(401).json({ error: 'Authentication required to search web media.' });
+  }
+
+  const { kind, query, language, userApiKey } = req.body || {};
+  const resolvedApiKey =
+    (typeof userApiKey === 'string' && userApiKey.trim()) ||
+    process.env.GEMINI_API_KEY ||
+    '';
+
+  if (!resolvedApiKey) {
+    return res.status(400).json({
+      error: 'Gemini API key is not configured on the server or in your user settings.',
+    });
+  }
+
+  const trimmedQuery = typeof query === 'string' ? query.trim() : '';
+  if (!trimmedQuery) {
+    return res.status(400).json({ error: 'Please enter a search query.' });
+  }
+
+  const validKinds = new Set<LibrarySearchKind>(['images', 'maps', 'videos']);
+  const safeKind: LibrarySearchKind = validKinds.has(kind as LibrarySearchKind)
+    ? (kind as LibrarySearchKind)
+    : 'images';
+
+  try {
+    const result = await searchLibraryMediaWithGemini({
+      kind: safeKind,
+      query: trimmedQuery,
+      apiKey: resolvedApiKey,
+      language: language === 'es' ? 'es' : 'en',
+    });
+    return res.json(result);
+  } catch (err: any) {
+    const rawMsg = err?.message || 'Search failed.';
+    let status = typeof err?.status === 'number' && err.status >= 400 && err.status < 600 ? err.status : 500;
+    if (status === 500) {
+      if (/API_KEY_INVALID|API key not valid|invalid.*key/i.test(rawMsg)) status = 400;
+      else if (/PERMISSION_DENIED|403/i.test(rawMsg)) status = 403;
+      else if (/NOT_FOUND|404/i.test(rawMsg)) status = 404;
+      else if (/RESOURCE_EXHAUSTED|quota|429/i.test(rawMsg)) status = 429;
+    }
+    return res.status(status).json({ error: rawMsg });
+  }
+});
+
+// External image proxy fetch for CORS-free library import
+app.post('/api/import-image', async (req, res) => {
+  const isAuthorized = await verifyBearerFirebaseToken(req.headers.authorization);
+  if (!isAuthorized) {
+    return res.status(401).json({ error: 'Authentication required to import web images.' });
+  }
+
+  const { imageUrl, title } = req.body || {};
+  const trimmedUrl = typeof imageUrl === 'string' ? imageUrl.trim() : '';
+  if (!trimmedUrl) {
+    return res.status(400).json({ error: 'Image URL is required.' });
+  }
+
+  try {
+    const result = await fetchExternalImageAsDataUrl(
+      trimmedUrl,
+      typeof title === 'string' ? title : undefined
+    );
+    return res.json(result);
+  } catch (err: any) {
+    const msg = err?.message || 'Failed to import external image.';
+    const status = /limit|4 MB/i.test(msg) ? 413 : 400;
+    return res.status(status).json({ error: msg });
   }
 });
 

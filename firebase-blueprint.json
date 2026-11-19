@@ -92,6 +92,7 @@
         "descripcion": { "type": "string" },
         "pinCounter": { "type": "number" },
         "containerId": { "type": "string" },
+        "labelId": { "type": "string", "maxLength": 128 },
         "actors": {
           "type": "array",
           "description": "Assigned scene actors/3D elements and their scene states"
@@ -199,6 +200,20 @@
         "updatedAt": { "type": "string", "maxLength": 64 }
       },
       "required": ["id", "projectId", "name", "states", "tags"]
+    },
+    "LabelItem": {
+      "title": "LabelItem",
+      "description": "Custom color-coded project label for grouping and filtering nodes and text elements",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "projectId": { "type": "string", "maxLength": 128 },
+        "name": { "type": "string", "minLength": 1, "maxLength": 60 },
+        "color": { "type": "string", "minLength": 4, "maxLength": 20, "pattern": "^#[0-9a-fA-F]{3,8}$" },
+        "createdAt": { "type": "string", "maxLength": 64 },
+        "updatedAt": { "type": "string", "maxLength": 64 }
+      },
+      "required": ["id", "projectId", "name", "color"]
     }
   },
   "firestore": {
@@ -249,6 +264,10 @@
     "/projects/{projectId}/actors/{actorId}": {
       "schema": { "$ref": "#/entities/ActorItem" },
       "description": "Configurable actors and 3D elements scoped to a specific project"
+    },
+    "/projects/{projectId}/labels/{labelId}": {
+      "schema": { "$ref": "#/entities/LabelItem" },
+      "description": "Custom color-coded labels scoped to a specific project"
     },
     "/globalVideos/{videoId}": {
       "schema": { "$ref": "#/entities/GlobalVideo" },

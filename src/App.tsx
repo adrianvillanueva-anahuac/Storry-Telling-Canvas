@@ -7,6 +7,7 @@ import {
   DEFAULT_CANVAS_STYLE,
   GlobalVideo,
   ImageResource,
+  LabelItem,
   NodeActorAssignment,
   Project,
   TextElement,
@@ -61,10 +62,16 @@ import {
   subscribeUserGeminiApiKey,
   saveUserGeminiApiKey,
   deleteUserGeminiApiKey,
+  saveLabelToFirestore,
+  deleteLabelFromFirestore,
   syncCanvasSnapshotDiffToFirestore,
   CanvasSnapshotData,
 } from './services/firestoreService';
 import { uploadImageToStorage } from './services/storageService';
+import {
+  ImageSearchResultItem,
+  importExternalImageAsFile,
+} from './services/librarySearchService';
 import {
   MousePointer2,
   Hand,
@@ -75,13 +82,16 @@ import {
   Redo2,
   AlignHorizontalDistributeCenter,
   AlignVerticalDistributeCenter,
+  Tag,
 } from 'lucide-react';
 import { Header } from './components/Header';
+import { LabelFilterBar, UNLABELED_FILTER_ID } from './components/LabelFilterBar';
 import { WorkflowNodeCard } from './components/WorkflowNodeCard';
 import { CanvasTextCard } from './components/CanvasTextCard';
 import { ConnectionLines } from './components/ConnectionLines';
 import { LinePropertiesMenu } from './components/popovers/LinePropertiesMenu';
 import { TextPropertiesMenu } from './components/popovers/TextPropertiesMenu';
+import { LabelPickerPopover } from './components/popovers/LabelPickerPopover';
 import { LabelManagerModal } from './components/modals/LabelManagerModal';
 import { DeleteWarningModal } from './components/modals/DeleteWarningModal';
 import { ArchiveModal } from './components/modals/ArchiveModal';
@@ -114,7 +124,7 @@ import { useLanguage } from './hooks/useLanguage';
 const MAX_HISTORY_STEPS = 10;
 
 interface CanvasSnapshot extends CanvasSnapshotData {
-  labels: Record<string, { name: string; color: string }>;
+  labels: Record<string, LabelItem>;
 }
 
 const cloneCanvasSnapshot = (snap: CanvasSnapshot): CanvasSnapshot =>
@@ -211,11 +221,7 @@ export default function App() {
     nodes: {},
     connections: [],
     texts: {},
-    labels: {
-      'lbl-1': { name: t('app.seedLabelAct1'), color: '#0052cc' },
-      'lbl-2': { name: t('app.seedLabelReview'), color: '#ff5630' },
-      'lbl-3': { name: t('app.seedLabelPolish'), color: '#36b37e' },
-    },
+    labels: {},
     storedNodes: {},
     globalVideos: [],
     actors: [],
@@ -281,6 +287,15 @@ export default function App() {
 
   const [archiveModalOpen, setArchiveModalOpen] = useState(false);
   const [labelManagerOpen, setLabelManagerOpen] = useState(false);
+  const [filterLabelIds, setFilterLabelIds] = useState<string[]>([]);
+  const [filterDisplayMode, setFilterDisplayMode] = useState<'dim' | 'isolate'>('dim');
+  const [labelPickerTarget, setLabelPickerTarget] = useState<{
+    mode: 'node' | 'text' | 'batch';
+    targetId?: string;
+    x: number;
+    y: number;
+  } | null>(null);
+  const seededLegacyLabelsRef = useRef<Set<string>>(new Set());
   const [deleteWarningNodeId, setDeleteWarningNodeId] = useState<string | null>(null);
   const [replaceWarningTarget, setReplaceWarningTarget] = useState<{
     nodeId: string;
@@ -403,6 +418,8 @@ export default function App() {
     setSelectedItems({});
     setSelectionBox(null);
     setBatchDeleteOpen(false);
+    setFilterLabelIds([]);
+    setLabelPickerTarget(null);
     undoStackRef.current = [];
     redoStackRef.current = [];
     dragPreActionSnapshotRef.current = null;
@@ -506,6 +523,8 @@ export default function App() {
     ? 'Admin'
     : activeProject?.participants?.[normalizedUserEmail]?.role || currentUser.role;
   const isReadOnly = effectiveRole === 'Viewer';
+  const isReadOnlyRef = useRef(isReadOnly);
+  isReadOnlyRef.current = isReadOnly;
 
   const captureCanvasSnapshot = useCallback((state: AppState = appStateRef.current): CanvasSnapshot => {
     return cloneCanvasSnapshot({
@@ -668,6 +687,35 @@ export default function App() {
     if (!authReady || !firebaseUser || !activeProjectId) return;
 
     const unsubCanvas = subscribeProjectCanvas(activeProjectId, (data) => {
+      let resolvedLabels = data.labels;
+      if (Object.keys(data.labels).length === 0) {
+        const starterTemplates: Record<string, LabelItem> = {
+          'lbl-1': { id: 'lbl-1', projectId: activeProjectId, name: tRef.current('app.seedLabelAct1'), color: '#2563eb' },
+          'lbl-2': { id: 'lbl-2', projectId: activeProjectId, name: tRef.current('app.seedLabelReview'), color: '#dc2626' },
+          'lbl-3': { id: 'lbl-3', projectId: activeProjectId, name: tRef.current('app.seedLabelPolish'), color: '#059669' },
+        };
+        const referencedIds = new Set<string>();
+        Object.values(data.nodes).forEach((n) => {
+          if (n.labelId && starterTemplates[n.labelId]) referencedIds.add(n.labelId);
+        });
+        Object.values(data.texts).forEach((el) => {
+          if (el.labelId && starterTemplates[el.labelId]) referencedIds.add(el.labelId);
+        });
+        if (referencedIds.size > 0) {
+          const fallbackMap: Record<string, LabelItem> = {};
+          referencedIds.forEach((id) => {
+            fallbackMap[id] = starterTemplates[id];
+          });
+          resolvedLabels = fallbackMap;
+          if (!isReadOnlyRef.current && !seededLegacyLabelsRef.current.has(activeProjectId)) {
+            seededLegacyLabelsRef.current.add(activeProjectId);
+            referencedIds.forEach((id) => {
+              saveLabelToFirestore(activeProjectId, id, starterTemplates[id]);
+            });
+          }
+        }
+      }
+
       setAppState((prev) => {
         const next = {
           ...prev,
@@ -675,6 +723,7 @@ export default function App() {
           connections: data.connections,
           texts: data.texts,
           storedNodes: data.storedNodes,
+          labels: resolvedLabels,
         };
         appStateRef.current = next;
         return next;
@@ -1623,6 +1672,7 @@ export default function App() {
         const nextSelection: Record<string, 'node' | 'text'> = { ...selectionBox.baseSelection };
 
         Object.values(appState.nodes).forEach((n) => {
+          if (hiddenNodeIds.has(n.id)) return;
           const nx = parseFloat(n.x) || 0;
           const ny = parseFloat(n.y) || 0;
           const nw = 220;
@@ -1633,6 +1683,7 @@ export default function App() {
         });
 
         Object.values(appState.texts).forEach((t) => {
+          if (hiddenTextIds.has(t.id)) return;
           const tx = parseFloat(t.x) || 0;
           const ty = parseFloat(t.y) || 0;
 
@@ -2935,6 +2986,198 @@ export default function App() {
     deleteTextFromFirestore(activeProjectId, textId);
   };
 
+  // Custom Project Labels CRUD, Batch Assignment & Visual Filtering
+  const handleAddLabel = (name: string, color: string) => {
+    if (!activeProjectId || isReadOnly) return;
+    const trimmed = name.trim().slice(0, 60);
+    if (!trimmed) return;
+    pushUndoSnapshot();
+    const id = `lbl-${Date.now()}`;
+    const newLabel: LabelItem = {
+      id,
+      projectId: activeProjectId,
+      name: trimmed,
+      color,
+    };
+    setAppState((prev) => {
+      const next = {
+        ...prev,
+        labels: { ...prev.labels, [id]: newLabel },
+      };
+      appStateRef.current = next;
+      return next;
+    });
+    saveLabelToFirestore(activeProjectId, id, newLabel);
+  };
+
+  const handleUpdateLabel = (id: string, name: string, color: string) => {
+    if (!activeProjectId || isReadOnly) return;
+    const trimmed = name.trim().slice(0, 60);
+    if (!trimmed) return;
+    const currLabel = appStateRef.current.labels[id];
+    if (!currLabel) return;
+
+    pushUndoSnapshot();
+    const updatedLabel: LabelItem = {
+      ...currLabel,
+      id,
+      projectId: activeProjectId,
+      name: trimmed,
+      color,
+    };
+
+    const updatedContainers: TextElement[] = [];
+    const oldColorLower = (currLabel.color || '').toLowerCase();
+
+    setAppState((prev) => {
+      const nextTexts = { ...prev.texts };
+      Object.entries(nextTexts).forEach(([tid, el]) => {
+        if (el.mode === 'container' && el.labelId === id) {
+          const elColorLower = (el.color || '').toLowerCase();
+          if (!elColorLower || elColorLower === oldColorLower) {
+            const nextEl = { ...el, color };
+            nextTexts[tid] = nextEl;
+            updatedContainers.push(nextEl);
+          }
+        }
+      });
+
+      const next = {
+        ...prev,
+        labels: { ...prev.labels, [id]: updatedLabel },
+        texts: nextTexts,
+      };
+      appStateRef.current = next;
+      return next;
+    });
+
+    saveLabelToFirestore(activeProjectId, id, updatedLabel, updatedContainers);
+  };
+
+  const handleDeleteLabel = (id: string) => {
+    if (!activeProjectId || isReadOnly) return;
+    pushUndoSnapshot();
+
+    const clearedNodes: WorkflowNode[] = [];
+    const clearedTexts: TextElement[] = [];
+
+    setAppState((prev) => {
+      const nextLabels = { ...prev.labels };
+      delete nextLabels[id];
+
+      const nextNodes = { ...prev.nodes };
+      Object.entries(nextNodes).forEach(([nid, n]) => {
+        if (n.labelId === id) {
+          const updated = { ...n, labelId: '' };
+          nextNodes[nid] = updated;
+          clearedNodes.push(updated);
+        }
+      });
+
+      const nextTexts = { ...prev.texts };
+      Object.entries(nextTexts).forEach(([tid, el]) => {
+        if (el.labelId === id) {
+          const updated = { ...el, labelId: '' };
+          nextTexts[tid] = updated;
+          clearedTexts.push(updated);
+        }
+      });
+
+      const next = {
+        ...prev,
+        labels: nextLabels,
+        nodes: nextNodes,
+        texts: nextTexts,
+      };
+      appStateRef.current = next;
+      return next;
+    });
+
+    setFilterLabelIds((prev) => prev.filter((fid) => fid !== id));
+    deleteLabelFromFirestore(activeProjectId, id, clearedNodes, clearedTexts);
+  };
+
+  const handleSeedStarterLabels = () => {
+    if (!activeProjectId || isReadOnly) return;
+    pushUndoSnapshot();
+    const starters: Record<string, LabelItem> = {
+      'lbl-1': { id: 'lbl-1', projectId: activeProjectId, name: t('app.seedLabelAct1'), color: '#2563eb' },
+      'lbl-2': { id: 'lbl-2', projectId: activeProjectId, name: t('app.seedLabelReview'), color: '#dc2626' },
+      'lbl-3': { id: 'lbl-3', projectId: activeProjectId, name: t('app.seedLabelPolish'), color: '#059669' },
+    };
+
+    setAppState((prev) => {
+      const next = {
+        ...prev,
+        labels: { ...prev.labels, ...starters },
+      };
+      appStateRef.current = next;
+      return next;
+    });
+
+    Object.entries(starters).forEach(([id, lbl]) => {
+      saveLabelToFirestore(activeProjectId, id, lbl);
+    });
+  };
+
+  const handleBatchAssignLabel = (labelId: string) => {
+    if (!activeProjectId || isReadOnly) return;
+    const nodeIds = Object.entries(selectedItems)
+      .filter(([id, kind]) => kind === 'node' && Boolean(appStateRef.current.nodes[id]))
+      .map(([id]) => id);
+    const textIds = Object.entries(selectedItems)
+      .filter(([id, kind]) => kind === 'text' && Boolean(appStateRef.current.texts[id]))
+      .map(([id]) => id);
+
+    if (nodeIds.length === 0 && textIds.length === 0) return;
+
+    pushUndoSnapshot();
+    const labelItem = labelId ? appStateRef.current.labels[labelId] : undefined;
+    const changedNodes: WorkflowNode[] = [];
+    const changedTexts: TextElement[] = [];
+
+    setAppState((prev) => {
+      const nextNodes = { ...prev.nodes };
+      const nextTexts = { ...prev.texts };
+
+      nodeIds.forEach((nid) => {
+        const curr = nextNodes[nid];
+        if (!curr) return;
+        const updated: WorkflowNode = { ...curr, labelId: labelId || '' };
+        nextNodes[nid] = updated;
+        changedNodes.push(updated);
+      });
+
+      textIds.forEach((tid) => {
+        const curr = nextTexts[tid];
+        if (!curr) return;
+        const updated: TextElement = {
+          ...curr,
+          labelId: labelId || '',
+          ...(curr.mode === 'container' && labelItem ? { color: labelItem.color } : {}),
+        };
+        nextTexts[tid] = updated;
+        changedTexts.push(updated);
+      });
+
+      const next = {
+        ...prev,
+        nodes: nextNodes,
+        texts: nextTexts,
+      };
+      appStateRef.current = next;
+      return next;
+    });
+
+    saveCanvasPositionsBatch(activeProjectId, changedNodes, changedTexts);
+  };
+
+  const handleToggleFilterLabel = (labelId: string) => {
+    setFilterLabelIds((prev) =>
+      prev.includes(labelId) ? prev.filter((id) => id !== labelId) : [...prev, labelId]
+    );
+  };
+
   // Vercel Blob Upload & Registry in Firestore (No Base64 in documents)
   const handleUploadNodeImage = async (
     nodeId: string,
@@ -3069,6 +3312,73 @@ export default function App() {
     }
   };
 
+  // Import selected web-searched images/maps into project library (with direct URL fallback for >4MB images)
+  const handleImportWebImagesToGallery = async (
+    items: ImageSearchResultItem[],
+    folder: 'images' | 'maps',
+    onProgress?: (current: number, total: number) => void
+  ): Promise<{ added: number; failed: number }> => {
+    if (!activeProjectId || items.length === 0) return { added: 0, failed: 0 };
+    setUploadError(null);
+    setIsUploadingMedia(true);
+    let added = 0;
+    let failed = 0;
+
+    try {
+      for (let i = 0; i < items.length; i++) {
+        const item = items[i];
+        onProgress?.(i + 1, items.length);
+        const safeDisplayName = (item.title || 'Web Image').trim().slice(0, 200) || 'Web Image';
+        try {
+          const file = await importExternalImageAsFile(item.imageUrl, safeDisplayName);
+          const res = await uploadImageToStorage(file, folder);
+          const normUrl = res.url.split('?')[0].trim();
+          recentlyUploadedUrlsRef.current.add(normUrl);
+
+          await registerImageInDb({
+            id: `img-${Date.now()}_${i}`,
+            projectId: activeProjectId,
+            name: safeDisplayName,
+            url: res.url,
+            storagePath: res.storagePath,
+            folder,
+            sizeBytes: file.size,
+            uploadedBy: currentUser.name,
+            uploadedAt: new Date().toISOString(),
+          });
+          added += 1;
+        } catch {
+          // Fallback: if external image is >4MB or proxy fails, register verified HTTPS URL directly
+          if (item.imageUrl.startsWith('https://') && item.imageUrl.length <= 2048) {
+            try {
+              const normUrl = item.imageUrl.split('?')[0].trim();
+              recentlyUploadedUrlsRef.current.add(normUrl);
+              await registerImageInDb({
+                id: `img-${Date.now()}_${i}`,
+                projectId: activeProjectId,
+                name: safeDisplayName,
+                url: item.imageUrl,
+                folder,
+                sizeBytes: 0,
+                uploadedBy: currentUser.name,
+                uploadedAt: new Date().toISOString(),
+              });
+              added += 1;
+            } catch {
+              failed += 1;
+            }
+          } else {
+            failed += 1;
+          }
+        }
+      }
+    } finally {
+      setIsUploadingMedia(false);
+    }
+
+    return { added, failed };
+  };
+
   const activeNode = activeEditNodeId
     ? appState.nodes[activeEditNodeId] || appState.storedNodes[activeEditNodeId]
     : null;
@@ -3150,6 +3460,7 @@ export default function App() {
         setSelectionBox(null);
         setActiveLinePopover(null);
         setActiveTextPopover(null);
+        setLabelPickerTarget(null);
         setSearchQuery('');
         return;
       }
@@ -3196,6 +3507,8 @@ export default function App() {
     exportModalOpen,
     galleryModalState.open,
     globalVideoModalOpen,
+    actorLibraryState.open,
+    inspectedActor,
     deleteWarningNodeId,
     batchDeleteOpen,
     labelManagerOpen,
@@ -3211,27 +3524,109 @@ export default function App() {
 
   const hasApiKey = Boolean(userGeminiApiKey && userGeminiApiKey.trim());
   const isSearchActive = searchQuery.trim().length > 0;
+  const isLabelFilterActive = filterLabelIds.length > 0;
+  const isAnyFilterActive = isSearchActive || isLabelFilterActive;
+
+  const doesLabelFilterMatch = useCallback(
+    (elementLabelId?: string) => {
+      if (!isLabelFilterActive) return true;
+      const hasValidLabel = Boolean(elementLabelId && appState.labels[elementLabelId]);
+      if (!hasValidLabel) {
+        return filterLabelIds.includes(UNLABELED_FILTER_ID);
+      }
+      return filterLabelIds.includes(elementLabelId!);
+    },
+    [isLabelFilterActive, filterLabelIds, appState.labels]
+  );
+
   const matchedNodeIds = useMemo(() => {
     const ids = new Set<string>();
-    if (!isSearchActive) return ids;
+    if (!isAnyFilterActive) return ids;
     Object.values(appState.nodes).forEach((node) => {
-      if (doesNodeMatchQuery(node, searchQuery)) {
+      const matchesSearch = !isSearchActive || doesNodeMatchQuery(node, searchQuery, appState.labels);
+      const matchesLabel = doesLabelFilterMatch(node.labelId);
+      if (matchesSearch && matchesLabel) {
         ids.add(node.id);
       }
     });
     return ids;
-  }, [isSearchActive, searchQuery, appState.nodes]);
+  }, [isAnyFilterActive, isSearchActive, searchQuery, appState.nodes, appState.labels, doesLabelFilterMatch]);
 
   const matchedTextIds = useMemo(() => {
     const ids = new Set<string>();
-    if (!isSearchActive) return ids;
+    if (!isAnyFilterActive) return ids;
     Object.values(appState.texts).forEach((el) => {
-      if (doesTextMatchQuery(el, appState.labels, searchQuery)) {
+      const matchesSearch = !isSearchActive || doesTextMatchQuery(el, appState.labels, searchQuery);
+      const matchesLabel = doesLabelFilterMatch(el.labelId);
+      if (matchesSearch && matchesLabel) {
         ids.add(el.id);
       }
     });
     return ids;
-  }, [isSearchActive, searchQuery, appState.texts, appState.labels]);
+  }, [isAnyFilterActive, isSearchActive, searchQuery, appState.texts, appState.labels, doesLabelFilterMatch]);
+
+  const hiddenNodeIds = useMemo(() => {
+    const ids = new Set<string>();
+    if (!isLabelFilterActive || filterDisplayMode !== 'isolate') return ids;
+    Object.keys(appState.nodes).forEach((id) => {
+      if (!matchedNodeIds.has(id)) ids.add(id);
+    });
+    return ids;
+  }, [isLabelFilterActive, filterDisplayMode, appState.nodes, matchedNodeIds]);
+
+  const hiddenTextIds = useMemo(() => {
+    const ids = new Set<string>();
+    if (!isLabelFilterActive || filterDisplayMode !== 'isolate') return ids;
+    Object.keys(appState.texts).forEach((id) => {
+      if (!matchedTextIds.has(id)) ids.add(id);
+    });
+    return ids;
+  }, [isLabelFilterActive, filterDisplayMode, appState.texts, matchedTextIds]);
+
+  const handleFitFilteredElements = useCallback(() => {
+    const vp = viewportRef.current;
+    if (!vp) return;
+
+    let minX = Infinity;
+    let minY = Infinity;
+    let maxX = -Infinity;
+    let maxY = -Infinity;
+
+    Object.values(appState.nodes).forEach((n) => {
+      if (isAnyFilterActive && !matchedNodeIds.has(n.id)) return;
+      const x = parseFloat(n.x) || 0;
+      const y = parseFloat(n.y) || 0;
+      if (x < minX) minX = x;
+      if (y < minY) minY = y;
+      if (x + 220 > maxX) maxX = x + 220;
+      if (y + 180 > maxY) maxY = y + 180;
+    });
+
+    Object.values(appState.texts).forEach((el) => {
+      if (isAnyFilterActive && !matchedTextIds.has(el.id)) return;
+      const x = parseFloat(el.x) || 0;
+      const y = parseFloat(el.y) || 0;
+      const w = el.width || (el.mode === 'container' ? 340 : 220);
+      const h = el.height || (el.mode === 'container' ? 240 : el.mode === 'annotation' ? 120 : 48);
+      if (x < minX) minX = x;
+      if (y < minY) minY = y;
+      if (x + w > maxX) maxX = x + w;
+      if (y + h > maxY) maxY = y + h;
+    });
+
+    if (minX === Infinity) return;
+
+    const padding = 120;
+    const width = maxX - minX + padding * 2;
+    const height = maxY - minY + padding * 2;
+    const viewW = vp.clientWidth;
+    const viewH = vp.clientHeight;
+    const newZoom = Math.max(0.2, Math.min(Math.min(viewW / width, viewH / height), 1.6));
+    const centerX = minX - padding + width / 2;
+    const centerY = minY - padding + height / 2;
+
+    applyZoomImmediate(newZoom, centerX * newZoom - viewW / 2, centerY * newZoom - viewH / 2);
+  }, [appState.nodes, appState.texts, isAnyFilterActive, matchedNodeIds, matchedTextIds, applyZoomImmediate]);
 
   const activeGalleryFolder = galleryModalState.mode.includes('maps') ? 'maps' : 'images';
   const filteredGalleryImages = imagesDbList.filter(
@@ -3358,6 +3753,8 @@ export default function App() {
         onOpenVideoLib={() => setGlobalVideoModalOpen(true)}
         onOpenActorLib={() => setActorLibraryState({ open: true })}
         onOpenArchive={() => setArchiveModalOpen(true)}
+        activeLabelFilterCount={filterLabelIds.length}
+        onOpenLabelManager={() => setLabelManagerOpen(true)}
         onOpenExport={() => {
           const vp = viewportRef.current;
           const z = currentZoomRef.current || 1;
@@ -3407,6 +3804,19 @@ export default function App() {
           onRegisterRender={registerDotGridRender}
           styleSettings={canvasStyle}
         />
+        <LabelFilterBar
+          labels={appState.labels}
+          nodes={appState.nodes}
+          texts={appState.texts}
+          activeFilterIds={filterLabelIds}
+          filterDisplayMode={filterDisplayMode}
+          matchedCounts={{ nodes: matchedNodeIds.size, texts: matchedTextIds.size }}
+          onToggleLabelFilter={handleToggleFilterLabel}
+          onClearFilter={() => setFilterLabelIds([])}
+          onChangeDisplayMode={setFilterDisplayMode}
+          onFitFiltered={handleFitFilteredElements}
+          onOpenLabelManager={() => setLabelManagerOpen(true)}
+        />
         <div
           ref={viewportRef}
           onPointerDownCapture={handleCanvasPointerDownCapture}
@@ -3450,8 +3860,9 @@ export default function App() {
             selectedConnectionId={activeLinePopover?.connectionId ?? null}
             isPanMode={isSpacePressed || canvasToolMode === 'pan'}
             isReadOnly={isReadOnly}
-            isSearchActive={isSearchActive}
+            isSearchActive={isAnyFilterActive}
             matchedNodeIds={matchedNodeIds}
+            hiddenNodeIds={hiddenNodeIds}
             onSnapGuidesChange={setSnapGuides}
             onClickConnection={(connectionId, x, y) => {
               setActiveLinePopover({ connectionId, x, y });
@@ -3560,8 +3971,9 @@ export default function App() {
                   highlightedElementId === element.id ||
                   Boolean(selectedItems[element.id])
                 }
+                isHiddenByFilter={hiddenTextIds.has(element.id)}
                 searchMatchState={
-                  !isSearchActive
+                  !isAnyFilterActive
                     ? 'none'
                     : matchedTextIds.has(element.id)
                     ? 'match'
@@ -3569,6 +3981,9 @@ export default function App() {
                 }
                 onOpenSettings={(id, e) => {
                   setActiveTextPopover({ elementId: id, x: e.clientX, y: e.clientY });
+                }}
+                onOpenLabelPicker={(id, e) => {
+                  setLabelPickerTarget({ mode: 'text', targetId: id, x: e.clientX, y: e.clientY });
                 }}
                 onDelete={(id) => {
                   if (selectedItems[id] && totalSelectedCount > 1) {
@@ -3592,11 +4007,13 @@ export default function App() {
             >
               <WorkflowNodeCard
                 node={node}
+                label={node.labelId ? appState.labels[node.labelId] : undefined}
                 isReadOnly={isReadOnly}
                 isHighlighted={highlightedElementId === node.id}
                 isSelected={Boolean(selectedItems[node.id])}
+                isHiddenByFilter={hiddenNodeIds.has(node.id)}
                 searchMatchState={
-                  !isSearchActive
+                  !isAnyFilterActive
                     ? 'none'
                     : matchedNodeIds.has(node.id)
                     ? 'match'
@@ -3637,6 +4054,9 @@ export default function App() {
                   });
                 }}
                 onOpenDashboard={(id) => setActiveEditNodeId(id)}
+                onOpenLabelPicker={(id, e) => {
+                  setLabelPickerTarget({ mode: 'node', targetId: id, x: e.clientX, y: e.clientY });
+                }}
                 onDeleteRequest={(id) => {
                   if (selectedItems[id] && totalSelectedCount > 1) {
                     setBatchDeleteOpen(true);
@@ -3750,6 +4170,15 @@ export default function App() {
                       </button>
                     </div>
                   )}
+                  <button
+                    type="button"
+                    onClick={(e) => setLabelPickerTarget({ mode: 'batch', x: e.clientX, y: e.clientY })}
+                    className="touch-target flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-[#ded9cd] hover:bg-[#d2ccbf] dark:bg-neutral-800 dark:hover:bg-neutral-700 text-[#2b2924] dark:text-neutral-200 border border-[#c3beb1] dark:border-neutral-700 font-medium transition-colors whitespace-nowrap shrink-0 cursor-pointer"
+                    title={t('app.batchLabelTitle')}
+                  >
+                    <Tag className="w-3.5 h-3.5 text-blue-700 dark:text-blue-400" />
+                    <span>{t('app.batchLabel')}</span>
+                  </button>
                   {selectedNodeIds.length > 0 && (
                     <button
                       onClick={handleBatchArchiveSelectedNodes}
@@ -3860,6 +4289,43 @@ export default function App() {
         />
       )}
 
+      {labelPickerTarget && (
+        <LabelPickerPopover
+          labels={appState.labels}
+          currentLabelId={
+            labelPickerTarget.mode === 'node' && labelPickerTarget.targetId
+              ? appState.nodes[labelPickerTarget.targetId]?.labelId || ''
+              : labelPickerTarget.mode === 'text' && labelPickerTarget.targetId
+              ? appState.texts[labelPickerTarget.targetId]?.labelId || ''
+              : ''
+          }
+          selectedCount={labelPickerTarget.mode === 'batch' ? totalSelectedCount : 1}
+          position={{ x: labelPickerTarget.x, y: labelPickerTarget.y }}
+          isReadOnly={isReadOnly}
+          onSelectLabel={(labelId) => {
+            if (labelPickerTarget.mode === 'node' && labelPickerTarget.targetId) {
+              handleUpdateNode(labelPickerTarget.targetId, { labelId });
+            } else if (labelPickerTarget.mode === 'text' && labelPickerTarget.targetId) {
+              const el = appStateRef.current.texts[labelPickerTarget.targetId];
+              const nextLabel = labelId ? appStateRef.current.labels[labelId] : undefined;
+              handleUpdateText(
+                labelPickerTarget.targetId,
+                el?.mode === 'container' && nextLabel
+                  ? { labelId, color: nextLabel.color }
+                  : { labelId }
+              );
+            } else if (labelPickerTarget.mode === 'batch') {
+              handleBatchAssignLabel(labelId);
+            }
+          }}
+          onOpenLabelManager={() => {
+            setLabelPickerTarget(null);
+            setLabelManagerOpen(true);
+          }}
+          onClose={() => setLabelPickerTarget(null)}
+        />
+      )}
+
       {/* Web Administration Console Modal */}
       {adminConsoleOpen && (
         <AdminConsoleModal
@@ -3936,12 +4402,14 @@ export default function App() {
           node={activeNode}
           globalVideos={appState.globalVideos}
           actors={appState.actors}
+          labels={appState.labels}
           isReadOnly={isReadOnly}
           isArchived={Boolean(activeEditNodeId && appState.storedNodes[activeEditNodeId])}
           hasApiKey={hasApiKey}
           currentUserName={currentUser.name}
           onClose={() => setActiveEditNodeId(null)}
           onUpdateNode={handleUpdateNode}
+          onOpenLabelManager={() => setLabelManagerOpen(true)}
           onDeleteNode={handleDeleteNode}
           onArchiveNode={handleArchiveNode}
           onOpenPinning={(id) => {
@@ -4129,29 +4597,17 @@ export default function App() {
       {labelManagerOpen && (
         <LabelManagerModal
           labels={appState.labels}
+          nodes={appState.nodes}
+          texts={appState.texts}
+          isReadOnly={isReadOnly}
+          activeFilterLabelIds={filterLabelIds}
           onClose={() => setLabelManagerOpen(false)}
-          onAddLabel={(name, color) => {
-            pushUndoSnapshot();
-            const id = `lbl-${Date.now()}`;
-            setAppState((prev) => {
-              const next = {
-                ...prev,
-                labels: { ...prev.labels, [id]: { name, color } },
-              };
-              appStateRef.current = next;
-              return next;
-            });
-          }}
-          onDeleteLabel={(id) => {
-            pushUndoSnapshot();
-            setAppState((prev) => {
-              const nextLabels = { ...prev.labels };
-              delete nextLabels[id];
-              const next = { ...prev, labels: nextLabels };
-              appStateRef.current = next;
-              return next;
-            });
-          }}
+          onAddLabel={handleAddLabel}
+          onUpdateLabel={handleUpdateLabel}
+          onDeleteLabel={handleDeleteLabel}
+          onSeedStarterLabels={handleSeedStarterLabels}
+          onToggleFilterLabel={handleToggleFilterLabel}
+          onClearFilter={() => setFilterLabelIds([])}
         />
       )}
 
@@ -4162,6 +4618,7 @@ export default function App() {
           projectTitle={activeProject?.title}
           isReadOnly={isReadOnly}
           hasApiKey={hasApiKey}
+          userApiKey={userGeminiApiKey}
           images={filteredGalleryImages.map((img) => ({
             id: img.id,
             name: img.name,
@@ -4172,6 +4629,13 @@ export default function App() {
           isLoading={isUploadingMedia}
           onClose={() => setGalleryModalState({ open: false, mode: 'images-manage' })}
           onUploadFiles={handleUploadGalleryFiles}
+          onImportWebImages={(items, onProgress) =>
+            handleImportWebImagesToGallery(
+              items,
+              galleryModalState.mode.includes('maps') ? 'maps' : 'images',
+              onProgress
+            )
+          }
           onOpenAiCreate={() => {
             if (!hasApiKey) return;
             const targetKind = galleryModalState.mode.includes('maps') ? 'map' : 'image';
@@ -4229,6 +4693,7 @@ export default function App() {
           videos={appState.globalVideos}
           projectTitle={activeProject?.title}
           isReadOnly={isReadOnly}
+          userApiKey={userGeminiApiKey}
           author={currentUser.name}
           onClose={() => setGlobalVideoModalOpen(false)}
           onAddVideo={(video) => {

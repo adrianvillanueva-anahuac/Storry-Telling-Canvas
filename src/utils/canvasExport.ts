@@ -1,5 +1,6 @@
 import { AppState, TextElement, WorkflowNode } from '../types/workflow';
 import { calculateConnectionPath, getNodePortCoords } from './connectionPath';
+import { getContrastTextColor } from './colorContrast';
 
 export type ExportScope = 'workspace' | 'view';
 export type ExportFormat = 'png' | 'svg';
@@ -320,10 +321,14 @@ export function buildExportSvgString(options: CanvasExportOptions): {
       const anchorX = x + 16;
       const anchorY = y + 8;
 
+      const titleTextColor = getContrastTextColor(themeColor);
+      const lblTextColor = lbl ? getContrastTextColor(lbl.color) : '#ffffff';
+      const lblBadgeWidth = lbl ? Math.max(54, lbl.name.length * 6.5 + 16) : 0;
+
       const labelBadgeSvg = lbl
         ? `<g>
-            <rect x="${x + w - 16 - Math.max(54, lbl.name.length * 6.5 + 16)}" y="${y - 11}" width="${Math.max(54, lbl.name.length * 6.5 + 16)}" height="20" rx="10" fill="${escapeXml(lbl.color)}" />
-            <text x="${x + w - 16 - Math.max(54, lbl.name.length * 6.5 + 16) / 2}" y="${y + 2.5}" text-anchor="middle" font-family="${fontFamily}" font-size="10" font-weight="600" fill="#ffffff">${escapeXml(lbl.name)}</text>
+            <rect x="${x + w - 16 - lblBadgeWidth}" y="${y - 11}" width="${lblBadgeWidth}" height="20" rx="10" fill="${escapeXml(lbl.color)}" />
+            <text x="${x + w - 16 - lblBadgeWidth / 2}" y="${y + 2.5}" text-anchor="middle" font-family="${fontFamily}" font-size="10" font-weight="600" fill="${lblTextColor}">${escapeXml(lbl.name)}</text>
           </g>`
         : '';
 
@@ -332,7 +337,7 @@ export function buildExportSvgString(options: CanvasExportOptions): {
           <rect x="${x}" y="${y}" width="${w}" height="${h}" rx="16" fill="${escapeXml(themeColor)}" fill-opacity="0.08" stroke="${escapeXml(themeColor)}" stroke-width="2" stroke-dasharray="8 6" />
           <g transform="translate(${anchorX}, ${anchorY}) scale(${containerTitleInvScale})">
             <rect x="0" y="${-badgeH}" width="${badgeW}" height="${badgeH}" rx="6" fill="${escapeXml(themeColor)}" />
-            <text x="12" y="${-badgeH / 2 + fontSize * 0.35}" font-family="${fontFamily}" font-size="${fontSize}" font-weight="${fontWeight}" font-style="${fontStyle}" fill="#ffffff">${escapeXml(titleText)}</text>
+            <text x="12" y="${-badgeH / 2 + fontSize * 0.35}" font-family="${fontFamily}" font-size="${fontSize}" font-weight="${fontWeight}" font-style="${fontStyle}" fill="${titleTextColor}">${escapeXml(titleText)}</text>
           </g>
           ${labelBadgeSvg}
         </g>
@@ -542,13 +547,32 @@ export function buildExportSvgString(options: CanvasExportOptions): {
         )
         .join('');
 
+      const nodeLbl = node.labelId ? state.labels[node.labelId] : undefined;
+      const effectiveNodeBorder = nodeLbl ? nodeLbl.color : nodeBorder;
+      const nodeLabelStripSvg = nodeLbl
+        ? `<path d="M ${x + 12} ${y} H ${x + NODE_WIDTH - 12} Q ${x + NODE_WIDTH} ${y} ${x + NODE_WIDTH} ${y + 3} H ${x} Q ${x} ${y} ${x + 12} ${y} Z" fill="${escapeXml(nodeLbl.color)}" />`
+        : '';
+      const nodeLabelBadgeSvg = nodeLbl
+        ? (() => {
+            const lblText = truncateText(nodeLbl.name, 16);
+            const pillW = Math.min(126, Math.max(46, lblText.length * 5.8 + 16));
+            const pillFg = getContrastTextColor(nodeLbl.color);
+            return `<g>
+              <rect x="${x + 14}" y="${y + 139}" width="${pillW}" height="16" rx="8" fill="${escapeXml(nodeLbl.color)}" />
+              <text x="${x + 14 + pillW / 2}" y="${y + 150}" text-anchor="middle" font-family="${fontFamily}" font-size="9" font-weight="600" fill="${pillFg}">${escapeXml(lblText)}</text>
+            </g>`;
+          })()
+        : '';
+
       return `
         <g>
-          <rect x="${x}" y="${y}" width="${NODE_WIDTH}" height="${NODE_HEIGHT}" rx="12" fill="${nodeBg}" stroke="${nodeBorder}" stroke-width="1.5" />
+          <rect x="${x}" y="${y}" width="${NODE_WIDTH}" height="${NODE_HEIGHT}" rx="12" fill="${nodeBg}" stroke="${escapeXml(effectiveNodeBorder)}" stroke-width="1.5" />
           <path d="M ${x + 12} ${y} H ${x + NODE_WIDTH - 12} Q ${x + NODE_WIDTH} ${y} ${x + NODE_WIDTH} ${y + 12} V ${y + 37} H ${x} V ${y + 12} Q ${x} ${y} ${x + 12} ${y} Z" fill="${nodeHeaderBg}" />
+          ${nodeLabelStripSvg}
           <line x1="${x}" y1="${y + 37}" x2="${x + NODE_WIDTH}" y2="${y + 37}" stroke="${useLightSurface ? '#e4e4e7' : '#262626'}" stroke-width="1" />
           <text x="${x + 12}" y="${y + 23}" font-family="${fontFamily}" font-size="12" font-weight="600" fill="${nodeTitleColor}">${escapeXml(truncateText(node.title || labels.defaultScene || 'Scene', 28))}</text>
           ${thumbContent}
+          ${nodeLabelBadgeSvg}
           ${pinBadgeSvg}
           ${portDots}
         </g>
@@ -563,9 +587,12 @@ export function buildExportSvgString(options: CanvasExportOptions): {
       const x = parseFloat(el.x) || 0;
       const y = parseFloat(el.y) || 0;
 
+      const lbl = el.labelId ? state.labels[el.labelId] : undefined;
+
       if (el.mode === 'annotation') {
         const noteBg = useLightThemePalette ? '#e9e1c9' : useLightSurface ? '#fffbeb' : '#291a03';
-        const noteBorder = useLightThemePalette ? '#c9bd98' : useLightSurface ? '#fcd34d' : '#92400e';
+        const defaultNoteBorder = useLightThemePalette ? '#c9bd98' : useLightSurface ? '#fcd34d' : '#92400e';
+        const noteBorder = lbl ? lbl.color : defaultNoteBorder;
         const noteDivider = useLightThemePalette ? '#d5cab0' : useLightSurface ? '#fde68a' : '#78350f';
         const noteText = useLightThemePalette ? '#2b2821' : useLightSurface ? '#171717' : '#fef3c7';
         const noteW = el.width || 220;
@@ -581,9 +608,22 @@ export function buildExportSvgString(options: CanvasExportOptions): {
           )
           .join('');
 
+        const noteBadgeSvg = lbl
+          ? (() => {
+              const badgeTxt = truncateText(lbl.name, 18);
+              const badgeW = Math.min(132, Math.max(48, badgeTxt.length * 6 + 16));
+              const badgeFg = getContrastTextColor(lbl.color);
+              return `<g>
+                <rect x="${x + 10}" y="${y - 9}" width="${badgeW}" height="16" rx="8" fill="${escapeXml(lbl.color)}" />
+                <text x="${x + 10 + badgeW / 2}" y="${y + 2}" text-anchor="middle" font-family="${fontFamily}" font-size="9" font-weight="600" fill="${badgeFg}">${escapeXml(badgeTxt)}</text>
+              </g>`;
+            })()
+          : '';
+
         return `
           <g>
-            <rect x="${x}" y="${y}" width="${noteW}" height="${cardH}" rx="12" fill="${noteBg}" stroke="${noteBorder}" stroke-width="1.2" />
+            <rect x="${x}" y="${y}" width="${noteW}" height="${cardH}" rx="12" fill="${noteBg}" stroke="${escapeXml(noteBorder)}" stroke-width="${lbl ? '1.6' : '1.2'}" />
+            ${noteBadgeSvg}
             <text x="${x + 12}" y="${y + 22}" font-family="${fontFamily}" font-size="12" font-weight="700" fill="${noteText}">${escapeXml(truncateText(el.text || labels.defaultStickyNote || 'Sticky Note', maxTitleChars))}</text>
             <line x1="${x + 12}" y1="${y + 30}" x2="${x + noteW - 12}" y2="${y + 30}" stroke="${noteDivider}" stroke-width="1" />
             <text x="${x + 12}" y="${y + 48}" font-family="${fontFamily}" font-size="12" fill="${noteText}" opacity="0.92">${bodyTspans}</text>
@@ -610,7 +650,22 @@ export function buildExportSvgString(options: CanvasExportOptions): {
         )
         .join('');
 
-      return `<text x="${x + 6}" y="${y + 6 + fontSize}" font-family="${fontFamily}" font-size="${fontSize}" font-weight="${fontWeight}" font-style="${fontStyle}" fill="${escapeXml(textColor)}">${tspans}</text>`;
+      const floatingBadgeSvg = lbl
+        ? (() => {
+            const badgeTxt = truncateText(lbl.name, 18);
+            const badgeW = Math.min(132, Math.max(46, badgeTxt.length * 6 + 16));
+            const badgeFg = getContrastTextColor(lbl.color);
+            return `<g>
+              <rect x="${x + 6}" y="${y - 16}" width="${badgeW}" height="15" rx="7.5" fill="${escapeXml(lbl.color)}" />
+              <text x="${x + 6 + badgeW / 2}" y="${y - 5.5}" text-anchor="middle" font-family="${fontFamily}" font-size="9" font-weight="600" fill="${badgeFg}">${escapeXml(badgeTxt)}</text>
+            </g>`;
+          })()
+        : '';
+
+      return `<g>
+        ${floatingBadgeSvg}
+        <text x="${x + 6}" y="${y + 6 + fontSize}" font-family="${fontFamily}" font-size="${fontSize}" font-weight="${fontWeight}" font-style="${fontStyle}" fill="${escapeXml(textColor)}">${tspans}</text>
+      </g>`;
     })
     .join('\n');
 

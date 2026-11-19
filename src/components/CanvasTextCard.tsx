@@ -1,7 +1,8 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { TextElement, LabelItem } from '../types/workflow';
-import { Maximize2, Settings, Trash2, Unlink } from 'lucide-react';
+import { Maximize2, Settings, Tag, Trash2, Unlink } from 'lucide-react';
 import { useLanguage } from '../hooks/useLanguage';
+import { getContrastTextColor } from '../utils/colorContrast';
 
 type ResizeDirection = 'nw' | 'n' | 'ne' | 'e' | 'se' | 's' | 'sw' | 'w';
 
@@ -20,8 +21,10 @@ interface CanvasTextCardProps {
   isReadOnly: boolean;
   isDropTarget?: boolean;
   isSelected?: boolean;
+  isHiddenByFilter?: boolean;
   searchMatchState?: 'none' | 'match' | 'dimmed';
   onOpenSettings: (elementId: string, e: React.MouseEvent) => void;
+  onOpenLabelPicker?: (elementId: string, e: React.MouseEvent) => void;
   onDelete: (elementId: string) => void;
   onUnlink: (elementId: string) => void;
   onUpdateText: (elementId: string, updates: Partial<TextElement>) => void;
@@ -60,8 +63,10 @@ export const CanvasTextCard: React.FC<CanvasTextCardProps> = ({
   isReadOnly,
   isDropTarget = false,
   isSelected = false,
+  isHiddenByFilter = false,
   searchMatchState = 'none',
   onOpenSettings,
+  onOpenLabelPicker,
   onDelete,
   onUnlink,
   onUpdateText,
@@ -321,9 +326,14 @@ export const CanvasTextCard: React.FC<CanvasTextCardProps> = ({
     );
   };
 
+  if (isHiddenByFilter) {
+    return null;
+  }
+
   if (element.mode === 'container') {
     const activeWidth = liveResize?.width ?? element.width ?? 340;
     const activeHeight = liveResize?.height ?? element.height ?? 240;
+    const containerTitleTextColor = getContrastTextColor(themeColor);
 
     return (
       <div
@@ -373,8 +383,9 @@ export const CanvasTextCard: React.FC<CanvasTextCardProps> = ({
             fontSize: `${containerFontSize}px`,
             fontWeight: containerIsBold ? 'bold' : 'normal',
             fontStyle: containerIsItalic ? 'italic' : 'normal',
+            color: containerTitleTextColor,
           }}
-          className="absolute px-3 py-0.5 rounded-md text-white shadow-md cursor-text flex items-center gap-1.5 whitespace-nowrap leading-snug"
+          className="absolute px-3 py-0.5 rounded-md shadow-md cursor-text flex items-center gap-1.5 whitespace-nowrap leading-snug"
           onDoubleClick={(e) => {
             e.stopPropagation();
             if (!isReadOnly) {
@@ -406,8 +417,10 @@ export const CanvasTextCard: React.FC<CanvasTextCardProps> = ({
                 fontSize: `${containerFontSize}px`,
                 fontWeight: containerIsBold ? 'bold' : 'normal',
                 fontStyle: containerIsItalic ? 'italic' : 'normal',
+                color: containerTitleTextColor,
+                borderColor: containerTitleTextColor,
               }}
-              className="bg-transparent text-white border-b border-white outline-none w-40 leading-snug"
+              className="bg-transparent border-b outline-none w-40 leading-snug"
             />
           ) : (
             <span>{element.text}</span>
@@ -416,12 +429,27 @@ export const CanvasTextCard: React.FC<CanvasTextCardProps> = ({
 
         {/* Category / Label Badge on Top Right */}
         {label && (
-          <div
-            style={{ backgroundColor: label.color }}
-            className="absolute -top-3 right-4 px-2 py-0.5 rounded-full text-white text-[10px] font-semibold shadow-md"
+          <button
+            type="button"
+            disabled={isReadOnly || !onOpenLabelPicker}
+            onPointerDown={(e) => {
+              if (!isReadOnly && onOpenLabelPicker && e.button !== 1) e.stopPropagation();
+            }}
+            onClick={(e) => {
+              if (isReadOnly || !onOpenLabelPicker) return;
+              e.stopPropagation();
+              onOpenLabelPicker(element.id, e);
+            }}
+            style={{
+              backgroundColor: label.color,
+              color: getContrastTextColor(label.color),
+            }}
+            className={`absolute -top-3 right-4 px-2.5 py-0.5 rounded-full text-[10px] font-semibold shadow-md whitespace-nowrap ${
+              !isReadOnly && onOpenLabelPicker ? 'cursor-pointer hover:brightness-110' : 'pointer-events-none'
+            }`}
           >
             {label.name}
-          </div>
+          </button>
         )}
 
         {/* Drop Indicator Badge when glowing */}
@@ -450,6 +478,20 @@ export const CanvasTextCard: React.FC<CanvasTextCardProps> = ({
                   title={t('textCard.fitContainer')}
                 >
                   <Maximize2 className="w-3.5 h-3.5" />
+                </button>
+              )}
+              {onOpenLabelPicker && (
+                <button
+                  onPointerDown={(e) => { if (e.button !== 1) e.stopPropagation(); }}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onOpenLabelPicker(element.id, e);
+                  }}
+                  onDoubleClick={(e) => e.stopPropagation()}
+                  className="p-1.5 text-[#5c584e] hover:text-blue-700 hover:bg-[#d8d3c8] dark:text-neutral-400 dark:hover:text-blue-400 dark:hover:bg-neutral-800 rounded-full cursor-pointer"
+                  title={t('node.labelBtn')}
+                >
+                  <Tag className="w-3.5 h-3.5" style={label ? { color: label.color } : undefined} />
                 </button>
               )}
               <button
@@ -508,6 +550,10 @@ export const CanvasTextCard: React.FC<CanvasTextCardProps> = ({
                 borderColor: element.color,
                 backgroundColor: `${element.color}22`,
               }
+            : label
+            ? {
+                borderColor: label.color,
+              }
             : {}),
         }}
         className={`canvas-text-node touch-canvas absolute flex flex-col border rounded-xl p-3 shadow-md group cursor-grab active:cursor-grabbing select-none transition-[opacity,filter,box-shadow] duration-200 ${
@@ -526,6 +572,32 @@ export const CanvasTextCard: React.FC<CanvasTextCardProps> = ({
       >
         {renderResizeHandles(activeWidth)}
 
+        {/* Color-coded label badge on Sticky Note */}
+        {label && (
+          <button
+            type="button"
+            disabled={isReadOnly || !onOpenLabelPicker}
+            onPointerDown={(e) => {
+              if (!isReadOnly && onOpenLabelPicker && e.button !== 1) e.stopPropagation();
+            }}
+            onClick={(e) => {
+              if (isReadOnly || !onOpenLabelPicker) return;
+              e.stopPropagation();
+              onOpenLabelPicker(element.id, e);
+            }}
+            style={{
+              backgroundColor: label.color,
+              color: getContrastTextColor(label.color),
+            }}
+            className={`absolute -top-2.5 left-3 max-w-[140px] px-2 py-0.5 rounded-full text-[10px] font-semibold shadow-sm truncate z-20 ${
+              !isReadOnly && onOpenLabelPicker ? 'cursor-pointer hover:brightness-110' : 'pointer-events-none'
+            }`}
+            title={label.name}
+          >
+            {label.name}
+          </button>
+        )}
+
         {/* Controls */}
         {!isReadOnly && (
           <div className="touch-action-bar absolute -top-7 right-2 z-30 opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1 bg-[#ebe7de] dark:bg-neutral-900 rounded-full p-0.5 border border-[#c3beb1] dark:border-neutral-700 shadow-md">
@@ -540,6 +612,19 @@ export const CanvasTextCard: React.FC<CanvasTextCardProps> = ({
                 title={t('textCard.unlinkContainer')}
               >
                 <Unlink className="w-3 h-3" />
+              </button>
+            )}
+            {onOpenLabelPicker && (
+              <button
+                onPointerDown={(e) => { if (e.button !== 1) e.stopPropagation(); }}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onOpenLabelPicker(element.id, e);
+                }}
+                className="p-1.5 text-[#5c584e] hover:text-blue-700 dark:text-neutral-400 dark:hover:text-blue-400 rounded-full cursor-pointer"
+                title={t('node.labelBtn')}
+              >
+                <Tag className="w-3 h-3" style={label ? { color: label.color } : undefined} />
               </button>
             )}
             <button
@@ -676,8 +761,16 @@ export const CanvasTextCard: React.FC<CanvasTextCardProps> = ({
         fontSize: `${element.size}px`,
         fontWeight: element.bold ? 'bold' : 'normal',
         fontStyle: element.italic ? 'italic' : 'normal',
+        ...(label
+          ? {
+              borderColor: `${label.color}70`,
+              backgroundColor: `${label.color}14`,
+            }
+          : {}),
       }}
       className={`canvas-text-node touch-canvas absolute group cursor-grab active:cursor-grabbing p-1.5 rounded select-none transition-[opacity,filter,box-shadow] duration-200 ${
+        label ? 'border' : ''
+      } ${
         searchMatchState === 'dimmed'
           ? 'opacity-20 saturate-50 hover:opacity-50 z-10'
           : searchMatchState === 'match'
@@ -688,6 +781,32 @@ export const CanvasTextCard: React.FC<CanvasTextCardProps> = ({
       }`}
     >
       {renderResizeHandles(activeFloatingWidth)}
+
+      {/* Color-coded label badge on Floating Text */}
+      {label && (
+        <button
+          type="button"
+          disabled={isReadOnly || !onOpenLabelPicker}
+          onPointerDown={(e) => {
+            if (!isReadOnly && onOpenLabelPicker && e.button !== 1) e.stopPropagation();
+          }}
+          onClick={(e) => {
+            if (isReadOnly || !onOpenLabelPicker) return;
+            e.stopPropagation();
+            onOpenLabelPicker(element.id, e);
+          }}
+          style={{
+            backgroundColor: label.color,
+            color: getContrastTextColor(label.color),
+          }}
+          className={`absolute -top-5 left-0 max-w-[140px] px-2 py-0.5 rounded-full text-[10px] font-semibold shadow-sm truncate z-20 ${
+            !isReadOnly && onOpenLabelPicker ? 'cursor-pointer hover:brightness-110' : 'pointer-events-none'
+          }`}
+          title={label.name}
+        >
+          {label.name}
+        </button>
+      )}
 
       {!isReadOnly && (
         <div className="touch-action-bar absolute -top-7 right-2 z-30 opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1 bg-[#ebe7de] dark:bg-neutral-900 rounded-full p-0.5 border border-[#c3beb1] dark:border-neutral-700 shadow-md">
@@ -702,6 +821,19 @@ export const CanvasTextCard: React.FC<CanvasTextCardProps> = ({
               title={t('textCard.unlinkContainer')}
             >
               <Unlink className="w-3 h-3" />
+            </button>
+          )}
+          {onOpenLabelPicker && (
+            <button
+              onPointerDown={(e) => { if (e.button !== 1) e.stopPropagation(); }}
+              onClick={(e) => {
+                e.stopPropagation();
+                onOpenLabelPicker(element.id, e);
+              }}
+              className="p-1.5 text-[#5c584e] hover:text-blue-700 dark:text-neutral-400 dark:hover:text-blue-400 rounded-full cursor-pointer"
+              title={t('node.labelBtn')}
+            >
+              <Tag className="w-3 h-3" style={label ? { color: label.color } : undefined} />
             </button>
           )}
           <button

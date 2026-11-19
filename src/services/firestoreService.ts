@@ -19,6 +19,7 @@ import {
   Connection,
   GlobalVideo,
   ImageResource,
+  LabelItem,
   Project,
   ProjectParticipant,
   TextElement,
@@ -121,6 +122,19 @@ export async function createProject(
       containerId: null,
     });
 
+    // Seed starter color-coded labels for immediate visual grouping
+    const nowIso = new Date().toISOString();
+    const starterLabels: Array<LabelItem & { id: string }> = [
+      { id: 'lbl-1', projectId, name: 'Act I', color: '#2563eb', createdAt: nowIso, updatedAt: nowIso },
+      { id: 'lbl-2', projectId, name: 'Needs Review', color: '#dc2626', createdAt: nowIso, updatedAt: nowIso },
+      { id: 'lbl-3', projectId, name: 'Approved', color: '#059669', createdAt: nowIso, updatedAt: nowIso },
+    ];
+    await Promise.all(
+      starterLabels.map((lbl) =>
+        setDoc(doc(db, path, projectId, 'labels', lbl.id), lbl)
+      )
+    );
+
     return projectId;
   } catch (error) {
     handleFirestoreError(error, OperationType.CREATE, path);
@@ -163,12 +177,14 @@ export function subscribeProjectCanvas(
     connections: Connection[];
     texts: Record<string, TextElement>;
     storedNodes: Record<string, WorkflowNode>;
+    labels: Record<string, LabelItem>;
   }) => void
 ) {
   let nodesMap: Record<string, WorkflowNode> = {};
   let connectionsList: Connection[] = [];
   let textsMap: Record<string, TextElement> = {};
   let storedNodesMap: Record<string, WorkflowNode> = {};
+  let labelsMap: Record<string, LabelItem> = {};
 
   const emit = () => {
     callback({
@@ -176,6 +192,7 @@ export function subscribeProjectCanvas(
       connections: [...connectionsList],
       texts: { ...textsMap },
       storedNodes: { ...storedNodesMap },
+      labels: { ...labelsMap },
     });
   };
 
@@ -228,11 +245,25 @@ export function subscribeProjectCanvas(
     (err) => handleFirestoreError(err, OperationType.LIST, `projects/${projectId}/storedNodes`)
   );
 
+  // 5. Project Labels
+  const labelsUnsub = onSnapshot(
+    collection(db, 'projects', projectId, 'labels'),
+    (snap) => {
+      labelsMap = {};
+      snap.docs.forEach((d) => {
+        labelsMap[d.id] = { ...d.data(), id: d.id } as LabelItem;
+      });
+      emit();
+    },
+    (err) => handleFirestoreError(err, OperationType.LIST, `projects/${projectId}/labels`)
+  );
+
   return () => {
     nodesUnsub();
     connsUnsub();
     textsUnsub();
     storedUnsub();
+    labelsUnsub();
   };
 }
 
@@ -522,11 +553,114 @@ export async function archiveNodesBatch(
   }
 }
 
+export function sanitizeLabelDoc(
+  projectId: string,
+  labelId: string,
+  label: LabelItem
+): {
+  id: string;
+  projectId: string;
+  name: string;
+  color: string;
+  createdAt: string;
+  updatedAt: string;
+} {
+  const safeName = (label.name || 'Label').trim().slice(0, 60) || 'Label';
+  const rawColor = (label.color || '#2563eb').trim();
+  const safeColor = /^#[0-9a-fA-F]{3,8}$/.test(rawColor) ? rawColor : '#2563eb';
+  const nowIso = new Date().toISOString().slice(0, 64);
+  return {
+    id: labelId,
+    projectId,
+    name: safeName,
+    color: safeColor,
+    createdAt: (label.createdAt || nowIso).slice(0, 64),
+    updatedAt: nowIso,
+  };
+}
+
+export async function saveLabelToFirestore(
+  projectId: string,
+  labelId: string,
+  label: LabelItem,
+  updatedTexts?: TextElement[]
+): Promise<void> {
+  const path = `projects/${projectId}/labels/${labelId}`;
+  try {
+    const payload = sanitizeLabelDoc(projectId, labelId, label);
+    if (updatedTexts && updatedTexts.length > 0) {
+      const batch = writeBatch(db);
+      batch.set(doc(db, 'projects', projectId, 'labels', labelId), payload);
+      for (const textEl of updatedTexts) {
+        batch.set(
+          doc(db, 'projects', projectId, 'texts', textEl.id),
+          stripUndefined(textEl as unknown as Record<string, unknown>),
+          { merge: true }
+        );
+      }
+      await batch.commit();
+    } else {
+      await setDoc(doc(db, 'projects', projectId, 'labels', labelId), payload);
+    }
+  } catch (error) {
+    handleFirestoreError(error, OperationType.WRITE, path);
+  }
+}
+
+export async function deleteLabelFromFirestore(
+  projectId: string,
+  labelId: string,
+  clearedNodes: WorkflowNode[] = [],
+  clearedTexts: TextElement[] = []
+): Promise<void> {
+  const path = `projects/${projectId}/labels/${labelId}`;
+  try {
+    let batch = writeBatch(db);
+    let opCount = 0;
+
+    const flushIfNeeded = async (force = false) => {
+      if (opCount >= 400 || (force && opCount > 0)) {
+        await batch.commit();
+        batch = writeBatch(db);
+        opCount = 0;
+      }
+    };
+
+    batch.delete(doc(db, 'projects', projectId, 'labels', labelId));
+    opCount += 1;
+
+    for (const node of clearedNodes) {
+      batch.set(
+        doc(db, 'projects', projectId, 'nodes', node.id),
+        stripUndefined(node as unknown as Record<string, unknown>),
+        { merge: true }
+      );
+      opCount += 1;
+      await flushIfNeeded(false);
+    }
+
+    for (const textEl of clearedTexts) {
+      batch.set(
+        doc(db, 'projects', projectId, 'texts', textEl.id),
+        stripUndefined(textEl as unknown as Record<string, unknown>),
+        { merge: true }
+      );
+      opCount += 1;
+      await flushIfNeeded(false);
+    }
+
+    await flushIfNeeded(true);
+  } catch (error) {
+    handleFirestoreError(error, OperationType.DELETE, path);
+  }
+}
+
 export interface CanvasSnapshotData {
   nodes: Record<string, WorkflowNode>;
   connections: Connection[];
   texts: Record<string, TextElement>;
   storedNodes: Record<string, WorkflowNode>;
+  labels?: Record<string, LabelItem>;
 }
 
 export async function syncCanvasSnapshotDiffToFirestore(
@@ -572,6 +706,27 @@ export async function syncCanvasSnapshotDiffToFirestore(
     await syncRecordCollection('nodes', prevSnapshot.nodes, nextSnapshot.nodes);
     await syncRecordCollection('texts', prevSnapshot.texts, nextSnapshot.texts);
     await syncRecordCollection('storedNodes', prevSnapshot.storedNodes, nextSnapshot.storedNodes);
+
+    if (prevSnapshot.labels && nextSnapshot.labels) {
+      for (const id of Object.keys(prevSnapshot.labels)) {
+        if (!(id in nextSnapshot.labels)) {
+          batch.delete(doc(db, 'projects', projectId, 'labels', id));
+          opCount += 1;
+          await flushIfNeeded(false);
+        }
+      }
+      for (const [id, nextLbl] of Object.entries(nextSnapshot.labels)) {
+        const prevLbl = prevSnapshot.labels[id];
+        if (!prevLbl || prevLbl.name !== nextLbl.name || prevLbl.color !== nextLbl.color) {
+          batch.set(
+            doc(db, 'projects', projectId, 'labels', id),
+            sanitizeLabelDoc(projectId, id, nextLbl)
+          );
+          opCount += 1;
+          await flushIfNeeded(false);
+        }
+      }
+    }
 
     const prevConnsMap: Record<string, Connection> = {};
     prevSnapshot.connections.forEach((c) => {

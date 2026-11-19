@@ -23,6 +23,7 @@ import {
   StickyNote,
   KeyRound,
   Languages,
+  Tag,
 } from 'lucide-react';
 import { useLanguage } from '../hooks/useLanguage';
 import {
@@ -60,6 +61,8 @@ interface HeaderProps {
   onOpenVideoLib: () => void;
   onOpenActorLib: () => void;
   onOpenArchive: () => void;
+  activeLabelFilterCount?: number;
+  onOpenLabelManager: () => void;
   onOpenExport: () => void;
   onAddNode: () => void;
   onAddTextDirect: (type: 'floating' | 'container' | 'annotation') => void;
@@ -94,6 +97,8 @@ export const Header: React.FC<HeaderProps> = ({
   onOpenVideoLib,
   onOpenActorLib,
   onOpenArchive,
+  activeLabelFilterCount = 0,
+  onOpenLabelManager,
   onOpenExport,
   onAddNode,
   onAddTextDirect,
@@ -310,6 +315,30 @@ export const Header: React.FC<HeaderProps> = ({
             </>
           )}
         </div>
+
+        <button
+          onClick={() => {
+            setLibsMenuOpen(false);
+            setAddMenuOpen(false);
+            setStyleMenuOpen(false);
+            setUserMenuOpen(false);
+            onOpenLabelManager();
+          }}
+          className={`touch-target flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 text-xs font-medium rounded-md border transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
+            activeLabelFilterCount > 0
+              ? 'bg-blue-600/15 border-blue-600/40 text-blue-800 dark:bg-blue-600/20 dark:border-blue-500/50 dark:text-blue-300'
+              : 'text-[#2b2924] dark:text-neutral-200 bg-[#dcd7cc] hover:bg-[#d2ccbf] dark:bg-neutral-800/80 dark:hover:bg-neutral-700/80 border-[#c3beb1] dark:border-neutral-700'
+          }`}
+          title={t('header.labelsTitle')}
+        >
+          <Tag className="w-3.5 h-3.5 text-blue-700 dark:text-blue-400 shrink-0" />
+          <span className="hidden md:inline">{t('header.labels')}</span>
+          {activeLabelFilterCount > 0 && (
+            <span className="px-1.5 py-0.2 rounded-full bg-blue-600 text-white text-[10px] font-bold tabular-nums">
+              {activeLabelFilterCount}
+            </span>
+          )}
+        </button>
 
         <button
           onClick={onOpenExport}

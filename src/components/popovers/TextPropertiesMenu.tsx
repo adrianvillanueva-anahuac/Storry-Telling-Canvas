@@ -71,40 +71,53 @@ export const TextPropertiesMenu: React.FC<TextPropertiesMenuProps> = ({
           </button>
         </div>
 
-        {element.mode === 'container' && (
-          <div>
-            <div className="flex items-center justify-between mb-1">
-              <label className="text-[11px] text-[#5c584e] dark:text-neutral-400">{t('textPopover.categoryLabel')}</label>
-              <button
-                onClick={onOpenLabelManager}
-                className="text-[10px] text-blue-700 dark:text-blue-400 hover:underline flex items-center gap-1 cursor-pointer"
-              >
-                <Tag className="w-3 h-3" />
-                <span>{t('textPopover.manageLabels')}</span>
-              </button>
-            </div>
+        <div>
+          <div className="flex items-center justify-between mb-1">
+            <label className="text-[11px] text-[#5c584e] dark:text-neutral-400">{t('textPopover.categoryLabel')}</label>
+            <button
+              type="button"
+              onClick={onOpenLabelManager}
+              className="text-[10px] text-blue-700 dark:text-blue-400 hover:underline flex items-center gap-1 cursor-pointer"
+            >
+              <Tag className="w-3 h-3" />
+              <span>{t('textPopover.manageLabels')}</span>
+            </button>
+          </div>
+          <div className="flex items-center gap-1.5">
+            {element.labelId && labels[element.labelId] && (
+              <span
+                style={{ backgroundColor: labels[element.labelId].color }}
+                className="w-3.5 h-3.5 rounded-full shrink-0 border border-black/15 dark:border-white/20"
+              />
+            )}
             <select
               value={element.labelId || ''}
               onChange={(e) => {
                 const nextLabelId = e.target.value;
                 const nextLabel = nextLabelId ? labels[nextLabelId] : undefined;
-                onUpdate(
-                  nextLabel
-                    ? { labelId: nextLabelId, color: nextLabel.color }
-                    : { labelId: '' }
-                );
+                if (element.mode === 'container') {
+                  onUpdate(
+                    nextLabel
+                      ? { labelId: nextLabelId, color: nextLabel.color }
+                      : { labelId: '' }
+                  );
+                } else {
+                  onUpdate({ labelId: nextLabel ? nextLabelId : '' });
+                }
               }}
-              className="w-full bg-[#e0dbd0] dark:bg-neutral-800 border border-[#c3beb1] dark:border-neutral-700 rounded-md px-2 py-1 text-[#2b2924] dark:text-neutral-100 outline-none focus:border-blue-500"
+              className="w-full min-w-0 bg-[#e0dbd0] dark:bg-neutral-800 border border-[#c3beb1] dark:border-neutral-700 rounded-md px-2 py-1 text-[#2b2924] dark:text-neutral-100 outline-none focus:border-blue-500"
             >
               <option value="" className="bg-[#ebe7de] text-[#2b2924] dark:bg-neutral-900 dark:text-neutral-200">{t('common.none')}</option>
-              {Object.entries(labels).map(([id, lbl]) => (
-                <option key={id} value={id} className="bg-[#ebe7de] text-[#2b2924] dark:bg-neutral-900 dark:text-neutral-200">
-                  {lbl.name}
-                </option>
-              ))}
+              {Object.entries(labels)
+                .sort(([, a], [, b]) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }))
+                .map(([id, lbl]) => (
+                  <option key={id} value={id} className="bg-[#ebe7de] text-[#2b2924] dark:bg-neutral-900 dark:text-neutral-200">
+                    {lbl.name}
+                  </option>
+                ))}
             </select>
           </div>
-        )}
+        </div>
 
         <div className="space-y-1.5">
           <div className="flex items-center justify-between">

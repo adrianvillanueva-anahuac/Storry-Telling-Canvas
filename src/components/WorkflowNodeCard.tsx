@@ -1,15 +1,18 @@
 import React, { useRef, useState } from 'react';
-import { WorkflowNode } from '../types/workflow';
-import { Unlink, Trash2, MessageSquare, Image as ImageIcon } from 'lucide-react';
+import { LabelItem, WorkflowNode } from '../types/workflow';
+import { Unlink, Trash2, MessageSquare, Image as ImageIcon, Tag } from 'lucide-react';
 import { ShreddedImageIcon } from './icons/ShreddedImageIcon';
 import { useLanguage } from '../hooks/useLanguage';
+import { getContrastTextColor } from '../utils/colorContrast';
 
 interface WorkflowNodeCardProps {
   node: WorkflowNode;
+  label?: LabelItem;
   isReadOnly: boolean;
   isHoveringContainer?: boolean;
   isHighlighted?: boolean;
   isSelected?: boolean;
+  isHiddenByFilter?: boolean;
   searchMatchState?: 'none' | 'match' | 'dimmed';
   isConnectionDragging?: boolean;
   activeSourcePort?: 'top' | 'bottom' | 'left' | 'right' | null;
@@ -20,6 +23,7 @@ interface WorkflowNodeCardProps {
   } | null;
   onStartPortDrag: (nodeId: string, port: 'top' | 'bottom' | 'left' | 'right', e: React.PointerEvent) => void;
   onOpenDashboard: (nodeId: string) => void;
+  onOpenLabelPicker?: (nodeId: string, e: React.MouseEvent) => void;
   onDeleteRequest: (nodeId: string) => void;
   onUnlinkContainer: (nodeId: string) => void;
   onUpdateTitle: (nodeId: string, newTitle: string) => void;
@@ -28,16 +32,19 @@ interface WorkflowNodeCardProps {
 
 export const WorkflowNodeCard: React.FC<WorkflowNodeCardProps> = ({
   node,
+  label,
   isReadOnly,
   isHoveringContainer = false,
   isHighlighted = false,
   isSelected = false,
+  isHiddenByFilter = false,
   searchMatchState = 'none',
   isConnectionDragging = false,
   activeSourcePort = null,
   approachedPort = null,
   onStartPortDrag,
   onOpenDashboard,
+  onOpenLabelPicker,
   onDeleteRequest,
   onUnlinkContainer,
   onUpdateTitle,
@@ -79,6 +86,17 @@ export const WorkflowNodeCard: React.FC<WorkflowNodeCardProps> = ({
     onOpenDashboard(node.id);
   };
 
+  if (isHiddenByFilter) {
+    return null;
+  }
+
+  const hasCustomLabelBorder =
+    Boolean(label) &&
+    !isHoveringContainer &&
+    !isHighlighted &&
+    !isSelected &&
+    searchMatchState !== 'match';
+
   return (
     <div
       id={node.id}
@@ -91,6 +109,7 @@ export const WorkflowNodeCard: React.FC<WorkflowNodeCardProps> = ({
         left: node.x,
         top: node.y,
         width: 220,
+        ...(hasCustomLabelBorder && label ? { borderColor: label.color } : {}),
       }}
       className={`workflow-node touch-canvas absolute bg-[#706d65] dark:bg-neutral-900 border rounded-xl transition-[opacity,filter,border-color,box-shadow] duration-200 group cursor-grab active:cursor-grabbing select-none ${
         searchMatchState === 'dimmed'
@@ -110,10 +129,31 @@ export const WorkflowNodeCard: React.FC<WorkflowNodeCardProps> = ({
           : 'border-[#57544d] hover:border-blue-400 dark:border-neutral-700/80 dark:hover:border-blue-500/80 shadow-md dark:shadow-lg'
       }`}
     >
+      {/* Top 3px color-coded grouping strip */}
+      {label && (
+        <div
+          style={{ backgroundColor: label.color }}
+          className="absolute top-0 left-0 right-0 h-[3px] rounded-t-[11px] pointer-events-none z-20"
+        />
+      )}
+
       {/* Floating Action Bar on Hover / Touch Selection (Outside Upper Right) */}
       {!isReadOnly && (
         <div className="touch-action-bar absolute -top-9 right-0 pb-2 opacity-0 group-hover:opacity-100 transition-opacity z-30 pointer-events-none group-hover:pointer-events-auto">
           <div className="bg-[#ebe7de]/95 dark:bg-neutral-900/95 border border-[#c3beb1] dark:border-neutral-700 rounded-full py-1 px-2 flex items-center gap-1 shadow-lg dark:shadow-xl backdrop-blur-sm">
+            {onOpenLabelPicker && (
+              <button
+                onPointerDown={(e) => { if (e.button !== 1) e.stopPropagation(); }}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onOpenLabelPicker(node.id, e);
+                }}
+                className="p-1.5 hover:bg-[#d8d3c8] dark:hover:bg-neutral-800 text-[#5c584e] hover:text-blue-700 dark:text-neutral-400 dark:hover:text-blue-400 rounded-full transition-colors cursor-pointer"
+                title={t('node.labelBtn')}
+              >
+                <Tag className="w-3.5 h-3.5" style={label ? { color: label.color } : undefined} />
+              </button>
+            )}
 
             {node.containerId && (
               <button
@@ -303,6 +343,32 @@ export const WorkflowNodeCard: React.FC<WorkflowNodeCardProps> = ({
               {t('node.pasteOrDrop')}
             </span>
           </div>
+        )}
+
+        {/* Color-coded label pill */}
+        {label && (
+          <button
+            type="button"
+            disabled={isReadOnly || !onOpenLabelPicker}
+            onPointerDown={(e) => {
+              if (!isReadOnly && onOpenLabelPicker && e.button !== 1) e.stopPropagation();
+            }}
+            onClick={(e) => {
+              if (isReadOnly || !onOpenLabelPicker) return;
+              e.stopPropagation();
+              onOpenLabelPicker(node.id, e);
+            }}
+            style={{
+              backgroundColor: label.color,
+              color: getContrastTextColor(label.color),
+            }}
+            className={`absolute bottom-3.5 left-3.5 max-w-[148px] px-2 py-0.5 rounded-md text-[10px] font-semibold shadow-md flex items-center gap-1 truncate z-20 ${
+              !isReadOnly && onOpenLabelPicker ? 'cursor-pointer hover:brightness-110' : 'pointer-events-none'
+            }`}
+            title={label.name}
+          >
+            <span className="truncate">{label.name}</span>
+          </button>
         )}
 
         {/* Comment count badge */}

@@ -153,6 +153,7 @@ service cloud.firestore {
         data.x.size() <= 40 &&
         data.y is string &&
         data.y.size() <= 40 &&
+        (!('labelId' in data) || data.labelId == null || (data.labelId is string && data.labelId.size() <= 128)) &&
         (!('actors' in data) || (data.actors is list && data.actors.size() <= 100));
     }
 
@@ -195,7 +196,24 @@ service cloud.firestore {
         data.x is string &&
         data.x.size() <= 40 &&
         data.y is string &&
-        data.y.size() <= 40;
+        data.y.size() <= 40 &&
+        (!('labelId' in data) || (data.labelId is string && data.labelId.size() <= 128));
+    }
+
+    function isValidLabel(data, labelId, projectId) {
+      return data.keys().hasAll(['id', 'projectId', 'name', 'color']) &&
+        data.keys().hasOnly(['id', 'projectId', 'name', 'color', 'createdAt', 'updatedAt']) &&
+        data.id == labelId &&
+        data.projectId == projectId &&
+        data.name is string &&
+        data.name.size() >= 1 &&
+        data.name.size() <= 60 &&
+        data.color is string &&
+        data.color.size() >= 4 &&
+        data.color.size() <= 20 &&
+        data.color.matches('^#[0-9a-fA-F]{3,8}$') &&
+        (!('createdAt' in data) || (data.createdAt is string && data.createdAt.size() <= 64)) &&
+        (!('updatedAt' in data) || (data.updatedAt is string && data.updatedAt.size() <= 64));
     }
 
     function isValidUserGeminiConfig(data, userId) {
@@ -393,6 +411,21 @@ service cloud.firestore {
           isValidId(actorId) &&
           isValidActor(incoming(), actorId, projectId);
         allow delete: if canEditProject(projectId) && isValidId(projectId) && isValidId(actorId);
+      }
+
+      match /labels/{labelId} {
+        allow read: if canReadProject(projectId);
+        allow create: if canEditProject(projectId) &&
+          isValidId(projectId) &&
+          isValidId(labelId) &&
+          isValidLabel(incoming(), labelId, projectId);
+        allow update: if canEditProject(projectId) &&
+          isValidId(projectId) &&
+          isValidId(labelId) &&
+          isValidLabel(incoming(), labelId, projectId) &&
+          incoming().id == existing().id &&
+          incoming().projectId == existing().projectId;
+        allow delete: if canEditProject(projectId) && isValidId(projectId) && isValidId(labelId);
       }
     }
   }
