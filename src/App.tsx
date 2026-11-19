@@ -98,6 +98,7 @@ import { ConnectionLines } from './components/ConnectionLines';
 import { LinePropertiesMenu } from './components/popovers/LinePropertiesMenu';
 import { TextPropertiesMenu } from './components/popovers/TextPropertiesMenu';
 import { LabelPickerPopover } from './components/popovers/LabelPickerPopover';
+import { CanvasContextMenu } from './components/popovers/CanvasContextMenu';
 import { LabelManagerModal } from './components/modals/LabelManagerModal';
 import { DeleteWarningModal } from './components/modals/DeleteWarningModal';
 import { ArchiveModal } from './components/modals/ArchiveModal';
@@ -116,6 +117,16 @@ import { ExportModal } from './components/modals/ExportModal';
 import { ApiKeyConfigModal } from './components/modals/ApiKeyConfigModal';
 import { AiImagePromptModal } from './components/modals/AiImagePromptModal';
 import { SketchStudioModal } from './components/modals/SketchStudioModal';
+import { KeyboardShortcutsModal } from './components/modals/KeyboardShortcutsModal';
+import {
+  areBindingsEqual,
+  DEFAULT_KEYBOARD_SHORTCUTS,
+  KeyboardShortcutMap,
+  loadKeyboardShortcuts,
+  matchesShortcut,
+  saveKeyboardShortcuts,
+  SHORTCUT_ACTION_ORDER,
+} from './utils/keyboardShortcuts';
 import {
   SearchTarget,
   doesNodeMatchQuery,
@@ -123,7 +134,13 @@ import {
 } from './components/HeaderSearch';
 import { ViewportCanvasRect } from './utils/canvasExport';
 import { computeNodeSnap, SnapGuideLine } from './utils/snapGuides';
-import { getNodePortCoords } from './utils/connectionPath';
+import {
+  AUTO_CREATE_MIN_DRAG_DISTANCE,
+  getNodePortCoords,
+  getNodeTopLeftForPortDrop,
+  isPointInsideNodeCard,
+  resolveAutoTargetPort,
+} from './utils/connectionPath';
 import { ReactiveDotGrid } from './components/ReactiveDotGrid';
 import { useLanguage } from './hooks/useLanguage';
 
@@ -322,6 +339,38 @@ export default function App() {
   });
   const userGeminiApiKey = userGeminiApiConfig.activeApiKey;
   const [apiKeyModalOpen, setApiKeyModalOpen] = useState(false);
+  const [keyboardShortcutsModalOpen, setKeyboardShortcutsModalOpen] = useState(false);
+  const [keyboardShortcuts, setKeyboardShortcuts] = useState<KeyboardShortcutMap>(() =>
+    loadKeyboardShortcuts()
+  );
+
+  useEffect(() => {
+    setKeyboardShortcuts(loadKeyboardShortcuts(firebaseUser?.uid));
+  }, [firebaseUser?.uid]);
+
+  const handleUpdateKeyboardShortcuts = useCallback(
+    (next: KeyboardShortcutMap) => {
+      setKeyboardShortcuts(next);
+      saveKeyboardShortcuts(next, firebaseUser?.uid);
+    },
+    [firebaseUser?.uid]
+  );
+
+  const handleResetKeyboardShortcuts = useCallback(() => {
+    const defaults: KeyboardShortcutMap = {
+      undo: { ...DEFAULT_KEYBOARD_SHORTCUTS.undo },
+      redo: { ...DEFAULT_KEYBOARD_SHORTCUTS.redo },
+      selectTool: { ...DEFAULT_KEYBOARD_SHORTCUTS.selectTool },
+      panTool: { ...DEFAULT_KEYBOARD_SHORTCUTS.panTool },
+      holdPan: { ...DEFAULT_KEYBOARD_SHORTCUTS.holdPan },
+      deleteSelected: { ...DEFAULT_KEYBOARD_SHORTCUTS.deleteSelected },
+      clearSelection: { ...DEFAULT_KEYBOARD_SHORTCUTS.clearSelection },
+      focusSearch: { ...DEFAULT_KEYBOARD_SHORTCUTS.focusSearch },
+      openShortcuts: { ...DEFAULT_KEYBOARD_SHORTCUTS.openShortcuts },
+    };
+    setKeyboardShortcuts(defaults);
+    saveKeyboardShortcuts(defaults, firebaseUser?.uid);
+  }, [firebaseUser?.uid]);
   const [aiImageModalState, setAiImageModalState] = useState<{
     mode: 'create' | 'edit';
     targetKind: 'image' | 'map';
@@ -347,6 +396,13 @@ export default function App() {
     elementId: string;
     x: number;
     y: number;
+  } | null>(null);
+
+  const [canvasContextMenu, setCanvasContextMenu] = useState<{
+    x: number;
+    y: number;
+    canvasX: number;
+    canvasY: number;
   } | null>(null);
 
   // Canvas Tool Mode, Multi-Selection & Marquee Box
@@ -1410,6 +1466,7 @@ export default function App() {
       targetZoomRef.current = Math.exp(nextTargetLog);
 
       setActiveLinePopover(null);
+      setCanvasContextMenu(null);
 
       if (zoomRafRef.current === null) {
         lastZoomFrameTimeRef.current = 0;
@@ -1617,6 +1674,7 @@ export default function App() {
     stopZoomAnimation();
     setActiveLinePopover(null);
     setActiveTextPopover(null);
+    setCanvasContextMenu(null);
 
     if (shouldPan) {
       setIsPanningCanvas(true);
@@ -2161,6 +2219,95 @@ export default function App() {
           return next;
         });
         saveConnectionToFirestore(activeProjectId, newConn);
+      } else if (!isReadOnly) {
+        let dropX = tempConnection.currentX;
+        let dropY = tempConnection.currentY;
+        if (canvasRef.current) {
+          const cRect = canvasRef.current.getBoundingClientRect();
+          const liveZoom = currentZoomRef.current;
+          dropX = (e.clientX - cRect.left) / liveZoom;
+          dropY = (e.clientY - cRect.top) / liveZoom;
+        }
+
+        const dragDist = Math.hypot(
+          dropX - tempConnection.startX,
+          dropY - tempConnection.startY
+        );
+        const sourceNode = appStateRef.current.nodes[tempConnection.sourceId];
+        const droppedOnSourceNode = isPointInsideNodeCard(sourceNode, dropX, dropY, 6);
+
+        if (dragDist >= AUTO_CREATE_MIN_DRAG_DISTANCE && !droppedOnSourceNode) {
+          const autoTargetPort = resolveAutoTargetPort(
+            tempConnection.sourcePort,
+            tempConnection.startX,
+            tempConnection.startY,
+            dropX,
+            dropY
+          );
+          const { x: newX, y: newY } = getNodeTopLeftForPortDrop(
+            dropX,
+            dropY,
+            autoTargetPort
+          );
+
+          pushUndoSnapshot();
+          const now = Date.now();
+          const newNodeId = `node-${now}`;
+          const newConnId = `conn-${now}`;
+          const nextNum = Object.keys(appStateRef.current.nodes).length + 1;
+
+          const newNode: WorkflowNode = {
+            id: newNodeId,
+            projectId: activeProjectId,
+            x: `${newX}px`,
+            y: `${newY}px`,
+            title: t('app.defaultNodeTitle', { num: nextNum }),
+            image: null,
+            mapImage: null,
+            mapName: '',
+            enfoque: '',
+            accion: '',
+            descripcion: '',
+            pins: [],
+            mapPins: [],
+            drawings: [],
+            mapDrawings: [],
+            videos: { enfoque: null, accion: null, descripcion: null },
+            pinCounter: 0,
+            mapPinCounter: 0,
+            containerId: null,
+          };
+
+          const newConn: Connection = {
+            id: newConnId,
+            projectId: activeProjectId,
+            source: tempConnection.sourceId,
+            sourcePort: tempConnection.sourcePort,
+            target: newNodeId,
+            targetPort: autoTargetPort,
+            type: 'angle',
+            style: 'solid',
+            color: '#0052cc',
+            label: '',
+            arrows: 'end',
+          };
+
+          setAppState((prev) => {
+            const next = {
+              ...prev,
+              nodes: {
+                ...prev.nodes,
+                [newNodeId]: newNode,
+              },
+              connections: [...prev.connections, newConn],
+            };
+            appStateRef.current = next;
+            return next;
+          });
+          setSelectedItems({ [newNodeId]: 'node' });
+          saveNodeToFirestore(activeProjectId, newNode);
+          saveConnectionToFirestore(activeProjectId, newConn);
+        }
       }
       setTempConnection(null);
     }
@@ -2386,16 +2533,23 @@ export default function App() {
   };
 
   // Node CRUD in Firestore
-  const handleAddNode = () => {
+  const handleAddNode = (coords?: { x: number; y: number }) => {
     if (!activeProjectId || isReadOnly) return;
     pushUndoSnapshot();
     const nextNum = Object.keys(appState.nodes).length + 1;
     const nodeId = `node-${Date.now()}`;
 
-    const centerX = viewportRef.current
+    const hasExplicitCoords =
+      coords && typeof coords.x === 'number' && typeof coords.y === 'number';
+
+    const centerX = hasExplicitCoords
+      ? Math.round(coords.x)
+      : viewportRef.current
       ? (cameraPosRef.current.x + viewportRef.current.clientWidth / 2) / currentZoomRef.current - 110
       : 2400;
-    const centerY = viewportRef.current
+    const centerY = hasExplicitCoords
+      ? Math.round(coords.y)
+      : viewportRef.current
       ? (cameraPosRef.current.y + viewportRef.current.clientHeight / 2) / currentZoomRef.current - 80
       : 2400;
 
@@ -2812,15 +2966,26 @@ export default function App() {
   };
 
   // Text Elements CRUD in Firestore
-  const handleAddText = (type: 'floating' | 'container' | 'annotation', text?: string) => {
+  const handleAddText = (
+    type: 'floating' | 'container' | 'annotation',
+    text?: string,
+    coords?: { x: number; y: number }
+  ) => {
     if (!activeProjectId || isReadOnly) return;
     pushUndoSnapshot();
     const textId = `text-${Date.now()}`;
-    const centerX = viewportRef.current
+    const hasExplicitCoords =
+      coords && typeof coords.x === 'number' && typeof coords.y === 'number';
+
+    const centerX = hasExplicitCoords
+      ? Math.round(coords.x)
+      : viewportRef.current
       ? (cameraPosRef.current.x + viewportRef.current.clientWidth / 2) / currentZoomRef.current -
         (type === 'container' ? 200 : 100)
       : 2400;
-    const centerY = viewportRef.current
+    const centerY = hasExplicitCoords
+      ? Math.round(coords.y)
+      : viewportRef.current
       ? (cameraPosRef.current.y + viewportRef.current.clientHeight / 2) / currentZoomRef.current -
         (type === 'container' ? 130 : 50)
       : 2400;
@@ -3573,7 +3738,7 @@ export default function App() {
     .map(([id]) => id);
   const totalSelectedCount = selectedNodeIds.length + selectedTextIds.length;
 
-  // Canvas keyboard shortcuts: Space to pan, Escape to clear selection, Delete/Backspace to remove selected
+  // Canvas keyboard shortcuts: configurable Undo, Redo, Pan, Select, Delete, Clear Selection, Shortcuts Dialog
   useEffect(() => {
     const isInputTarget = (target: EventTarget | null) => {
       const el = target as HTMLElement | null;
@@ -3582,7 +3747,7 @@ export default function App() {
       return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || el.isContentEditable;
     };
 
-    const hasOpenModal = Boolean(
+    const hasOtherOpenModal = Boolean(
       activeEditNodeId ||
         pinningNodeId ||
         mapViewerNodeId ||
@@ -3603,55 +3768,96 @@ export default function App() {
     );
 
     const onKeyDown = (e: KeyboardEvent) => {
-      if (isInputTarget(e.target) || hasOpenModal) return;
+      if (isInputTarget(e.target) || hasOtherOpenModal) return;
 
-      if ((e.ctrlKey || e.metaKey) && !e.altKey) {
-        const keyLower = e.key.toLowerCase();
-        if (keyLower === 'z' && !e.shiftKey) {
-          e.preventDefault();
-          handleUndo();
-          return;
-        }
-        if (keyLower === 'y' || (keyLower === 'z' && e.shiftKey)) {
-          e.preventDefault();
-          handleRedo();
-          return;
-        }
+      if (matchesShortcut(e, keyboardShortcuts.openShortcuts)) {
+        e.preventDefault();
+        setKeyboardShortcutsModalOpen((prev) => !prev);
+        return;
       }
 
-      if (e.code === 'Space') {
+      if (keyboardShortcutsModalOpen) return;
+
+      if (matchesShortcut(e, keyboardShortcuts.undo)) {
+        e.preventDefault();
+        handleUndo();
+        return;
+      }
+
+      const redoAliasMatches =
+        areBindingsEqual(keyboardShortcuts.redo, DEFAULT_KEYBOARD_SHORTCUTS.redo) &&
+        matchesShortcut(e, { key: 'z', mod: true, shift: true }) &&
+        !SHORTCUT_ACTION_ORDER.some(
+          (id) =>
+            id !== 'redo' &&
+            areBindingsEqual(keyboardShortcuts[id], { key: 'z', mod: true, shift: true })
+        );
+
+      if (matchesShortcut(e, keyboardShortcuts.redo) || redoAliasMatches) {
+        e.preventDefault();
+        handleRedo();
+        return;
+      }
+
+      if (matchesShortcut(e, keyboardShortcuts.holdPan)) {
         e.preventDefault();
         setIsSpacePressed(true);
         return;
       }
 
-      if (e.key === 'Escape') {
+      if (matchesShortcut(e, keyboardShortcuts.clearSelection)) {
         setSelectedItems({});
         setSelectionBox(null);
         setActiveLinePopover(null);
         setActiveTextPopover(null);
         setLabelPickerTarget(null);
+        setCanvasContextMenu(null);
         setSearchQuery('');
         return;
       }
 
-      if ((e.key === 'Delete' || e.key === 'Backspace') && !isReadOnly && totalSelectedCount > 0) {
+      if (e.key === 'Escape' && canvasContextMenu) {
+        e.preventDefault();
+        setCanvasContextMenu(null);
+        return;
+      }
+
+      const deleteAliasMatches =
+        areBindingsEqual(
+          keyboardShortcuts.deleteSelected,
+          DEFAULT_KEYBOARD_SHORTCUTS.deleteSelected
+        ) &&
+        matchesShortcut(e, { key: 'Backspace' }) &&
+        !SHORTCUT_ACTION_ORDER.some(
+          (id) =>
+            id !== 'deleteSelected' &&
+            areBindingsEqual(keyboardShortcuts[id], { key: 'Backspace' })
+        );
+
+      if (
+        (matchesShortcut(e, keyboardShortcuts.deleteSelected) || deleteAliasMatches) &&
+        !isReadOnly &&
+        totalSelectedCount > 0
+      ) {
         e.preventDefault();
         setBatchDeleteOpen(true);
         return;
       }
 
-      if (!e.ctrlKey && !e.metaKey && !e.altKey) {
-        if (e.key.toLowerCase() === 'v') {
-          setCanvasToolMode('select');
-        } else if (e.key.toLowerCase() === 'h') {
-          setCanvasToolMode('pan');
-        }
+      if (matchesShortcut(e, keyboardShortcuts.selectTool)) {
+        setCanvasToolMode('select');
+      } else if (matchesShortcut(e, keyboardShortcuts.panTool)) {
+        setCanvasToolMode('pan');
       }
     };
 
     const onKeyUp = (e: KeyboardEvent) => {
-      if (e.code === 'Space') {
+      const holdKey = keyboardShortcuts.holdPan;
+      const matchesHoldRelease =
+        holdKey.code === 'Space' || holdKey.key === ' '
+          ? e.code === 'Space' || e.key === ' '
+          : e.key.toLowerCase() === holdKey.key.toLowerCase();
+      if (matchesHoldRelease) {
         setIsSpacePressed(false);
       }
     };
@@ -3684,6 +3890,9 @@ export default function App() {
     labelManagerOpen,
     replaceWarningTarget,
     apiKeyModalOpen,
+    keyboardShortcutsModalOpen,
+    keyboardShortcuts,
+    canvasContextMenu,
     aiImageModalState,
     sketchStudioState,
     isReadOnly,
@@ -3797,6 +4006,104 @@ export default function App() {
 
     applyZoomImmediate(newZoom, centerX * newZoom - viewW / 2, centerY * newZoom - viewH / 2);
   }, [appState.nodes, appState.texts, isAnyFilterActive, matchedNodeIds, matchedTextIds, applyZoomImmediate]);
+
+  const totalSelectableCount = useMemo(() => {
+    const visibleNodes = Object.keys(appState.nodes).filter((id) => !hiddenNodeIds.has(id)).length;
+    const visibleTexts = Object.keys(appState.texts).filter((id) => !hiddenTextIds.has(id)).length;
+    return visibleNodes + visibleTexts;
+  }, [appState.nodes, appState.texts, hiddenNodeIds, hiddenTextIds]);
+
+  const isEmptyCanvasAtPoint = (target: EventTarget | null, clientX: number, clientY: number) => {
+    const el = target instanceof Element ? target : null;
+    if (!el) return false;
+    if (el.closest('[data-canvas-ui]')) return false;
+    if (el.closest('.workflow-node, .canvas-text-node, .port')) return false;
+    if (el instanceof SVGElement || Boolean(el.closest('svg'))) return false;
+
+    if (isSpacePressed || canvasToolMode === 'pan') {
+      const cardEls = document.querySelectorAll('.workflow-node, .canvas-text-node');
+      for (const card of Array.from(cardEls)) {
+        const r = card.getBoundingClientRect();
+        if (clientX >= r.left && clientX <= r.right && clientY >= r.top && clientY <= r.bottom) {
+          return false;
+        }
+      }
+    }
+    return true;
+  };
+
+  const openCanvasContextMenuAt = (clientX: number, clientY: number) => {
+    if (!activeProjectId || !canvasRef.current) return;
+    const cRect = canvasRef.current.getBoundingClientRect();
+    const liveZoom = currentZoomRef.current;
+    const canvasX = (clientX - cRect.left) / liveZoom;
+    const canvasY = (clientY - cRect.top) / liveZoom;
+
+    setActiveLinePopover(null);
+    setActiveTextPopover(null);
+    setLabelPickerTarget(null);
+    setCanvasContextMenu({
+      x: clientX,
+      y: clientY,
+      canvasX,
+      canvasY,
+    });
+  };
+
+  const handleCanvasContextMenu = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (!activeProjectId) return;
+    if (!isEmptyCanvasAtPoint(e.target, e.clientX, e.clientY)) return;
+    e.preventDefault();
+    openCanvasContextMenuAt(e.clientX, e.clientY);
+  };
+
+  const handleContextMenuBackdropRightClick = (
+    e: React.MouseEvent<HTMLDivElement>,
+    backdropEl: HTMLDivElement | null
+  ) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const stackedEls = document.elementsFromPoint(e.clientX, e.clientY);
+    const underlyingEl = stackedEls.find((node) => node !== backdropEl) || null;
+    if (underlyingEl && isEmptyCanvasAtPoint(underlyingEl, e.clientX, e.clientY)) {
+      openCanvasContextMenuAt(e.clientX, e.clientY);
+    } else {
+      setCanvasContextMenu(null);
+    }
+  };
+
+  const handleClearCanvasSelection = () => {
+    setSelectedItems({});
+    setSelectionBox(null);
+    setActiveLinePopover(null);
+    setActiveTextPopover(null);
+    setLabelPickerTarget(null);
+  };
+
+  const handleSelectAllCanvasItems = () => {
+    const nextSelection: Record<string, 'node' | 'text'> = {};
+    Object.keys(appState.nodes).forEach((id) => {
+      if (!hiddenNodeIds.has(id)) nextSelection[id] = 'node';
+    });
+    Object.keys(appState.texts).forEach((id) => {
+      if (!hiddenTextIds.has(id)) nextSelection[id] = 'text';
+    });
+    setSelectedItems(nextSelection);
+  };
+
+  const handleResetZoomAtViewportCenter = () => {
+    if (viewportRef.current) {
+      const vp = viewportRef.current;
+      const cx = vp.clientWidth / 2;
+      const cy = vp.clientHeight / 2;
+      const prevZ = currentZoomRef.current;
+      const canvasX = (cameraPosRef.current.x + cx) / prevZ;
+      const canvasY = (cameraPosRef.current.y + cy) / prevZ;
+      applyZoomImmediate(1, canvasX - cx, canvasY - cy);
+    } else {
+      applyZoomImmediate(1);
+    }
+  };
 
   const activeGalleryFolder = galleryModalState.mode.includes('maps') ? 'maps' : 'images';
   const filteredGalleryImages = imagesDbList.filter(
@@ -4085,6 +4392,9 @@ export default function App() {
         }}
         hasApiKey={hasApiKey}
         onOpenApiKeyConfig={() => setApiKeyModalOpen(true)}
+        onOpenKeyboardShortcuts={() => setKeyboardShortcutsModalOpen(true)}
+        focusSearchBinding={keyboardShortcuts.focusSearch}
+        openShortcutsBinding={keyboardShortcuts.openShortcuts}
         onSignInGoogle={handleGoogleLogin}
         onSignOut={() => logOut()}
       />
@@ -4116,6 +4426,7 @@ export default function App() {
           ref={viewportRef}
           onPointerDownCapture={handleCanvasPointerDownCapture}
           onPointerDown={handleCanvasPointerDown}
+          onContextMenu={handleCanvasContextMenu}
           onMouseDown={(e) => {
             if (e.button === 1) e.preventDefault();
           }}
@@ -4581,6 +4892,46 @@ export default function App() {
             setActiveTextPopover(null);
             setLabelManagerOpen(true);
           }}
+        />
+      )}
+
+      {canvasContextMenu && (
+        <CanvasContextMenu
+          position={{ x: canvasContextMenu.x, y: canvasContextMenu.y }}
+          isReadOnly={isReadOnly}
+          selectedCount={totalSelectedCount}
+          hasClearableSelection={
+            totalSelectedCount > 0 ||
+            Boolean(activeLinePopover) ||
+            Boolean(activeTextPopover) ||
+            Boolean(labelPickerTarget)
+          }
+          totalSelectableCount={totalSelectableCount}
+          nodeCount={Object.keys(appState.nodes).length}
+          undoCount={undoCount}
+          redoCount={redoCount}
+          zoom={zoom}
+          clearSelectionBinding={keyboardShortcuts.clearSelection}
+          undoBinding={keyboardShortcuts.undo}
+          redoBinding={keyboardShortcuts.redo}
+          onClose={() => setCanvasContextMenu(null)}
+          onBackdropContextMenu={handleContextMenuBackdropRightClick}
+          onAddNode={() =>
+            handleAddNode({ x: canvasContextMenu.canvasX, y: canvasContextMenu.canvasY })
+          }
+          onAddText={(type) =>
+            handleAddText(type, undefined, {
+              x: canvasContextMenu.canvasX,
+              y: canvasContextMenu.canvasY,
+            })
+          }
+          onClearSelection={handleClearCanvasSelection}
+          onSelectAll={handleSelectAllCanvasItems}
+          onUndo={handleUndo}
+          onRedo={handleRedo}
+          onFitAll={fitAllNodes}
+          onCenterCanvas={centerCanvas}
+          onResetZoom={handleResetZoomAtViewportCenter}
         />
       )}
 
@@ -5203,6 +5554,15 @@ export default function App() {
             await saveUserGeminiApiConfig(firebaseUser.uid, keys, activeKeyId);
           }}
           onClose={() => setApiKeyModalOpen(false)}
+        />
+      )}
+
+      {keyboardShortcutsModalOpen && (
+        <KeyboardShortcutsModal
+          shortcuts={keyboardShortcuts}
+          onUpdateShortcuts={handleUpdateKeyboardShortcuts}
+          onResetAll={handleResetKeyboardShortcuts}
+          onClose={() => setKeyboardShortcutsModalOpen(false)}
         />
       )}
 

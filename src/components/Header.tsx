@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import {
   Image as ImageIcon,
   Map as MapIcon,
@@ -22,6 +22,7 @@ import {
   Layers,
   StickyNote,
   KeyRound,
+  Keyboard,
   Languages,
   Tag,
 } from 'lucide-react';
@@ -34,6 +35,11 @@ import {
   UserProfile,
   WorkflowNode,
 } from '../types/workflow';
+import {
+  DEFAULT_KEYBOARD_SHORTCUTS,
+  formatShortcutString,
+  ShortcutBinding,
+} from '../utils/keyboardShortcuts';
 import { HeaderSearch, SearchTarget } from './HeaderSearch';
 import { StyleMenuPopover } from './popovers/StyleMenuPopover';
 
@@ -69,6 +75,9 @@ interface HeaderProps {
   onZoomChange: (type: '100' | 'center' | 'fit') => void;
   hasApiKey: boolean;
   onOpenApiKeyConfig: () => void;
+  onOpenKeyboardShortcuts: () => void;
+  focusSearchBinding?: ShortcutBinding;
+  openShortcutsBinding?: ShortcutBinding;
   onSignInGoogle: () => void;
   onSignOut: () => void;
 }
@@ -105,6 +114,9 @@ export const Header: React.FC<HeaderProps> = ({
   onZoomChange,
   hasApiKey,
   onOpenApiKeyConfig,
+  onOpenKeyboardShortcuts,
+  focusSearchBinding = DEFAULT_KEYBOARD_SHORTCUTS.focusSearch,
+  openShortcutsBinding = DEFAULT_KEYBOARD_SHORTCUTS.openShortcuts,
   onSignInGoogle,
   onSignOut,
 }) => {
@@ -115,6 +127,13 @@ export const Header: React.FC<HeaderProps> = ({
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const [styleMenuOpen, setStyleMenuOpen] = useState(false);
   const zoomOptionRef = useRef<HTMLOptionElement>(null);
+  const headerRef = useRef<HTMLElement>(null);
+  const leftZoneRef = useRef<HTMLDivElement>(null);
+  const rightZoneRef = useRef<HTMLDivElement>(null);
+  const [isStacked, setIsStacked] = useState(false);
+  const isStackedRef = useRef(false);
+  const prevRectsRef = useRef<{ left?: DOMRect; right?: DOMRect } | null>(null);
+  const cleanupTimerRef = useRef<number | null>(null);
 
   useEffect(() => {
     if (zoomOptionRef.current) {
@@ -137,10 +156,129 @@ export const Header: React.FC<HeaderProps> = ({
   const isAdmin = user.role === 'Admin';
   const isReadOnly = activeRole === 'Viewer';
 
+  useEffect(() => {
+    const headerEl = headerRef.current;
+    const leftEl = leftZoneRef.current;
+    const rightEl = rightZoneRef.current;
+    if (!headerEl || !leftEl || !rightEl) return;
+
+    const measureNaturalChildrenWidth = (el: HTMLElement, fallbackGap: number) => {
+      const style = window.getComputedStyle(el);
+      const parsedGap = parseFloat(style.columnGap || style.gap || '');
+      const gap = Number.isFinite(parsedGap) ? parsedGap : fallbackGap;
+      let total = 0;
+      let count = 0;
+      for (const child of Array.from(el.children) as HTMLElement[]) {
+        const w = child.getBoundingClientRect().width;
+        if (w > 0) {
+          total += w;
+          count += 1;
+        }
+      }
+      return total + Math.max(0, count - 1) * gap;
+    };
+
+    const evaluateLayout = () => {
+      const hStyle = window.getComputedStyle(headerEl);
+      const padX =
+        (parseFloat(hStyle.paddingLeft || '0') || 0) +
+        (parseFloat(hStyle.paddingRight || '0') || 0);
+      const availableWidth = headerEl.clientWidth - padX;
+      const leftWidth = measureNaturalChildrenWidth(leftEl, 8);
+      const rightWidth = measureNaturalChildrenWidth(rightEl, 6);
+      const minGapBetweenZones = 20;
+      const hysteresis = isStackedRef.current ? 24 : 0;
+      const shouldStack = availableWidth < leftWidth + rightWidth + minGapBetweenZones + hysteresis;
+
+      if (shouldStack !== isStackedRef.current) {
+        prevRectsRef.current = {
+          left: leftEl.getBoundingClientRect(),
+          right: rightEl.getBoundingClientRect(),
+        };
+        isStackedRef.current = shouldStack;
+        setIsStacked(shouldStack);
+      }
+    };
+
+    evaluateLayout();
+
+    const ro = new ResizeObserver(() => {
+      evaluateLayout();
+    });
+    ro.observe(headerEl);
+    return () => ro.disconnect();
+  }, [activeProject?.title, activeLabelFilterCount, language, activeRole, isReadOnly]);
+
+  useLayoutEffect(() => {
+    const prev = prevRectsRef.current;
+    if (!prev) return;
+    prevRectsRef.current = null;
+
+    if (cleanupTimerRef.current !== null) {
+      window.clearTimeout(cleanupTimerRef.current);
+      cleanupTimerRef.current = null;
+    }
+
+    const targets: Array<{ el: HTMLElement | null; prevRect?: DOMRect }> = [
+      { el: leftZoneRef.current, prevRect: prev.left },
+      { el: rightZoneRef.current, prevRect: prev.right },
+    ];
+
+    const animatedEls: HTMLElement[] = [];
+    for (const { el, prevRect } of targets) {
+      if (!el || !prevRect) continue;
+      const nextRect = el.getBoundingClientRect();
+      const dx = prevRect.left - nextRect.left;
+      const dy = prevRect.top - nextRect.top;
+      if (Math.abs(dx) > 0.5 || Math.abs(dy) > 0.5) {
+        el.style.transition = 'none';
+        el.style.transform = `translate3d(${dx}px, ${dy}px, 0)`;
+        animatedEls.push(el);
+      }
+    }
+
+    if (animatedEls.length === 0) return;
+
+    headerRef.current?.getBoundingClientRect();
+
+    for (const el of animatedEls) {
+      el.style.transition = 'transform 320ms cubic-bezier(0.22, 1, 0.36, 1)';
+      el.style.transform = 'translate3d(0, 0, 0)';
+    }
+
+    cleanupTimerRef.current = window.setTimeout(() => {
+      for (const el of animatedEls) {
+        el.style.transition = '';
+        el.style.transform = '';
+      }
+      cleanupTimerRef.current = null;
+    }, 340);
+  }, [isStacked]);
+
+  useEffect(() => {
+    return () => {
+      if (cleanupTimerRef.current !== null) {
+        window.clearTimeout(cleanupTimerRef.current);
+      }
+    };
+  }, []);
+
   return (
-    <header className="h-14 bg-[#e8e4da] dark:bg-neutral-900 border-b border-[#c9c3b6] dark:border-neutral-800 px-2.5 sm:px-4 flex items-center justify-between gap-2 z-30 select-none relative">
+    <header
+      ref={headerRef}
+      className={`bg-[#e8e4da] dark:bg-neutral-900 border-b border-[#c9c3b6] dark:border-neutral-800 px-2.5 sm:px-4 flex z-30 select-none relative transition-[height,padding] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] ${
+        isStacked
+          ? 'h-[100px] py-2 flex-col justify-center items-stretch gap-2'
+          : 'h-14 flex-row items-center justify-between gap-2'
+      }`}
+    >
       {/* Brand, Project Switcher & Search Zone */}
-      <div className="flex items-center gap-2 sm:gap-3 min-w-0">
+      <div
+        ref={leftZoneRef}
+        className={`flex items-center gap-2 sm:gap-3 min-w-0 ${
+          isStacked ? 'w-full' : ''
+        }`}
+      >
         <div className="w-8 h-8 rounded-lg bg-blue-600/15 dark:bg-blue-600/20 border border-blue-600/30 dark:border-blue-500/30 flex items-center justify-center text-blue-700 dark:text-blue-400 shrink-0">
           <Workflow className="w-5 h-5" />
         </div>
@@ -230,12 +368,18 @@ export const Header: React.FC<HeaderProps> = ({
           onSearchQueryChange={onSearchQueryChange}
           matchCount={searchMatchCount}
           totalNodeCount={Object.keys(nodes).length}
+          focusSearchBinding={focusSearchBinding}
           onSelectTarget={onFocusSearchTarget}
         />
       </div>
 
       {/* Main Workspace Actions */}
-      <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
+      <div
+        ref={rightZoneRef}
+        className={`flex items-center gap-1.5 sm:gap-2 shrink-0 ${
+          isStacked ? 'self-end' : ''
+        }`}
+      >
         {/* Libs Dropdown (Gallery, Map Lib, Video Lib, Archive) */}
         <div className="relative">
           <button
@@ -587,6 +731,23 @@ export const Header: React.FC<HeaderProps> = ({
                 )}
 
                 <div className="p-1">
+                  <button
+                    onClick={() => {
+                      setUserMenuOpen(false);
+                      onOpenKeyboardShortcuts();
+                    }}
+                    className="w-full text-left px-3 py-1.5 text-[#2b2924] dark:text-neutral-200 hover:bg-[#dfdacf] dark:hover:bg-neutral-800 rounded-lg flex items-center justify-between gap-2 cursor-pointer"
+                    title={t('header.keyboardShortcutsTitle')}
+                  >
+                    <span className="flex items-center gap-2">
+                      <Keyboard className="w-3.5 h-3.5 text-blue-700 dark:text-blue-400 shrink-0" />
+                      <span>{t('header.keyboardShortcuts')}</span>
+                    </span>
+                    <kbd className="px-1.5 py-0.5 rounded bg-[#dcd7cc] dark:bg-neutral-800 border border-[#c3beb1] dark:border-neutral-700 text-[10px] font-mono text-[#5c584e] dark:text-neutral-400">
+                      {formatShortcutString(openShortcutsBinding)}
+                    </kbd>
+                  </button>
+
                   <button
                     onClick={() => {
                       setUserMenuOpen(false);

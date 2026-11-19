@@ -24,19 +24,84 @@ export interface ConnectionPathResult {
   handle: ConnectionPathHandle;
 }
 
+export type PortSide = 'top' | 'bottom' | 'left' | 'right';
+
+export const NODE_CARD_WIDTH = 220;
+// Exact WorkflowNodeCard rendered height (border 2 + header 37 + padding 20 + aspect-video 112)
+export const NODE_CARD_HEIGHT = 171;
+export const AUTO_CREATE_MIN_DRAG_DISTANCE = 28;
+
+export function getOppositePort(port: PortSide): PortSide {
+  if (port === 'left') return 'right';
+  if (port === 'right') return 'left';
+  if (port === 'top') return 'bottom';
+  return 'top';
+}
+
+export function resolveAutoTargetPort(
+  sourcePort: PortSide,
+  startX: number,
+  startY: number,
+  dropX: number,
+  dropY: number
+): PortSide {
+  const dx = dropX - startX;
+  const dy = dropY - startY;
+  if (Math.hypot(dx, dy) < 32) {
+    return getOppositePort(sourcePort);
+  }
+  if (Math.abs(dx) >= Math.abs(dy)) {
+    return dx >= 0 ? 'left' : 'right';
+  }
+  return dy >= 0 ? 'top' : 'bottom';
+}
+
+export function getNodeTopLeftForPortDrop(
+  dropX: number,
+  dropY: number,
+  targetPort: PortSide
+): { x: number; y: number } {
+  if (targetPort === 'left') {
+    return { x: Math.round(dropX), y: Math.round(dropY - NODE_CARD_HEIGHT / 2) };
+  }
+  if (targetPort === 'right') {
+    return { x: Math.round(dropX - NODE_CARD_WIDTH), y: Math.round(dropY - NODE_CARD_HEIGHT / 2) };
+  }
+  if (targetPort === 'top') {
+    return { x: Math.round(dropX - NODE_CARD_WIDTH / 2), y: Math.round(dropY) };
+  }
+  return { x: Math.round(dropX - NODE_CARD_WIDTH / 2), y: Math.round(dropY - NODE_CARD_HEIGHT) };
+}
+
+export function isPointInsideNodeCard(
+  node: WorkflowNode | undefined,
+  canvasX: number,
+  canvasY: number,
+  padding = 0
+): boolean {
+  if (!node) return false;
+  const nx = parseFloat(node.x) || 0;
+  const ny = parseFloat(node.y) || 0;
+  return (
+    canvasX >= nx - padding &&
+    canvasX <= nx + NODE_CARD_WIDTH + padding &&
+    canvasY >= ny - padding &&
+    canvasY <= ny + NODE_CARD_HEIGHT + padding
+  );
+}
+
 export function getNodePortCoords(
   nodes: Record<string, WorkflowNode>,
   nodeId: string,
-  port: 'top' | 'bottom' | 'left' | 'right'
+  port: PortSide
 ): { x: number; y: number } | null {
   const node = nodes[nodeId];
   if (!node) return null;
 
   const x = parseFloat(node.x) || 0;
   const y = parseFloat(node.y) || 0;
-  const w = 220;
-  // Exact WorkflowNodeCard rendered height (border 2 + header 37 + padding 20 + aspect-video 112)
-  const h = 171;
+  const w = NODE_CARD_WIDTH;
+  const h = NODE_CARD_HEIGHT;
 
   if (port === 'left') return { x, y: y + h / 2 };
   if (port === 'right') return { x: x + w, y: y + h / 2 };

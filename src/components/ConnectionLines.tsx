@@ -1,10 +1,16 @@
 import React, { useMemo, useRef, useState } from 'react';
 import { Connection, TextElement, WorkflowNode } from '../types/workflow';
 import {
+  AUTO_CREATE_MIN_DRAG_DISTANCE,
   calculateConnectionPath,
   ConnectionPathHandle,
   ConnectionPathOptions,
   getNodePortCoords,
+  getNodeTopLeftForPortDrop,
+  isPointInsideNodeCard,
+  NODE_CARD_HEIGHT,
+  NODE_CARD_WIDTH,
+  resolveAutoTargetPort,
 } from '../utils/connectionPath';
 import {
   computeLineAngleSnap,
@@ -687,25 +693,124 @@ export const ConnectionLines: React.FC<ConnectionLinesProps> = ({
         );
       })}
 
-      {tempConnection && (
-        <path
-          d={
-            calculateConnectionPath(
-              tempConnection.startX,
-              tempConnection.startY,
-              tempConnection.hoverTarget?.isReady ? tempConnection.hoverTarget.snapX : tempConnection.currentX,
-              tempConnection.hoverTarget?.isReady ? tempConnection.hoverTarget.snapY : tempConnection.currentY,
-              tempConnection.sourcePort,
-              tempConnection.hoverTarget?.isReady ? tempConnection.hoverTarget.port : 'left',
-              'angle'
-            ).d
-          }
-          stroke="#3b82f6"
-          strokeWidth="2.5"
-          strokeDasharray={tempConnection.hoverTarget?.isReady ? undefined : '6 6'}
-          fill="none"
-        />
-      )}
+      {tempConnection &&
+        (() => {
+          const isReadyTarget = Boolean(tempConnection.hoverTarget?.isReady);
+          const endX = isReadyTarget
+            ? tempConnection.hoverTarget!.snapX
+            : tempConnection.currentX;
+          const endY = isReadyTarget
+            ? tempConnection.hoverTarget!.snapY
+            : tempConnection.currentY;
+          const autoTargetPort = resolveAutoTargetPort(
+            tempConnection.sourcePort,
+            tempConnection.startX,
+            tempConnection.startY,
+            endX,
+            endY
+          );
+          const targetPort = isReadyTarget
+            ? tempConnection.hoverTarget!.port
+            : autoTargetPort;
+          const dragDist = Math.hypot(
+            endX - tempConnection.startX,
+            endY - tempConnection.startY
+          );
+          const isInsideSource = isPointInsideNodeCard(
+            nodes[tempConnection.sourceId],
+            endX,
+            endY,
+            6
+          );
+          const showGhostNode =
+            !isReadOnly &&
+            !isReadyTarget &&
+            dragDist >= AUTO_CREATE_MIN_DRAG_DISTANCE &&
+            !isInsideSource;
+          const ghostPos = showGhostNode
+            ? getNodeTopLeftForPortDrop(endX, endY, autoTargetPort)
+            : null;
+
+          return (
+            <g className="pointer-events-none">
+              {ghostPos && (
+                <g opacity={0.85}>
+                  <rect
+                    x={ghostPos.x}
+                    y={ghostPos.y}
+                    width={NODE_CARD_WIDTH}
+                    height={NODE_CARD_HEIGHT}
+                    rx={12}
+                    ry={12}
+                    fill="rgba(59, 130, 246, 0.08)"
+                    stroke="#3b82f6"
+                    strokeWidth={1.75}
+                    strokeDasharray="5 5"
+                  />
+                  <line
+                    x1={ghostPos.x}
+                    y1={ghostPos.y + 37}
+                    x2={ghostPos.x + NODE_CARD_WIDTH}
+                    y2={ghostPos.y + 37}
+                    stroke="rgba(59, 130, 246, 0.35)"
+                    strokeWidth={1}
+                  />
+                  <circle
+                    cx={ghostPos.x + NODE_CARD_WIDTH / 2}
+                    cy={ghostPos.y + (NODE_CARD_HEIGHT + 37) / 2}
+                    r={14}
+                    fill="rgba(59, 130, 246, 0.16)"
+                    stroke="rgba(59, 130, 246, 0.65)"
+                    strokeWidth={1.5}
+                  />
+                  <line
+                    x1={ghostPos.x + NODE_CARD_WIDTH / 2 - 6}
+                    y1={ghostPos.y + (NODE_CARD_HEIGHT + 37) / 2}
+                    x2={ghostPos.x + NODE_CARD_WIDTH / 2 + 6}
+                    y2={ghostPos.y + (NODE_CARD_HEIGHT + 37) / 2}
+                    stroke="#60a5fa"
+                    strokeWidth={2}
+                    strokeLinecap="round"
+                  />
+                  <line
+                    x1={ghostPos.x + NODE_CARD_WIDTH / 2}
+                    y1={ghostPos.y + (NODE_CARD_HEIGHT + 37) / 2 - 6}
+                    x2={ghostPos.x + NODE_CARD_WIDTH / 2}
+                    y2={ghostPos.y + (NODE_CARD_HEIGHT + 37) / 2 + 6}
+                    stroke="#60a5fa"
+                    strokeWidth={2}
+                    strokeLinecap="round"
+                  />
+                  <circle
+                    cx={endX}
+                    cy={endY}
+                    r={5}
+                    fill="#3b82f6"
+                    stroke="#ffffff"
+                    strokeWidth={1.5}
+                  />
+                </g>
+              )}
+              <path
+                d={
+                  calculateConnectionPath(
+                    tempConnection.startX,
+                    tempConnection.startY,
+                    endX,
+                    endY,
+                    tempConnection.sourcePort,
+                    targetPort,
+                    'angle'
+                  ).d
+                }
+                stroke="#3b82f6"
+                strokeWidth="2.5"
+                strokeDasharray={isReadyTarget ? undefined : '6 6'}
+                fill="none"
+              />
+            </g>
+          );
+        })()}
     </svg>
   );
 };

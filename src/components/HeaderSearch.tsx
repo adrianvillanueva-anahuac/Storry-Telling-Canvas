@@ -2,6 +2,12 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { LabelItem, TextElement, WorkflowNode } from '../types/workflow';
 import { Image as ImageIcon, Layers, Search, StickyNote, Type, X } from 'lucide-react';
 import { useLanguage } from '../hooks/useLanguage';
+import {
+  DEFAULT_KEYBOARD_SHORTCUTS,
+  formatShortcutString,
+  matchesShortcut,
+  ShortcutBinding,
+} from '../utils/keyboardShortcuts';
 
 export interface SearchTarget {
   id: string;
@@ -22,6 +28,8 @@ interface HeaderSearchProps {
   onSearchQueryChange: (query: string) => void;
   matchCount?: number;
   totalNodeCount?: number;
+  focusSearchBinding?: ShortcutBinding;
+  className?: string;
   onSelectTarget: (target: SearchTarget) => void;
 }
 
@@ -91,6 +99,8 @@ export const HeaderSearch: React.FC<HeaderSearchProps> = ({
   onSearchQueryChange,
   matchCount,
   totalNodeCount,
+  focusSearchBinding = DEFAULT_KEYBOARD_SHORTCUTS.focusSearch,
+  className = '',
   onSelectTarget,
 }) => {
   const { t } = useLanguage();
@@ -98,11 +108,15 @@ export const HeaderSearch: React.FC<HeaderSearchProps> = ({
   const [activeIndex, setActiveIndex] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+  const shortcutDisplay = useMemo(
+    () => formatShortcutString(focusSearchBinding),
+    [focusSearchBinding]
+  );
 
-  // Global Cmd/Ctrl + K shortcut to focus canvas search
+  // Global configurable shortcut to focus canvas search
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
+      if (matchesShortcut(e, focusSearchBinding)) {
         e.preventDefault();
         inputRef.current?.focus();
         inputRef.current?.select();
@@ -111,7 +125,7 @@ export const HeaderSearch: React.FC<HeaderSearchProps> = ({
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, []);
+  }, [focusSearchBinding]);
 
   // Close dropdown on outside click / tap
   useEffect(() => {
@@ -289,9 +303,9 @@ export const HeaderSearch: React.FC<HeaderSearchProps> = ({
   const hasFilter = searchQuery.trim().length > 0;
 
   return (
-    <div ref={containerRef} className="relative shrink-0">
+    <div ref={containerRef} className={`relative shrink-0 ${className}`}>
       <div
-        className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-md bg-[#dcd7cc] dark:bg-neutral-800/90 border transition-colors w-44 lg:w-52 xl:w-60 ${
+        className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-md bg-[#dcd7cc] dark:bg-neutral-800/90 border transition-colors w-36 sm:w-44 lg:w-52 xl:w-60 ${
           hasFilter
             ? 'border-sky-500/80 dark:border-sky-400/80'
             : 'border-[#c3beb1] dark:border-neutral-700/80 focus-within:border-blue-500'
@@ -316,7 +330,7 @@ export const HeaderSearch: React.FC<HeaderSearchProps> = ({
           onKeyDown={handleKeyDown}
           placeholder={t('search.placeholder')}
           aria-label={t('search.ariaLabel')}
-          title={t('search.titleShortcut')}
+          title={`${t('search.ariaLabel')} (${shortcutDisplay})`}
           className="w-full min-w-0 bg-transparent text-xs text-[#2b2924] dark:text-neutral-100 placeholder-[#757065] dark:placeholder-neutral-500 outline-none"
         />
         {searchQuery ? (
@@ -348,7 +362,7 @@ export const HeaderSearch: React.FC<HeaderSearchProps> = ({
           </div>
         ) : (
           <span className="hidden xl:inline text-[10px] font-mono text-[#757065] dark:text-neutral-500 shrink-0">
-            ⌘K
+            {shortcutDisplay}
           </span>
         )}
       </div>
