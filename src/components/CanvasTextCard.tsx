@@ -134,6 +134,7 @@ export const CanvasTextCard: React.FC<CanvasTextCardProps> = ({
 
     resizeCleanupRef.current?.();
 
+    const handleEl = e.currentTarget as HTMLElement;
     const activePointerId = e.pointerId;
     const startClientX = e.clientX;
     const startClientY = e.clientY;
@@ -145,8 +146,14 @@ export const CanvasTextCard: React.FC<CanvasTextCardProps> = ({
     const fallbackHeight =
       element.mode === 'container' ? 240 : cardEl.offsetHeight || 96;
 
-    const startWidth = element.width ?? (cardEl.offsetWidth || fallbackWidth);
-    const startHeight = element.height ?? (cardEl.offsetHeight || fallbackHeight);
+    const startWidth =
+      typeof element.width === 'number' && Number.isFinite(element.width) && element.width > 0
+        ? element.width
+        : cardEl.offsetWidth || fallbackWidth;
+    const startHeight =
+      typeof element.height === 'number' && Number.isFinite(element.height) && element.height > 0
+        ? element.height
+        : cardEl.offsetHeight || fallbackHeight;
 
     const { minWidth, minHeight } = MODE_MIN_DIMENSIONS[element.mode];
     const hasHorizontal = dir.includes('e') || dir.includes('w');
@@ -171,6 +178,7 @@ export const CanvasTextCard: React.FC<CanvasTextCardProps> = ({
       displayHeight: Math.round(startHeight),
     };
     let hasDragged = false;
+    let isFinished = false;
 
     const getLiveZoom = () => {
       if (!cardRef.current) return 1;
@@ -180,15 +188,12 @@ export const CanvasTextCard: React.FC<CanvasTextCardProps> = ({
       return Number.isFinite(parsed) && parsed > 0 ? parsed : 1;
     };
 
-    setLiveResize(latestState);
-
-    const handlePointerMove = (moveEvent: PointerEvent) => {
-      if (moveEvent.pointerId !== activePointerId) return;
+    const updateStateFromPointer = (clientX: number, clientY: number) => {
       const zoom = getLiveZoom();
-      const dx = (moveEvent.clientX - startClientX) / zoom;
-      const dy = (moveEvent.clientY - startClientY) / zoom;
+      const dx = (clientX - startClientX) / zoom;
+      const dy = (clientY - startClientY) / zoom;
 
-      if (!hasDragged && Math.hypot(dx, dy) < 1) return;
+      if (!hasDragged && Math.hypot(dx, dy) < 1) return false;
       hasDragged = true;
 
       let nextX = startX;
@@ -221,11 +226,37 @@ export const CanvasTextCard: React.FC<CanvasTextCardProps> = ({
         displayWidth: roundedW,
         displayHeight: roundedH,
       };
-      setLiveResize(latestState);
+      return true;
+    };
+
+    try {
+      handleEl.setPointerCapture(activePointerId);
+    } catch {
+      // Ignore if pointer capture is unavailable
+    }
+
+    setLiveResize(latestState);
+
+    const handlePointerMove = (moveEvent: PointerEvent) => {
+      if (moveEvent.pointerId !== activePointerId) return;
+      if (moveEvent.pointerType === 'mouse' && moveEvent.buttons === 0) {
+        finishResize(moveEvent);
+        return;
+      }
+      if (updateStateFromPointer(moveEvent.clientX, moveEvent.clientY)) {
+        setLiveResize(latestState);
+      }
     };
 
     const finishResize = (endEvent?: Event) => {
+      if (isFinished) return;
       if (endEvent instanceof PointerEvent && endEvent.pointerId !== activePointerId) return;
+
+      if (endEvent instanceof PointerEvent && endEvent.type === 'pointerup') {
+        updateStateFromPointer(endEvent.clientX, endEvent.clientY);
+      }
+
+      isFinished = true;
       cleanup();
       setLiveResize(null);
 
@@ -251,17 +282,24 @@ export const CanvasTextCard: React.FC<CanvasTextCardProps> = ({
     };
 
     const cleanup = () => {
-      window.removeEventListener('pointermove', handlePointerMove);
-      window.removeEventListener('pointerup', finishResize);
-      window.removeEventListener('pointercancel', finishResize);
+      window.removeEventListener('pointermove', handlePointerMove, true);
+      window.removeEventListener('pointerup', finishResize, true);
+      window.removeEventListener('pointercancel', finishResize, true);
       window.removeEventListener('blur', finishResize);
+      try {
+        if (handleEl.hasPointerCapture?.(activePointerId)) {
+          handleEl.releasePointerCapture(activePointerId);
+        }
+      } catch {
+        // Ignore
+      }
       resizeCleanupRef.current = null;
     };
 
     resizeCleanupRef.current = cleanup;
-    window.addEventListener('pointermove', handlePointerMove);
-    window.addEventListener('pointerup', finishResize);
-    window.addEventListener('pointercancel', finishResize);
+    window.addEventListener('pointermove', handlePointerMove, true);
+    window.addEventListener('pointerup', finishResize, true);
+    window.addEventListener('pointercancel', finishResize, true);
     window.addEventListener('blur', finishResize);
   };
 
@@ -287,7 +325,6 @@ export const CanvasTextCard: React.FC<CanvasTextCardProps> = ({
               onPointerDown={(e) => handleResizePointerDown(h.dir, e)}
               onClick={(e) => e.stopPropagation()}
               onDoubleClick={(e) => e.stopPropagation()}
-              onPointerUp={(e) => e.stopPropagation()}
               style={{
                 left: h.left,
                 top: h.top,
@@ -544,6 +581,7 @@ export const CanvasTextCard: React.FC<CanvasTextCardProps> = ({
           top: liveResize ? `${liveResize.y}px` : element.y,
           width: activeWidth,
           height: activeHeight,
+          minWidth: MODE_MIN_DIMENSIONS.annotation.minWidth,
           minHeight: MODE_MIN_DIMENSIONS.annotation.minHeight,
           ...(hasCustomNoteColor
             ? {
@@ -718,7 +756,7 @@ export const CanvasTextCard: React.FC<CanvasTextCardProps> = ({
             fontWeight: noteIsBold ? 'bold' : 'normal',
             fontStyle: noteIsItalic ? 'italic' : 'normal',
           }}
-          className="flex-1 min-h-[40px] overflow-y-auto leading-relaxed cursor-text whitespace-pre-wrap break-words opacity-90"
+          className="flex-1 min-h-0 overflow-y-auto leading-relaxed cursor-text whitespace-pre-wrap break-words opacity-90"
         >
           {isEditingBody ? (
             <textarea

@@ -89,6 +89,7 @@ import {
   Check,
   Copy,
   ExternalLink,
+  PencilLine,
 } from 'lucide-react';
 import { Header } from './components/Header';
 import { LabelFilterBar, UNLABELED_FILTER_ID } from './components/LabelFilterBar';
@@ -101,6 +102,7 @@ import { LabelPickerPopover } from './components/popovers/LabelPickerPopover';
 import { CanvasContextMenu } from './components/popovers/CanvasContextMenu';
 import { LabelManagerModal } from './components/modals/LabelManagerModal';
 import { DeleteWarningModal } from './components/modals/DeleteWarningModal';
+import { BatchRenameModal } from './components/modals/BatchRenameModal';
 import { ArchiveModal } from './components/modals/ArchiveModal';
 import { GalleryModal } from './components/modals/GalleryModal';
 import { GlobalVideoModal } from './components/modals/GlobalVideoModal';
@@ -410,6 +412,7 @@ export default function App() {
   const [isSpacePressed, setIsSpacePressed] = useState(false);
   const [selectedItems, setSelectedItems] = useState<Record<string, 'node' | 'text'>>({});
   const [batchDeleteOpen, setBatchDeleteOpen] = useState(false);
+  const [batchRenameOpen, setBatchRenameOpen] = useState(false);
   const [selectionBox, setSelectionBox] = useState<{
     startX: number;
     startY: number;
@@ -3760,6 +3763,7 @@ export default function App() {
         Boolean(inspectedActor) ||
         deleteWarningNodeId ||
         batchDeleteOpen ||
+        batchRenameOpen ||
         labelManagerOpen ||
         replaceWarningTarget ||
         apiKeyModalOpen ||
@@ -3887,6 +3891,7 @@ export default function App() {
     inspectedActor,
     deleteWarningNodeId,
     batchDeleteOpen,
+    batchRenameOpen,
     labelManagerOpen,
     replaceWarningTarget,
     apiKeyModalOpen,
@@ -4050,9 +4055,39 @@ export default function App() {
     });
   };
 
+  const isSelectedNodeContextTarget = (
+    target: EventTarget | null,
+    clientX: number,
+    clientY: number
+  ) => {
+    if (selectedNodeIds.length < 2) return false;
+    const el = target instanceof Element ? target : null;
+    if (!el) return false;
+    if (el.closest('input, textarea, button, .port, [data-canvas-ui]')) return false;
+    const nodeEl = el.closest('.workflow-node');
+    const nodeId = nodeEl?.getAttribute('data-node-id');
+    if (nodeId && selectedItems[nodeId] === 'node') return true;
+    if (isSpacePressed || canvasToolMode === 'pan') {
+      for (const nid of selectedNodeIds) {
+        const selectedEl = document.getElementById(nid);
+        if (!selectedEl) continue;
+        const r = selectedEl.getBoundingClientRect();
+        if (clientX >= r.left && clientX <= r.right && clientY >= r.top && clientY <= r.bottom) {
+          return true;
+        }
+      }
+    }
+    return false;
+  };
+
   const handleCanvasContextMenu = (e: React.MouseEvent<HTMLDivElement>) => {
     if (!activeProjectId) return;
-    if (!isEmptyCanvasAtPoint(e.target, e.clientX, e.clientY)) return;
+    if (
+      !isEmptyCanvasAtPoint(e.target, e.clientX, e.clientY) &&
+      !isSelectedNodeContextTarget(e.target, e.clientX, e.clientY)
+    ) {
+      return;
+    }
     e.preventDefault();
     openCanvasContextMenuAt(e.clientX, e.clientY);
   };
@@ -4065,10 +4100,47 @@ export default function App() {
     e.stopPropagation();
     const stackedEls = document.elementsFromPoint(e.clientX, e.clientY);
     const underlyingEl = stackedEls.find((node) => node !== backdropEl) || null;
-    if (underlyingEl && isEmptyCanvasAtPoint(underlyingEl, e.clientX, e.clientY)) {
+    if (
+      underlyingEl &&
+      (isEmptyCanvasAtPoint(underlyingEl, e.clientX, e.clientY) ||
+        isSelectedNodeContextTarget(underlyingEl, e.clientX, e.clientY))
+    ) {
       openCanvasContextMenuAt(e.clientX, e.clientY);
     } else {
       setCanvasContextMenu(null);
+    }
+  };
+
+  const handleBatchRenameNodes = (renames: Array<{ nodeId: string; title: string }>) => {
+    if (!activeProjectId || isReadOnly || renames.length === 0) return;
+    const renameMap = new Map<string, string>();
+    renames.forEach(({ nodeId, title }) => {
+      if (title.trim().length > 0 && appStateRef.current.nodes[nodeId]) {
+        renameMap.set(nodeId, title);
+      }
+    });
+    if (renameMap.size === 0) return;
+
+    pushUndoSnapshot();
+    const changedNodes: WorkflowNode[] = [];
+    setAppState((prev) => {
+      const nextNodes = { ...prev.nodes };
+      renameMap.forEach((nextTitle, nid) => {
+        const curr = nextNodes[nid];
+        if (!curr || curr.title === nextTitle) return;
+        const updated: WorkflowNode = { ...curr, title: nextTitle };
+        nextNodes[nid] = updated;
+        changedNodes.push(updated);
+      });
+      const next = {
+        ...prev,
+        nodes: nextNodes,
+      };
+      appStateRef.current = next;
+      return next;
+    });
+    if (changedNodes.length > 0) {
+      saveCanvasPositionsBatch(activeProjectId, changedNodes, []);
     }
   };
 
@@ -4785,6 +4857,17 @@ export default function App() {
                     <Tag className="w-3.5 h-3.5 text-blue-700 dark:text-blue-400" />
                     <span>{t('app.batchLabel')}</span>
                   </button>
+                  {selectedNodeIds.length >= 2 && (
+                    <button
+                      type="button"
+                      onClick={() => setBatchRenameOpen(true)}
+                      className="touch-target flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-[#ded9cd] hover:bg-[#d2ccbf] dark:bg-neutral-800 dark:hover:bg-neutral-700 text-[#2b2924] dark:text-neutral-200 border border-[#c3beb1] dark:border-neutral-700 font-medium transition-colors whitespace-nowrap shrink-0 cursor-pointer"
+                      title={t('app.batchRenameTitle', { count: selectedNodeIds.length })}
+                    >
+                      <PencilLine className="w-3.5 h-3.5 text-blue-700 dark:text-sky-400" />
+                      <span>{t('app.batchRename')}</span>
+                    </button>
+                  )}
                   {selectedNodeIds.length > 0 && (
                     <button
                       onClick={handleBatchArchiveSelectedNodes}
@@ -4900,6 +4983,7 @@ export default function App() {
           position={{ x: canvasContextMenu.x, y: canvasContextMenu.y }}
           isReadOnly={isReadOnly}
           selectedCount={totalSelectedCount}
+          selectedNodeCount={selectedNodeIds.length}
           hasClearableSelection={
             totalSelectedCount > 0 ||
             Boolean(activeLinePopover) ||
@@ -4925,6 +5009,7 @@ export default function App() {
               y: canvasContextMenu.canvasY,
             })
           }
+          onBatchRename={() => setBatchRenameOpen(true)}
           onClearSelection={handleClearCanvasSelection}
           onSelectAll={handleSelectAllCanvasItems}
           onUndo={handleUndo}
@@ -5157,6 +5242,15 @@ export default function App() {
           onClose={() => setBatchDeleteOpen(false)}
           onConfirmDelete={handleBatchDeleteSelected}
           onConfirmStore={selectedNodeIds.length > 0 ? handleBatchArchiveSelectedNodes : undefined}
+        />
+      )}
+
+      {/* Batch Rename Modal */}
+      {batchRenameOpen && selectedNodeIds.length >= 2 && !isReadOnly && (
+        <BatchRenameModal
+          nodes={selectedNodeIds.map((id) => appState.nodes[id]).filter(Boolean)}
+          onClose={() => setBatchRenameOpen(false)}
+          onApply={handleBatchRenameNodes}
         />
       )}
 

@@ -4,6 +4,7 @@ import {
   Crosshair,
   Layers,
   Maximize2,
+  PencilLine,
   Plus,
   Redo2,
   RotateCcw,
@@ -19,6 +20,7 @@ interface CanvasContextMenuProps {
   position: { x: number; y: number };
   isReadOnly: boolean;
   selectedCount: number;
+  selectedNodeCount: number;
   hasClearableSelection: boolean;
   totalSelectableCount: number;
   nodeCount: number;
@@ -35,6 +37,7 @@ interface CanvasContextMenuProps {
   ) => void;
   onAddNode: () => void;
   onAddText: (type: 'floating' | 'container' | 'annotation') => void;
+  onBatchRename?: () => void;
   onClearSelection: () => void;
   onSelectAll: () => void;
   onUndo: () => void;
@@ -48,6 +51,7 @@ export const CanvasContextMenu: React.FC<CanvasContextMenuProps> = ({
   position,
   isReadOnly,
   selectedCount,
+  selectedNodeCount,
   hasClearableSelection,
   totalSelectableCount,
   nodeCount,
@@ -61,6 +65,7 @@ export const CanvasContextMenu: React.FC<CanvasContextMenuProps> = ({
   onBackdropContextMenu,
   onAddNode,
   onAddText,
+  onBatchRename,
   onClearSelection,
   onSelectAll,
   onUndo,
@@ -108,7 +113,7 @@ export const CanvasContextMenu: React.FC<CanvasContextMenuProps> = ({
     top = Math.max(margin, Math.min(top, vh - rect.height - margin));
 
     setCoords({ left, top });
-  }, [position.x, position.y, isReadOnly, selectedCount, totalSelectableCount]);
+  }, [position.x, position.y, isReadOnly, selectedCount, selectedNodeCount, totalSelectableCount]);
 
   useEffect(() => {
     const handleDismissOnResizeOrBlur = () => onClose();
@@ -239,6 +244,25 @@ export const CanvasContextMenu: React.FC<CanvasContextMenuProps> = ({
 
         {/* Selection Actions */}
         <div className="space-y-0.5">
+          {!isReadOnly && selectedNodeCount >= 2 && onBatchRename && (
+            <button
+              type="button"
+              role="menuitem"
+              onClick={() => {
+                onBatchRename();
+                onClose();
+              }}
+              className={itemClass}
+            >
+              <span className="flex items-center gap-2 min-w-0">
+                <PencilLine className="w-3.5 h-3.5 text-blue-700 dark:text-sky-400 shrink-0" />
+                <span className="truncate font-medium">{t('canvasMenu.batchRename')}</span>
+              </span>
+              <span className="px-1.5 py-0.2 rounded bg-blue-600/15 dark:bg-sky-500/20 text-blue-800 dark:text-sky-300 text-[10px] font-semibold tabular-nums shrink-0">
+                {selectedNodeCount}
+              </span>
+            </button>
+          )}
           <button
             type="button"
             role="menuitem"
