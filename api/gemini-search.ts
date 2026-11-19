@@ -66,6 +66,8 @@ export default async function handler(
       query?: string;
       language?: 'en' | 'es';
       userApiKey?: string;
+      page?: number;
+      excludeUrls?: string[];
     };
 
     try {
@@ -103,6 +105,8 @@ export default async function handler(
       query,
       apiKey: resolvedApiKey,
       language: body.language === 'es' ? 'es' : 'en',
+      page: typeof body.page === 'number' ? body.page : 1,
+      excludeUrls: Array.isArray(body.excludeUrls) ? body.excludeUrls.slice(0, 120) : [],
     });
     sendJson(res, 200, result);
   } catch (err) {

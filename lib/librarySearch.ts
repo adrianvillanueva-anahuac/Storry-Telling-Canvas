@@ -1,9 +1,15 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import net from 'node:net';
+import crypto from 'node:crypto';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { fileURLToPath } from 'node:url';
 import { GoogleGenAI, ThinkingLevel } from '@google/genai';
+
+function makeSearchItemId(url: string): string {
+  const hash = crypto.createHash('sha256').update(url).digest('base64url').slice(0, 18);
+  return `sr-${hash}`;
+}
 
 export type ServerlessRequest = IncomingMessage & {
   body?: unknown;
@@ -88,6 +94,7 @@ export interface LibrarySearchResponse {
   items: ImageSearchResultItem[] | VideoSearchResultItem[];
   groundingSources: GroundingSource[];
   searchQueries: string[];
+  hasMore?: boolean;
 }
 
 const REQUEST_UA =
@@ -315,13 +322,13 @@ function extractMetaImagesFromHtml(html: string, baseUrl: string): { title: stri
   const directHostRegex =
     /https?:\/\/(?:upload\.wikimedia\.org|images\.unsplash\.com|images\.pexels\.com|cdn\.pixabay\.com)\/[^\s"'<>]+/gi;
   while ((m = directHostRegex.exec(html)) !== null) {
-    if (found.length >= 6) break;
+    if (found.length >= 10) break;
     addUrl(m[0]);
   }
 
   const imgRegex = /<img[^>]+src=["']([^"']+\.(?:jpg|jpeg|png|webp)(?:\?[^"']*)?)["'][^>]*>/gi;
   while ((m = imgRegex.exec(html)) !== null) {
-    if (found.length >= 8) break;
+    if (found.length >= 14) break;
     addUrl(m[1]);
   }
 
@@ -329,7 +336,7 @@ function extractMetaImagesFromHtml(html: string, baseUrl: string): { title: stri
 }
 
 const BLOCKED_IMAGE_PATTERNS =
-  /(favicon|sprite|apple-touch-icon|1x1|spacer|pixel\.gif|blank\.gif|default_avatar|site-logo|brand-logo)/i;
+  /(favicon|sprite|apple-touch-icon|1x1|spacer|pixel\.gif|blank\.gif|default_avatar|site-logo|brand-logo|badge|emoji)/i;
 
 async function verifyImageUrl(
   candidateUrl: string
@@ -342,13 +349,13 @@ async function verifyImageUrl(
     let res = await fetchWithTimeout(safe.toString(), {
       method: 'HEAD',
       redirect: 'follow',
-      timeoutMs: 3000,
+      timeoutMs: 2500,
     });
     if (res.status === 405 || res.status === 403 || !res.ok) {
       res = await fetchWithTimeout(safe.toString(), {
         method: 'GET',
         redirect: 'follow',
-        timeoutMs: 3500,
+        timeoutMs: 3000,
         headers: { Range: 'bytes=0-2047' },
       });
       await res.body?.cancel().catch(() => {});
@@ -365,7 +372,7 @@ async function verifyImageUrl(
     const lenHeader = res.headers.get('content-length');
     if (lenHeader) {
       const bytes = Number(lenHeader);
-      if (Number.isFinite(bytes) && bytes > 0 && bytes < 3500) {
+      if (Number.isFinite(bytes) && bytes > 0 && bytes < 4000) {
         return null;
       }
     }
@@ -376,14 +383,14 @@ async function verifyImageUrl(
   }
 }
 
-async function resolveCandidateToImage(candidate: {
+async function resolveCandidateToImages(candidate: {
   title: string;
   imageUrl?: string;
   pageUrl?: string;
   source?: string;
-}): Promise<ImageSearchResultItem | null> {
+}): Promise<ImageSearchResultItem[]> {
   const primaryRaw = candidate.imageUrl || candidate.pageUrl || '';
-  if (!primaryRaw) return null;
+  if (!primaryRaw) return [];
 
   const resolvedPrimary = await resolveRedirectUrl(primaryRaw);
   const resolvedPage = candidate.pageUrl ? await resolveRedirectUrl(candidate.pageUrl) : resolvedPrimary;
@@ -398,78 +405,88 @@ async function resolveCandidateToImage(candidate: {
         return candidate.source || 'web';
       }
     })();
-    return {
-      id: `sr-${Buffer.from(directCheck.url).toString('base64url').slice(0, 20)}`,
-      title: candidate.title || pageDomain,
-      imageUrl: directCheck.url,
-      sourceUrl: resolvedPage,
-      sourceDomain: pageDomain,
-      mimeType: directCheck.mimeType,
-    };
+    return [
+      {
+        id: makeSearchItemId(directCheck.url),
+        title: candidate.title || pageDomain,
+        imageUrl: directCheck.url,
+        sourceUrl: resolvedPage,
+        sourceDomain: pageDomain,
+        mimeType: directCheck.mimeType,
+      },
+    ];
   }
 
   // 2. Otherwise inspect HTML page for og:image / Wikimedia / high-res img
   const safePageUrl = isSafePublicUrl(resolvedPage) || isSafePublicUrl(resolvedPrimary);
   const pageUrlToFetch = safePageUrl ? safePageUrl.toString() : null;
-  if (!pageUrlToFetch) return null;
+  if (!pageUrlToFetch) return [];
 
   try {
     const pageRes = await fetchWithTimeout(pageUrlToFetch, {
       method: 'GET',
       redirect: 'follow',
-      timeoutMs: 4500,
+      timeoutMs: 3500,
       headers: {
         Accept: 'text/html,application/xhtml+xml,image/*;q=0.8,*/*;q=0.5',
       },
     });
-    if (!pageRes.ok) return null;
+    if (!pageRes.ok) return [];
     const cType = (pageRes.headers.get('content-type') || '').toLowerCase();
 
     if (cType.startsWith('image/')) {
       await pageRes.body?.cancel().catch(() => {});
       const finalImgUrl = pageRes.url || pageUrlToFetch;
       const pageDomain = new URL(finalImgUrl).hostname.replace(/^www\./, '');
-      return {
-        id: `sr-${Buffer.from(finalImgUrl).toString('base64url').slice(0, 20)}`,
-        title: candidate.title || pageDomain,
-        imageUrl: finalImgUrl,
-        sourceUrl: finalImgUrl,
-        sourceDomain: pageDomain,
-        mimeType: cType.split(';')[0].trim(),
-      };
+      return [
+        {
+          id: makeSearchItemId(finalImgUrl),
+          title: candidate.title || pageDomain,
+          imageUrl: finalImgUrl,
+          sourceUrl: finalImgUrl,
+          sourceDomain: pageDomain,
+          mimeType: cType.split(';')[0].trim(),
+        },
+      ];
     }
 
     if (!cType.includes('text/html')) {
       await pageRes.body?.cancel().catch(() => {});
-      return null;
+      return [];
     }
 
     const html = (await pageRes.text()).slice(0, 260_000);
     const finalPageUrl = pageRes.url || pageUrlToFetch;
     const extracted = extractMetaImagesFromHtml(html, finalPageUrl);
     const imgChecks = await Promise.allSettled(
-      extracted.imageUrls.slice(0, 4).map((imgCandidate) => verifyImageUrl(imgCandidate))
+      extracted.imageUrls.slice(0, 6).map((imgCandidate) => verifyImageUrl(imgCandidate))
     );
+
+    const results: ImageSearchResultItem[] = [];
+    const seenUrls = new Set<string>();
+    const pageDomain = new URL(finalPageUrl).hostname.replace(/^www\./, '');
 
     for (const check of imgChecks) {
       if (check.status === 'fulfilled' && check.value) {
         const verified = check.value;
-        const pageDomain = new URL(finalPageUrl).hostname.replace(/^www\./, '');
-        return {
-          id: `sr-${Buffer.from(verified.url).toString('base64url').slice(0, 20)}`,
+        const norm = verified.url.split('#')[0];
+        if (seenUrls.has(norm)) continue;
+        seenUrls.add(norm);
+        results.push({
+          id: makeSearchItemId(verified.url),
           title: candidate.title || extracted.title || pageDomain,
           imageUrl: verified.url,
           sourceUrl: finalPageUrl,
           sourceDomain: pageDomain,
           mimeType: verified.mimeType,
-        };
+        });
+        if (results.length >= 4) break;
       }
     }
+    return results;
   } catch {
-    return null;
+    return [];
   }
-
-  return null;
 }
 
 async function verifyYouTubeVideo(
@@ -507,9 +524,17 @@ export async function searchLibraryMediaWithGemini(params: {
   query: string;
   apiKey: string;
   language?: 'en' | 'es';
+  page?: number;
+  excludeUrls?: string[];
 }): Promise<LibrarySearchResponse> {
-  const { kind, query, apiKey } = params;
+  const { kind, query, apiKey, page = 1, excludeUrls = [] } = params;
   const cleanQuery = query.trim();
+  const safePage = Number.isFinite(page) && page >= 1 ? Math.min(Math.floor(page), 10) : 1;
+  const excludedSet = new Set(
+    excludeUrls
+      .filter((u): u is string => typeof u === 'string' && u.trim().length > 0)
+      .map((u) => u.trim().split('#')[0])
+  );
 
   const ai = new GoogleGenAI({
     apiKey,
@@ -520,26 +545,37 @@ export async function searchLibraryMediaWithGemini(params: {
     },
   });
 
+  const paginationHint =
+    safePage > 1
+      ? `\nIMPORTANT: This is page ${safePage} of search results. Find DIFFERENT, NEW webpages, angles, variations, and photography archives than standard top results.${
+          excludedSet.size > 0
+            ? ` Avoid returning these already-shown URLs or exact pages:\n${Array.from(excludedSet)
+                .slice(-15)
+                .join('\n')}`
+            : ''
+        }`
+      : '';
+
   const prompt =
     kind === 'videos'
-      ? `Search YouTube using Google Search for real, publicly available YouTube videos matching: "${cleanQuery}".
-Return up to 10 relevant YouTube video results as a JSON array inside \`\`\`json ... \`\`\` where each object has:
+      ? `Search YouTube using Google Search for real, publicly available YouTube videos matching: "${cleanQuery}".${paginationHint}
+Return up to 16 relevant YouTube video results as a JSON array inside \`\`\`json ... \`\`\` where each object has:
 - "title": descriptive video title
 - "url": full YouTube watch URL (https://www.youtube.com/watch?v=...)
 - "channel": channel or creator name
 Only include real YouTube URLs found in your search results.`
       : kind === 'maps'
-      ? `Search the web using Google Search for real, high-resolution overhead maps, architectural floorplans, blueprints, battlemaps, or topographic map images matching: "${cleanQuery}".
-Prefer Wikimedia Commons, Wikipedia, Unsplash, Pexels, Pixabay, NASA, or open reference archives where preview images load directly.
-Return up to 12 results as a JSON array inside \`\`\`json ... \`\`\` where each object has:
+      ? `Search the web using Google Search for real, high-resolution overhead maps, architectural floorplans, blueprints, battlemaps, or topographic map images matching: "${cleanQuery}".${paginationHint}
+Prefer Wikimedia Commons, Wikipedia, Unsplash, Pexels, Pixabay, NASA, Flickr, or open reference archives where preview images load directly.
+Return up to 24 diverse results as a JSON array inside \`\`\`json ... \`\`\` where each object has:
 - "title": concise descriptive map title
 - "imageUrl": direct image URL if available (otherwise empty string)
 - "pageUrl": exact webpage URL from Google Search results
 - "source": website domain name
 Only include real URLs returned by Google Search.`
-      : `Search the web using Google Search for real, high-resolution reference photography, concept visuals, or scene images matching: "${cleanQuery}".
-Prefer Wikimedia Commons, Wikipedia, Unsplash, Pexels, Pixabay, NASA, or open photography/film reference pages where preview images load directly.
-Return up to 12 results as a JSON array inside \`\`\`json ... \`\`\` where each object has:
+      : `Search the web using Google Search for real, high-resolution reference photography, concept visuals, or scene images matching: "${cleanQuery}".${paginationHint}
+Prefer Wikimedia Commons, Wikipedia, Unsplash, Pexels, Pixabay, NASA, Flickr, or open photography/film reference pages where preview images load directly.
+Return up to 24 diverse results as a JSON array inside \`\`\`json ... \`\`\` where each object has:
 - "title": concise descriptive image title
 - "imageUrl": direct image URL if available (otherwise empty string)
 - "pageUrl": exact webpage URL from Google Search results
@@ -621,7 +657,8 @@ Only include real URLs returned by Google Search.`;
 
     const verified = await Promise.allSettled(
       Array.from(ytCandidates.entries())
-        .slice(0, 10)
+        .filter(([ytId]) => !excludedSet.has(`https://www.youtube.com/watch?v=${ytId}`))
+        .slice(0, 16)
         .map(([ytId, meta]) =>
           verifyYouTubeVideo(ytId, meta.title, meta.channel, meta.sourceUrl)
         )
@@ -639,6 +676,7 @@ Only include real URLs returned by Google Search.`;
       items: videos,
       groundingSources,
       searchQueries,
+      hasMore: safePage < 5 && videos.length > 0,
     };
   }
 
@@ -687,26 +725,31 @@ Only include real URLs returned by Google Search.`;
   }
 
   const resolvedImages = await Promise.allSettled(
-    candidates.slice(0, 14).map((cand) => resolveCandidateToImage(cand))
+    candidates.slice(0, 24).map((cand) => resolveCandidateToImages(cand))
   );
 
   const uniqueImages: ImageSearchResultItem[] = [];
-  const seenFinalImg = new Set<string>();
+  const seenFinalImg = new Set<string>(excludedSet);
+  const seenIds = new Set<string>();
   for (const r of resolvedImages) {
-    if (r.status === 'fulfilled' && r.value) {
-      const norm = r.value.imageUrl.split('#')[0];
-      if (!seenFinalImg.has(norm)) {
-        seenFinalImg.add(norm);
-        uniqueImages.push(r.value);
+    if (r.status === 'fulfilled' && Array.isArray(r.value)) {
+      for (const item of r.value) {
+        const norm = item.imageUrl.split('#')[0];
+        if (!seenFinalImg.has(norm) && !seenIds.has(item.id)) {
+          seenFinalImg.add(norm);
+          seenIds.add(item.id);
+          uniqueImages.push(item);
+        }
       }
     }
   }
 
   return {
     kind,
-    items: uniqueImages.slice(0, 12),
+    items: uniqueImages.slice(0, 36),
     groundingSources,
     searchQueries,
+    hasMore: safePage < 5 && (uniqueImages.length > 0 || groundingSources.length > 0),
   };
 }
 

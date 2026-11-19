@@ -107,7 +107,7 @@ export const GalleryModal: React.FC<GalleryModalProps> = ({
     <div className="fixed inset-0 z-50 bg-black/55 dark:bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
       <div className="bg-[#ebe7de] dark:bg-neutral-900 border border-[#c3beb1] dark:border-neutral-700/80 rounded-2xl w-full max-w-4xl max-h-[85vh] shadow-2xl flex flex-col overflow-hidden">
         {/* Header */}
-        <div className="flex items-center justify-between gap-2 p-4 border-b border-[#d4cfc3] dark:border-neutral-800">
+        <div className="flex items-center justify-between gap-2 p-4 border-b border-[#d4cfc3] dark:border-neutral-800 shrink-0">
           <div className="flex items-center gap-2 min-w-0">
             {isMap ? <MapIcon className="w-4 h-4 text-amber-700 dark:text-amber-400 shrink-0" /> : <ImageIcon className="w-4 h-4 text-blue-700 dark:text-blue-400 shrink-0" />}
             <h3 className="font-semibold text-[#2b2924] dark:text-neutral-100 text-sm truncate">{title}</h3>
@@ -195,7 +195,7 @@ export const GalleryModal: React.FC<GalleryModalProps> = ({
 
         {/* Library vs Web Search Switcher */}
         {!isReadOnly && onImportWebImages && (
-          <div className="px-4 py-2.5 border-b border-[#d4cfc3] dark:border-neutral-800 bg-[#e4dfd4] dark:bg-neutral-900/90 flex items-center justify-between gap-2 flex-wrap">
+          <div className="px-4 py-2.5 border-b border-[#d4cfc3] dark:border-neutral-800 bg-[#e4dfd4] dark:bg-neutral-900/90 flex items-center justify-between gap-2 flex-wrap shrink-0">
             <div className="inline-flex items-center p-0.5 rounded-lg bg-[#d7d1c4] dark:bg-neutral-950 border border-[#c3beb1] dark:border-neutral-800">
               <button
                 type="button"

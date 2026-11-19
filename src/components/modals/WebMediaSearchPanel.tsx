@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Check,
   ExternalLink,
@@ -47,7 +47,11 @@ export const WebMediaSearchPanel: React.FC<WebMediaSearchPanelProps> = ({
   const { language, t } = useLanguage();
   const [query, setQuery] = useState('');
   const [lastQuery, setLastQuery] = useState('');
+  const [page, setPage] = useState(1);
+  const [hasMore, setHasMore] = useState(false);
   const [isSearching, setIsSearching] = useState(false);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
+  const [exhaustedMore, setExhaustedMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [errorCode, setErrorCode] = useState<string | null>(null);
   const [imageResults, setImageResults] = useState<ImageSearchResultItem[]>([]);
@@ -55,6 +59,9 @@ export const WebMediaSearchPanel: React.FC<WebMediaSearchPanelProps> = ({
   const [groundingSources, setGroundingSources] = useState<GroundingSource[]>([]);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [brokenImgIds, setBrokenImgIds] = useState<Set<string>>(new Set());
+
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const loadMoreSentinelRef = useRef<HTMLDivElement>(null);
 
   const isVideo = kind === 'videos';
 
@@ -76,10 +83,14 @@ export const WebMediaSearchPanel: React.FC<WebMediaSearchPanelProps> = ({
     if (!trimmed || isSearching || isImporting) return;
 
     setIsSearching(true);
+    setIsLoadingMore(false);
+    setExhaustedMore(false);
     setError(null);
     setErrorCode(null);
     setSelectedIds(new Set());
     setBrokenImgIds(new Set());
+    setPage(1);
+    setHasMore(false);
     setLastQuery(trimmed);
 
     try {
@@ -88,6 +99,7 @@ export const WebMediaSearchPanel: React.FC<WebMediaSearchPanelProps> = ({
         query: trimmed,
         language,
         userApiKey,
+        page: 1,
       });
       setGroundingSources(res.groundingSources || []);
       if (isVideo) {
@@ -97,16 +109,144 @@ export const WebMediaSearchPanel: React.FC<WebMediaSearchPanelProps> = ({
         setImageResults(res.items as ImageSearchResultItem[]);
         setVideoResults([]);
       }
+      setHasMore(Boolean(res.hasMore));
+      if (scrollContainerRef.current) {
+        scrollContainerRef.current.scrollTop = 0;
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : t('common.error'));
       setErrorCode(err instanceof LibrarySearchError ? err.code || null : null);
       setImageResults([]);
       setVideoResults([]);
       setGroundingSources([]);
+      setHasMore(false);
     } finally {
       setIsSearching(false);
     }
   };
+
+  const handleLoadMore = useCallback(async () => {
+    if (!lastQuery || isSearching || isLoadingMore || isImporting || !hasMore) return;
+    const nextPage = page + 1;
+    setIsLoadingMore(true);
+    setError(null);
+    setErrorCode(null);
+
+    try {
+      const excludeUrls = isVideo
+        ? videoResults.map((v) => v.watchUrl)
+        : imageResults.map((img) => img.imageUrl);
+
+      const res = await searchLibraryMedia({
+        kind,
+        query: lastQuery,
+        language,
+        userApiKey,
+        page: nextPage,
+        excludeUrls,
+      });
+
+      let addedNewCount = 0;
+
+      if (isVideo) {
+        const incoming = res.items as VideoSearchResultItem[];
+        setVideoResults((prev) => {
+          const existingIds = new Set(prev.map((v) => v.youtubeId));
+          const merged = [...prev];
+          for (const item of incoming) {
+            if (!existingIds.has(item.youtubeId)) {
+              existingIds.add(item.youtubeId);
+              merged.push(item);
+              addedNewCount += 1;
+            }
+          }
+          return merged;
+        });
+      } else {
+        const incoming = res.items as ImageSearchResultItem[];
+        setImageResults((prev) => {
+          const existingUrls = new Set(prev.map((i) => i.imageUrl.split('#')[0]));
+          const existingIds = new Set(prev.map((i) => i.id));
+          const merged = [...prev];
+          for (const item of incoming) {
+            const normUrl = item.imageUrl.split('#')[0];
+            if (!existingUrls.has(normUrl) && !existingIds.has(item.id)) {
+              existingUrls.add(normUrl);
+              existingIds.add(item.id);
+              merged.push(item);
+              addedNewCount += 1;
+            }
+          }
+          return merged;
+        });
+      }
+
+      if (res.groundingSources && res.groundingSources.length > 0) {
+        setGroundingSources((prev) => {
+          const seen = new Set(prev.map((s) => s.uri));
+          const next = [...prev];
+          for (const s of res.groundingSources) {
+            if (!seen.has(s.uri)) {
+              seen.add(s.uri);
+              next.push(s);
+            }
+          }
+          return next;
+        });
+      }
+
+      setPage(nextPage);
+      const canContinue = Boolean(res.hasMore) && addedNewCount > 0;
+      setHasMore(canContinue);
+      if (addedNewCount === 0) {
+        setExhaustedMore(true);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : t('common.error'));
+      setErrorCode(err instanceof LibrarySearchError ? err.code || null : null);
+      setHasMore(false);
+    } finally {
+      setIsLoadingMore(false);
+    }
+  }, [
+    hasMore,
+    imageResults,
+    isImporting,
+    isLoadingMore,
+    isSearching,
+    isVideo,
+    kind,
+    language,
+    lastQuery,
+    page,
+    t,
+    userApiKey,
+    videoResults,
+  ]);
+
+  useEffect(() => {
+    const sentinel = loadMoreSentinelRef.current;
+    const root = scrollContainerRef.current;
+    if (!sentinel || !root || !hasMore || isSearching || isLoadingMore || isImporting) {
+      return;
+    }
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((entry) => entry.isIntersecting)) {
+          handleLoadMore();
+        }
+      },
+      {
+        root,
+        rootMargin: '160px',
+        threshold: 0.05,
+      }
+    );
+
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, [handleLoadMore, hasMore, isImporting, isLoadingMore, isSearching]);
 
   const toggleSelect = (id: string) => {
     if (isImporting) return;
@@ -149,7 +289,8 @@ export const WebMediaSearchPanel: React.FC<WebMediaSearchPanelProps> = ({
     }
   };
 
-  const hasResults = isVideo ? videoResults.length > 0 : visibleImages.length > 0;
+  const resultCount = isVideo ? videoResults.length : visibleImages.length;
+  const hasResults = resultCount > 0;
 
   return (
     <div className="flex flex-col flex-1 min-h-0">
@@ -190,6 +331,9 @@ export const WebMediaSearchPanel: React.FC<WebMediaSearchPanelProps> = ({
         {hasResults && (
           <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
             <div className="flex items-center gap-2 text-[11px]">
+              <span className="text-[#5c584e] dark:text-neutral-400 font-medium">
+                {t('webSearch.resultsCount', { count: resultCount })}
+              </span>
               {multiSelect && (
                 <button
                   type="button"
@@ -275,7 +419,10 @@ export const WebMediaSearchPanel: React.FC<WebMediaSearchPanelProps> = ({
       </form>
 
       {/* Results Body */}
-      <div className="flex-1 overflow-y-auto p-4 space-y-4">
+      <div
+        ref={scrollContainerRef}
+        className="flex-1 min-h-0 overflow-y-auto overscroll-contain p-4 space-y-4"
+      >
         {isSearching ? (
           <div className="py-14 flex flex-col items-center justify-center gap-2 text-xs text-[#5c584e] dark:text-neutral-400">
             <Loader2 className="w-6 h-6 animate-spin text-blue-600 dark:text-blue-400" />
@@ -379,11 +526,18 @@ export const WebMediaSearchPanel: React.FC<WebMediaSearchPanelProps> = ({
                   <img
                     src={img.imageUrl}
                     alt={img.title}
+                    loading="lazy"
                     referrerPolicy="no-referrer"
                     onError={() => {
                       setBrokenImgIds((prev) => {
                         const next = new Set(prev);
                         next.add(img.id);
+                        return next;
+                      });
+                      setSelectedIds((prev) => {
+                        if (!prev.has(img.id)) return prev;
+                        const next = new Set(prev);
+                        next.delete(img.id);
                         return next;
                       });
                     }}
@@ -417,6 +571,31 @@ export const WebMediaSearchPanel: React.FC<WebMediaSearchPanelProps> = ({
           </div>
         )}
 
+        {/* Scroll Sentinel & Load More Controls */}
+        {hasResults && !isSearching && (hasMore || isLoadingMore || exhaustedMore) && (
+          <div ref={loadMoreSentinelRef} className="pt-2 flex flex-col items-center justify-center gap-2">
+            {isLoadingMore ? (
+              <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg bg-[#e0dbd0] dark:bg-neutral-800/80 text-xs text-[#433f37] dark:text-neutral-300 border border-[#c3beb1] dark:border-neutral-700">
+                <Loader2 className="w-3.5 h-3.5 animate-spin text-blue-600 dark:text-blue-400" />
+                <span>{t('webSearch.loadingMore')}</span>
+              </div>
+            ) : hasMore ? (
+              <button
+                type="button"
+                onClick={handleLoadMore}
+                disabled={isImporting}
+                className="px-4 py-2 rounded-lg bg-[#dcd7cc] hover:bg-[#d2ccbf] dark:bg-neutral-800 dark:hover:bg-neutral-700 border border-[#c3beb1] dark:border-neutral-700 text-xs font-semibold text-[#2b2924] dark:text-neutral-200 transition-colors cursor-pointer disabled:opacity-50"
+              >
+                {t('webSearch.loadMore')}
+              </button>
+            ) : exhaustedMore ? (
+              <p className="text-[11px] text-[#6e695d] dark:text-neutral-500">
+                {t('webSearch.noMoreResults')}
+              </p>
+            ) : null}
+          </div>
+        )}
+
         {/* Google Search Grounding Sources */}
         {groundingSources.length > 0 && !isSearching && (
           <div className="pt-3 border-t border-[#d4cfc3] dark:border-neutral-800 space-y-1.5">
@@ -425,7 +604,7 @@ export const WebMediaSearchPanel: React.FC<WebMediaSearchPanelProps> = ({
               <span>{t('webSearch.sourcesLabel')}</span>
             </div>
             <div className="flex flex-wrap gap-1.5">
-              {groundingSources.slice(0, 8).map((src, idx) => (
+              {groundingSources.slice(0, 12).map((src, idx) => (
                 <a
                   key={`${src.uri}-${idx}`}
                   href={src.uri}

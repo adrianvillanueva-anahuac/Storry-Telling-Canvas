@@ -1248,9 +1248,28 @@ export async function deleteGlobalVideoDoc(videoId: string): Promise<void> {
 // 6. Private Per-User Gemini API Key Config
 // ==========================================
 
-export function subscribeUserGeminiApiKey(
+export interface GeminiApiKeyEntry {
+  id: string;
+  label: string;
+  apiKey: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface UserGeminiApiConfig {
+  keys: GeminiApiKeyEntry[];
+  activeKeyId: string | null;
+  activeApiKey: string | null;
+}
+
+function sanitizeKeyEntryId(rawId: string, fallbackIndex: number): string {
+  const cleaned = rawId.replace(/[^a-zA-Z0-9_-]/g, '-').slice(0, 128);
+  return cleaned || `key-${Date.now()}-${fallbackIndex}`;
+}
+
+export function subscribeUserGeminiApiConfig(
   uid: string,
-  callback: (apiKey: string | null) => void
+  callback: (config: UserGeminiApiConfig) => void
 ) {
   const path = `users/${uid}/private/geminiConfig`;
   try {
@@ -1258,12 +1277,87 @@ export function subscribeUserGeminiApiKey(
       doc(db, 'users', uid, 'private', 'geminiConfig'),
       (snap) => {
         if (!snap.exists()) {
-          callback(null);
+          callback({ keys: [], activeKeyId: null, activeApiKey: null });
           return;
         }
         const data = snap.data();
-        const key = typeof data?.apiKey === 'string' && data.apiKey.trim() ? data.apiKey.trim() : null;
-        callback(key);
+        const fallbackNow =
+          typeof data?.updatedAt === 'string' && data.updatedAt.trim()
+            ? data.updatedAt.trim().slice(0, 64)
+            : new Date().toISOString();
+
+        if (Array.isArray(data?.keys)) {
+          const seenIds = new Set<string>();
+          const parsedKeys: GeminiApiKeyEntry[] = [];
+
+          for (let i = 0; i < data.keys.length && parsedKeys.length < 20; i++) {
+            const raw = data.keys[i];
+            if (!raw || typeof raw !== 'object') continue;
+            const rawKey = typeof raw.apiKey === 'string' ? raw.apiKey.trim() : '';
+            if (rawKey.length < 10 || rawKey.length > 256) continue;
+            let entryId = sanitizeKeyEntryId(
+              typeof raw.id === 'string' ? raw.id : `key-${i + 1}`,
+              i + 1
+            );
+            while (seenIds.has(entryId)) {
+              entryId = `${entryId.slice(0, 110)}-${parsedKeys.length + 1}`;
+            }
+            seenIds.add(entryId);
+            const rawLabel =
+              typeof raw.label === 'string' && raw.label.trim()
+                ? raw.label.trim().slice(0, 60)
+                : `API Key ${parsedKeys.length + 1}`;
+            const createdAt =
+              typeof raw.createdAt === 'string' && raw.createdAt.trim()
+                ? raw.createdAt.trim().slice(0, 64)
+                : fallbackNow;
+            const updatedAt =
+              typeof raw.updatedAt === 'string' && raw.updatedAt.trim()
+                ? raw.updatedAt.trim().slice(0, 64)
+                : fallbackNow;
+
+            parsedKeys.push({
+              id: entryId,
+              label: rawLabel,
+              apiKey: rawKey,
+              createdAt,
+              updatedAt,
+            });
+          }
+
+          const rawActiveId = typeof data?.activeKeyId === 'string' ? data.activeKeyId : null;
+          const activeEntry = rawActiveId
+            ? parsedKeys.find((entry) => entry.id === rawActiveId) ?? null
+            : null;
+
+          callback({
+            keys: parsedKeys,
+            activeKeyId: activeEntry ? activeEntry.id : null,
+            activeApiKey: activeEntry ? activeEntry.apiKey : null,
+          });
+          return;
+        }
+
+        // Legacy single-key compatibility
+        const legacyKey =
+          typeof data?.apiKey === 'string' && data.apiKey.trim() ? data.apiKey.trim() : null;
+        if (legacyKey) {
+          const legacyEntry: GeminiApiKeyEntry = {
+            id: 'key-default',
+            label: 'Gemini API',
+            apiKey: legacyKey.slice(0, 256),
+            createdAt: fallbackNow,
+            updatedAt: fallbackNow,
+          };
+          callback({
+            keys: [legacyEntry],
+            activeKeyId: legacyEntry.id,
+            activeApiKey: legacyEntry.apiKey,
+          });
+          return;
+        }
+
+        callback({ keys: [], activeKeyId: null, activeApiKey: null });
       },
       (err) => handleFirestoreError(err, OperationType.GET, path)
     );
@@ -1273,21 +1367,78 @@ export function subscribeUserGeminiApiKey(
   }
 }
 
-export async function saveUserGeminiApiKey(uid: string, apiKey: string): Promise<void> {
-  const trimmed = apiKey.trim();
-  if (trimmed.length < 10 || trimmed.length > 256) {
-    throw new Error('Please enter a valid Gemini API key (10–256 characters).');
+export async function saveUserGeminiApiConfig(
+  uid: string,
+  keys: GeminiApiKeyEntry[],
+  activeKeyId: string | null
+): Promise<void> {
+  if (keys.length > 20) {
+    throw new Error('Maximum of 20 saved API keys reached.');
   }
+  const now = new Date().toISOString();
+  const seenIds = new Set<string>();
+  const sanitizedKeys: GeminiApiKeyEntry[] = [];
+
+  for (let i = 0; i < keys.length; i++) {
+    const item = keys[i];
+    const trimmedKey = (item.apiKey || '').trim();
+    if (trimmedKey.length < 10 || trimmedKey.length > 256) {
+      throw new Error('Please enter a valid Gemini API key (10–256 characters).');
+    }
+    let id = sanitizeKeyEntryId(item.id || `key-${Date.now()}-${i + 1}`, i + 1);
+    while (seenIds.has(id)) {
+      id = `${id.slice(0, 110)}-${i + 1}`;
+    }
+    seenIds.add(id);
+
+    const label = (item.label || `API Key ${i + 1}`).trim().slice(0, 60) || `API Key ${i + 1}`;
+    const createdAt = (item.createdAt || now).trim().slice(0, 64) || now;
+    const updatedAt = (item.updatedAt || now).trim().slice(0, 64) || now;
+
+    sanitizedKeys.push({
+      id,
+      label,
+      apiKey: trimmedKey,
+      createdAt,
+      updatedAt,
+    });
+  }
+
+  const activeEntry = activeKeyId
+    ? sanitizedKeys.find((entry) => entry.id === activeKeyId) ?? null
+    : null;
+
   const path = `users/${uid}/private/geminiConfig`;
   try {
     await setDoc(doc(db, 'users', uid, 'private', 'geminiConfig'), {
       userId: uid,
-      apiKey: trimmed,
-      updatedAt: new Date().toISOString(),
+      apiKey: activeEntry ? activeEntry.apiKey : '',
+      activeKeyId: activeEntry ? activeEntry.id : null,
+      keys: sanitizedKeys,
+      updatedAt: now,
     });
   } catch (error) {
     handleFirestoreError(error, OperationType.WRITE, path);
   }
+}
+
+export function subscribeUserGeminiApiKey(
+  uid: string,
+  callback: (apiKey: string | null) => void
+) {
+  return subscribeUserGeminiApiConfig(uid, (config) => callback(config.activeApiKey));
+}
+
+export async function saveUserGeminiApiKey(uid: string, apiKey: string): Promise<void> {
+  const now = new Date().toISOString();
+  const entry: GeminiApiKeyEntry = {
+    id: 'key-default',
+    label: 'Gemini API',
+    apiKey: apiKey.trim(),
+    createdAt: now,
+    updatedAt: now,
+  };
+  await saveUserGeminiApiConfig(uid, [entry], entry.id);
 }
 
 export async function deleteUserGeminiApiKey(uid: string): Promise<void> {

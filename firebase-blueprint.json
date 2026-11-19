@@ -166,14 +166,19 @@
     },
     "UserGeminiConfig": {
       "title": "UserGeminiConfig",
-      "description": "Private per-user Gemini API key configuration isolated to the owning user",
+      "description": "Private per-user Gemini API key list and single active key configuration isolated to the owning user",
       "type": "object",
       "properties": {
         "userId": { "type": "string", "maxLength": 128 },
-        "apiKey": { "type": "string", "minLength": 10, "maxLength": 256 },
+        "apiKey": { "type": "string", "maxLength": 256 },
+        "activeKeyId": { "type": "string", "maxLength": 128 },
+        "keys": {
+          "type": "array",
+          "description": "Bounded list (max 20) of saved Gemini API key entries with id, label, apiKey, and timestamps"
+        },
         "updatedAt": { "type": "string", "maxLength": 64 }
       },
-      "required": ["userId", "apiKey", "updatedAt"]
+      "required": ["userId", "apiKey", "keys", "updatedAt"]
     },
     "ActorItem": {
       "title": "ActorItem",

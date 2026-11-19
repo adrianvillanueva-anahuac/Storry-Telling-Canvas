@@ -217,16 +217,50 @@ service cloud.firestore {
     }
 
     function isValidUserGeminiConfig(data, userId) {
-      return data.keys().hasAll(['userId', 'apiKey', 'updatedAt']) &&
-        data.keys().hasOnly(['userId', 'apiKey', 'updatedAt']) &&
+      return data.keys().hasAll(['userId', 'apiKey', 'activeKeyId', 'keys', 'updatedAt']) &&
+        data.keys().hasOnly(['userId', 'apiKey', 'activeKeyId', 'keys', 'updatedAt']) &&
         data.userId is string &&
         data.userId == userId &&
         data.userId == request.auth.uid &&
         data.userId.size() > 0 &&
         data.userId.size() <= 128 &&
         data.apiKey is string &&
-        data.apiKey.size() >= 10 &&
-        data.apiKey.size() <= 256 &&
+        (data.apiKey.size() == 0 || (data.apiKey.size() >= 10 && data.apiKey.size() <= 256)) &&
+        (
+          data.activeKeyId == null ||
+          (
+            data.activeKeyId is string &&
+            data.activeKeyId.size() > 0 &&
+            data.activeKeyId.size() <= 128 &&
+            data.activeKeyId.matches('^[a-zA-Z0-9_\\-]+$')
+          )
+        ) &&
+        data.keys is list &&
+        data.keys.size() <= 20 &&
+        (
+          data.keys.size() == 0 ||
+          (
+            data.keys[0] is map &&
+            data.keys[0].keys().hasAll(['id', 'label', 'apiKey', 'createdAt', 'updatedAt']) &&
+            data.keys[0].keys().hasOnly(['id', 'label', 'apiKey', 'createdAt', 'updatedAt']) &&
+            data.keys[0].id is string &&
+            data.keys[0].id.size() > 0 &&
+            data.keys[0].id.size() <= 128 &&
+            data.keys[0].id.matches('^[a-zA-Z0-9_\\-]+$') &&
+            data.keys[0].label is string &&
+            data.keys[0].label.size() > 0 &&
+            data.keys[0].label.size() <= 60 &&
+            data.keys[0].apiKey is string &&
+            data.keys[0].apiKey.size() >= 10 &&
+            data.keys[0].apiKey.size() <= 256 &&
+            data.keys[0].createdAt is string &&
+            data.keys[0].createdAt.size() > 0 &&
+            data.keys[0].createdAt.size() <= 64 &&
+            data.keys[0].updatedAt is string &&
+            data.keys[0].updatedAt.size() > 0 &&
+            data.keys[0].updatedAt.size() <= 64
+          )
+        ) &&
         data.updatedAt is string &&
         data.updatedAt.size() > 0 &&
         data.updatedAt.size() <= 64;
@@ -336,7 +370,7 @@ service cloud.firestore {
           request.auth.uid == userId &&
           isValidUserGeminiConfig(incoming(), userId) &&
           incoming().userId == existing().userId &&
-          incoming().diff(existing()).affectedKeys().hasOnly(['apiKey', 'updatedAt']);
+          incoming().diff(existing()).affectedKeys().hasOnly(['apiKey', 'activeKeyId', 'keys', 'updatedAt']);
         allow delete: if isVerified() &&
           isValidId(userId) &&
           isValidId(configId) &&

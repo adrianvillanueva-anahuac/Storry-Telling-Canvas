@@ -61,9 +61,9 @@ import {
   subscribeProjectActors,
   saveProjectActor,
   deleteProjectActor,
-  subscribeUserGeminiApiKey,
-  saveUserGeminiApiKey,
-  deleteUserGeminiApiKey,
+  subscribeUserGeminiApiConfig,
+  saveUserGeminiApiConfig,
+  UserGeminiApiConfig,
   saveLabelToFirestore,
   deleteLabelFromFirestore,
   syncCanvasSnapshotDiffToFirestore,
@@ -315,7 +315,12 @@ export default function App() {
     nodeId: string;
     pendingUrl: string | null;
   } | null>(null);
-  const [userGeminiApiKey, setUserGeminiApiKey] = useState<string | null>(null);
+  const [userGeminiApiConfig, setUserGeminiApiConfig] = useState<UserGeminiApiConfig>({
+    keys: [],
+    activeKeyId: null,
+    activeApiKey: null,
+  });
+  const userGeminiApiKey = userGeminiApiConfig.activeApiKey;
   const [apiKeyModalOpen, setApiKeyModalOpen] = useState(false);
   const [aiImageModalState, setAiImageModalState] = useState<{
     mode: 'create' | 'edit';
@@ -494,8 +499,8 @@ export default function App() {
           }));
         });
 
-        unsubApiKey = subscribeUserGeminiApiKey(fbUser.uid, (apiKey) => {
-          setUserGeminiApiKey(apiKey);
+        unsubApiKey = subscribeUserGeminiApiConfig(fbUser.uid, (config) => {
+          setUserGeminiApiConfig(config);
         });
       } else {
         setCurrentUser({
@@ -505,7 +510,11 @@ export default function App() {
           email: '',
           isRegistered: false,
         });
-        setUserGeminiApiKey(null);
+        setUserGeminiApiConfig({
+          keys: [],
+          activeKeyId: null,
+          activeApiKey: null,
+        });
         setApiKeyModalOpen(false);
         setAiImageModalState(null);
         setProjects([]);
@@ -5188,12 +5197,10 @@ export default function App() {
         <ApiKeyConfigModal
           userName={currentUser.name}
           userEmail={currentUser.email}
-          currentApiKey={userGeminiApiKey}
-          onSaveKey={async (key) => {
-            await saveUserGeminiApiKey(firebaseUser.uid, key);
-          }}
-          onDeleteKey={async () => {
-            await deleteUserGeminiApiKey(firebaseUser.uid);
+          apiKeys={userGeminiApiConfig.keys}
+          activeKeyId={userGeminiApiConfig.activeKeyId}
+          onSaveConfig={async (keys, activeKeyId) => {
+            await saveUserGeminiApiConfig(firebaseUser.uid, keys, activeKeyId);
           }}
           onClose={() => setApiKeyModalOpen(false)}
         />

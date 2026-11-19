@@ -32,6 +32,7 @@ export interface LibrarySearchResult {
   items: ImageSearchResultItem[] | VideoSearchResultItem[];
   groundingSources: GroundingSource[];
   searchQueries: string[];
+  hasMore?: boolean;
 }
 
 export class LibrarySearchError extends Error {
@@ -51,6 +52,8 @@ export async function searchLibraryMedia(params: {
   query: string;
   language?: 'en' | 'es';
   userApiKey?: string | null;
+  page?: number;
+  excludeUrls?: string[];
 }): Promise<LibrarySearchResult> {
   if (!auth.currentUser) {
     throw new LibrarySearchError('Sign in required to search media.', 'UNAUTHORIZED', 401);
@@ -68,6 +71,8 @@ export async function searchLibraryMedia(params: {
       query: params.query,
       language: params.language || 'en',
       userApiKey: params.userApiKey || undefined,
+      page: params.page ?? 1,
+      excludeUrls: params.excludeUrls || undefined,
     }),
   });
 
@@ -98,6 +103,7 @@ export async function searchLibraryMedia(params: {
     items: Array.isArray(data.items) ? data.items : [],
     groundingSources: Array.isArray(data.groundingSources) ? data.groundingSources : [],
     searchQueries: Array.isArray(data.searchQueries) ? data.searchQueries : [],
+    hasMore: Boolean(data.hasMore),
   };
 }
 

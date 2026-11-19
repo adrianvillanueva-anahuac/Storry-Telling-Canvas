@@ -498,7 +498,7 @@ app.post('/api/gemini-search', async (req, res) => {
     });
   }
 
-  const { kind, query, language, userApiKey } = req.body || {};
+  const { kind, query, language, userApiKey, page, excludeUrls } = req.body || {};
   const resolvedApiKey =
     (typeof userApiKey === 'string' && userApiKey.trim()) ||
     process.env.GEMINI_API_KEY ||
@@ -527,6 +527,8 @@ app.post('/api/gemini-search', async (req, res) => {
       query: trimmedQuery,
       apiKey: resolvedApiKey,
       language: language === 'es' ? 'es' : 'en',
+      page: typeof page === 'number' ? page : 1,
+      excludeUrls: Array.isArray(excludeUrls) ? excludeUrls.slice(0, 120) : [],
     });
     return res.json(result);
   } catch (err: any) {
